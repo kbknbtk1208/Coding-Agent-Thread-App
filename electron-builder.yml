@@ -1,0 +1,12 @@
+appId: com.nkubo.codingagentthreadapp
+productName: Coding Agent Thread App
+copyright: Copyright (c) 2026 kuboki.nobutaka
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - from: .
+    filter:
+      - package.json
+      - app
+publish: null
