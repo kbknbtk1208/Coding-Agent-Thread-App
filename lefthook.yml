@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-format:
+      glob: "*.{ts,tsx,js,jsx,json,css}"
+      run: npx biome format --write {staged_files} && git add {staged_files}
+    oxlint:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: npx oxlint {staged_files}
+    typecheck:
+      run: npx tsc --noEmit

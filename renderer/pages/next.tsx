@@ -1,6 +1,6 @@
-﻿import React from 'react'
-import Head from 'next/head'
-import Link from 'next/link'
+import React from 'react';
+import Head from 'next/head';
+import Link from 'next/link';
 
 export default function NextPage() {
   return (
@@ -17,8 +17,8 @@ export default function NextPage() {
             Nextron のページ遷移は動作しています
           </h1>
           <p className="mx-auto mb-8 max-w-xl text-base leading-7 text-slate-300">
-            `renderer/pages` 配下の Pages Router 構成をそのまま使っています。ここから
-            UI 実装を広げていけば十分です。
+            `renderer/pages` 配下の Pages Router 構成をそのまま使っています。ここから UI
+            実装を広げていけば十分です。
           </p>
           <Link
             href="/home"
@@ -29,5 +29,5 @@ export default function NextPage() {
         </div>
       </main>
     </React.Fragment>
-  )
+  );
 }

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "deny": ["Bash(git commit*--no-verify*)", "Bash(git push*--force*)", "Bash(git push*-f *)"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/pre-config-protect.mjs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/post-ts-lint.mjs"
+          }
+        ]
+      }
+    ]
+  },
+  "env": { "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1" }
+}
