@@ -1,13 +1,101 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    background: #04070a;
+  }
+
   body {
-    @apply bg-gray-900 text-white;
+    @apply text-white;
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top, rgba(103, 232, 249, 0.08), transparent 32%),
+      linear-gradient(180deg, #081116 0%, #04070a 100%);
+    font-family: "Aptos", "Segoe UI Variable Text", "Yu Gothic UI", sans-serif;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ::selection {
+    background: rgba(103, 232, 249, 0.28);
+    color: white;
   }
 }
 
 @layer components {
-  .btn-blue {
-    @apply text-white font-bold px-4 py-2 rounded bg-blue-600 hover:bg-blue-500;
+  .glass-panel {
+    backdrop-filter: blur(22px);
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      rgba(255, 255, 255, 0.06) 100%
+    );
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 22px 80px rgba(2, 8, 23, 0.34);
+  }
+
+  .text-shimmer {
+    background-image: linear-gradient(
+      115deg,
+      rgba(255, 255, 255, 0.42) 10%,
+      rgba(255, 255, 255, 0.96) 34%,
+      rgba(103, 232, 249, 0.9) 48%,
+      rgba(249, 168, 212, 0.82) 62%,
+      rgba(255, 255, 255, 0.56) 78%
+    );
+    background-size: 220% 100%;
+    color: transparent;
+    animation: text-shimmer 2.8s linear infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  .aurora-ribbon {
+    animation: aurora-float 18s ease-in-out infinite;
+  }
+
+  .aurora-ribbon-delay {
+    animation-delay: -6s;
+  }
+
+  .aurora-ribbon-slow {
+    animation-duration: 24s;
+    animation-delay: -10s;
+  }
+}
+
+@keyframes aurora-float {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate3d(4%, -5%, 0) scale(1.08);
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes text-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -20% 0;
   }
 }

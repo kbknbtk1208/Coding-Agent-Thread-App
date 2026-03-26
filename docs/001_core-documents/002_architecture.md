@@ -313,7 +313,6 @@ type ResultEnvelope =
 type AgentStatus =
   | "idle"
   | "starting"
-  | "awaiting_input"
   | "running"
   | "waiting_permission"
   | "completed"
@@ -324,7 +323,7 @@ type AgentStatus =
 
 - `starting` から直接 `failed` に落ちてもよい
 - `running` 中は `message.delta` が複数回届く
-- `completed` 到達時点で `finalResult` が確定する
+- `completed` 到達時点で `finalResult` が確定し、そのまま follow-up を受け付ける待機状態を兼ねる
 - `waiting_permission` は再度 `running` へ戻りうる
 
 ## 7. 推奨ディレクトリ方針

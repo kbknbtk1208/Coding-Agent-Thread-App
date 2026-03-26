@@ -1,7 +1,8 @@
-import { IpcHandler } from '../main/preload'
+import type { AgentApi, IpcHandler } from '../main/preload';
 
 declare global {
   interface Window {
-    ipc: IpcHandler
+    agentApi: AgentApi;
+    ipc: IpcHandler;
   }
 }

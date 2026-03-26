@@ -1,6 +1,12 @@
 import path from 'path';
 import { app, ipcMain } from 'electron';
 import serve from 'electron-serve';
+import {
+  AGENT_IPC_CHANNELS,
+  type SendFollowUpInput,
+  type StartSessionInput,
+} from '../shared/contracts/agent-ipc';
+import { MockAgentGateway } from './agent-gateway/mock-agent-gateway';
 import { createWindow } from './helpers';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -29,12 +35,24 @@ if (isProd) {
     await mainWindow.loadURL(`http://localhost:${port}/home`);
     mainWindow.webContents.openDevTools();
   }
+
+  const gateway = new MockAgentGateway((event) => {
+    mainWindow.webContents.send(AGENT_IPC_CHANNELS.event, event);
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.listSessions, () => {
+    return gateway.listSessions();
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.startSession, (_event, input: StartSessionInput) => {
+    return gateway.startSession(input);
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.sendFollowUp, (_event, input: SendFollowUpInput) => {
+    return gateway.sendFollowUp(input);
+  });
 })();
 
 app.on('window-all-closed', () => {
   app.quit();
-});
-
-ipcMain.on('message', async (event, arg) => {
-  event.reply('message', `${arg} World!`);
 });

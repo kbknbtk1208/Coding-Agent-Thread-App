@@ -12,6 +12,8 @@ next-env.d.ts
 # build
 /app
 dist
+tsconfig.tsbuildinfo
+.memo/
 
 # claude
 .claude/settings.local.json
