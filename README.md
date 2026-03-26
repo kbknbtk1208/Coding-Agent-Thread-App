@@ -1,6 +1,59 @@
-﻿# Coding Agent Thread App
+# Coding Agent Thread App
 
-Nextron、Next.js、Electron、Tailwind CSS を使った TypeScript ベースのデスクトップアプリ初期構成です。
+複数のコーディングエージェントとデスクトップ UI を最小限の労力で統合できるかを検証するための、Nextron / Next.js / Electron / TypeScript ベースの技術検証リポジトリです。
+
+## このリポジトリのミッション
+
+- Codex と GitHub Copilot のような複数エージェントを、同じ UI から扱えることを検証する
+- エージェントごとのプロトコル差分を UI から隠蔽できることを検証する
+- 継続会話、ストリーミング表示、structured response、rich text response を最小構成で検証する
+- N将来的な機能追加やTauri / Electrobunなどの別デスクトップ shell への移行に耐えられる境界を、過剰実装せずに見極める
+
+## ミッション達成の成果はどのように生かされるか
+
+近日中に開発予定の以下のユースケースで生かされる
+
+### ユースケース: コードレビュー支援アプリ
+
+    ⁃	githubなどのpull requestのdiffを UIに表示
+    ⁃	コーディングエージェントがdiffを参照してレビューし、以下を実行
+    ⁃	diffの各所にインラインコメント
+    ⁃	総評を提示
+    ⁃	インラインコメントにはユーザーがスレッド形式で返信可能
+    ⁃	返信されたら、コーディングエージェントが返信して継続的なやりとり
+    ⁃	codexの場合はレビュー時のセッションからforkしたセッションにて反応
+    ⁃	github copilotの場合は新規セッションで反応
+    ⁃	指摘事項の修正などでdiffが更新された場合を想定して再レビュー依頼可能
+    ⁃	codexの場合はレビュー時のセッションを引き継ぐ
+    ⁃	github copilotの場合は新規セッションで対応
+    ⁃	レビュー中およびスレッドでのコーディングエージェントの返信処理中のステータスはUIにリアルタイムで表示される
+    ⁃	レビューの総評とインラインコメントはjson オブジェクト形式のレスポンスを基にUIを構築
+    ⁃	スレッドの返信は自由なリッチテキスト表示
+
+## 前提
+
+- PR レビューは代表的なユースケースのひとつに過ぎず、検証用アプリは別テーマとする。なぜならPRレビューアプリのための他の技術要素が重く、検証を阻害するため。
+- 最優先は「コーディングエージェントと UI の通信が成立するか」の確認であり、ドメイン完成度ではない
+
+## 非ゴール
+
+- GitHub PR / Diff 連携の完成
+- 本番品質のレビュー管理機能の実装
+- 厳密な権限 UI や永続化基盤の作り込み
+- Tauri / Electrobun への即時対応
+
+## いま検証したいこと
+
+- エージェントごとのセッション開始と継続会話
+- 実行中イベントのストリーミング表示
+- structured response と rich text response の描き分け
+- ユーザー選択 `cwd` での起動
+- Codex 固有機能を無理なく拡張できる設計
+
+## 参考ドキュメント
+
+- [Codex App Server リファレンス](docs/codex-app-server-reference.md)
+- [GitHub Copilot ACP リファレンス](docs/github-copilot-acp-reference.md)
 
 ## 前提環境
 
@@ -8,6 +61,8 @@ Nextron、Next.js、Electron、Tailwind CSS を使った TypeScript ベースの
 - PowerShell
 - Node.js 22 系
 - npm 10 系
+
+**ただし、本番開発時はMac OSを使用**
 
 ## セットアップ
 
@@ -28,10 +83,9 @@ npm run dev
 - `main/`: Electron メインプロセスと preload
 - `renderer/`: Next.js の Pages Router ベース UI
 - `resources/`: ビルド用の静的リソース
-- `docs/`: 既存ドキュメント
+- `docs/`: 構想、技術方針、参照資料
 
 ## メモ
 
-- TypeScript は公式 `with-tailwindcss` テンプレート構成をベースにしています。
-- preload では既定の `window.ipc` ブリッジを利用します。
-- ドキュメントやコードは UTF-8 前提で扱ってください。PowerShell 上で文字化けが出る場合はターミナルの文字コード設定を確認してください。
+- preload では既定の `window.ipc` ブリッジを利用します
+- ドキュメントやコードは UTF-8 前提で扱ってください。PowerShell 上で文字化けが出る場合はターミナルの文字コード設定を確認してください
