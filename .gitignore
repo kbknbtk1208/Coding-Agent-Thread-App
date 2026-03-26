@@ -12,3 +12,6 @@ next-env.d.ts
 # build
 /app
 dist
+
+# claude
+.claude/settings.local.json

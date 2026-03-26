@@ -8,7 +8,7 @@
 
 - `npm run dev` で Next.js が `http://localhost:8888`、Electron の CDP が `http://127.0.0.1:5858` で待ち受ける
 - `http://127.0.0.1:5858/json/version` から `webSocketDebuggerUrl` を取得できる
-- `playwright-cli` が [playwright-electron-cdp.json](C:\Users\nkubo\Dev\Coding-Agent-Thread-App\docs\playwright-electron-cdp.json) を通じて Electron へ attach できる
+- `playwright-cli` が [playwright-electron-cdp.json](C:\Users\nkubo\Dev\Coding-Agent-Thread-App\playwright-electron-cdp.json) を通じて Electron へ attach できる
 - ホーム画面を snapshot し、リンククリックで `/next/` へ遷移できる
 
 ## 前提
