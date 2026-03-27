@@ -12,7 +12,7 @@ next-env.d.ts
 # build
 /app
 dist
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 .memo/
 
 # claude
