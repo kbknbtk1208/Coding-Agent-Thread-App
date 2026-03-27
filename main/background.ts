@@ -6,7 +6,7 @@ import {
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
-import { MockAgentGateway } from './agent-gateway/mock-agent-gateway';
+import { AgentGateway } from './agent-gateway/agent-gateway';
 import { createWindow } from './helpers';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -33,10 +33,9 @@ if (isProd) {
   } else {
     const port = process.argv[2];
     await mainWindow.loadURL(`http://localhost:${port}/home`);
-    mainWindow.webContents.openDevTools();
   }
 
-  const gateway = new MockAgentGateway((event) => {
+  const gateway = new AgentGateway((event) => {
     mainWindow.webContents.send(AGENT_IPC_CHANNELS.event, event);
   });
 
@@ -50,6 +49,10 @@ if (isProd) {
 
   ipcMain.handle(AGENT_IPC_CHANNELS.sendFollowUp, (_event, input: SendFollowUpInput) => {
     return gateway.sendFollowUp(input);
+  });
+
+  app.on('before-quit', () => {
+    void gateway.dispose();
   });
 })();
 

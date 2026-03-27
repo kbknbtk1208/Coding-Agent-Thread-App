@@ -182,6 +182,9 @@ export function SessionConsole() {
     void loadSessions();
 
     const unsubscribe = window.agentApi.onAgentEvent((event) => {
+      if (event.type === 'error') {
+        setErrorMessage(event.error.message);
+      }
       setSessions((currentSessions) =>
         sortSessions(
           currentSessions.map((session) =>
@@ -248,12 +251,12 @@ export function SessionConsole() {
               Session Console
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">
-              `completed` を待機状態として扱うモック Gateway
+              実 provider を正規化して扱う Session Gateway
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-300 sm:text-base">
               `awaiting_input` は持たず、ターン完了後も `completed` のまま follow-up
-              を受け付けます。 セッションとストリーミング表示の境界を UI
-              から確認できる最小実装です。
+              を受け付けます。 `codex app-server` と `copilot --acp --stdio` の差分を main
+              側で吸収し、UI には正規化イベントだけを流します。
             </p>
           </div>
           <div className="rounded-[1.5rem] border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-50">
@@ -268,11 +271,11 @@ export function SessionConsole() {
                 <div>
                   <h3 className="text-lg font-semibold text-white">新規セッション</h3>
                   <p className="mt-1 text-sm text-slate-400">
-                    `cwd` と provider を指定してセッションを開始します。
+                    `cwd` と provider を指定して実 session を開始します。
                   </p>
                 </div>
                 <span className="rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100">
-                  S1
+                  S1 / S2
                 </span>
               </div>
 
@@ -330,7 +333,7 @@ export function SessionConsole() {
                 <div>
                   <h3 className="text-lg font-semibold text-white">セッション一覧</h3>
                   <p className="mt-1 text-sm text-slate-400">
-                    `completed` のまま follow-up 送信が可能です。
+                    provider session を保持したまま follow-up 送信が可能です。
                   </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
@@ -455,7 +458,7 @@ export function SessionConsole() {
                     <div className="mb-4">
                       <h4 className="text-lg font-semibold text-white">Follow-up</h4>
                       <p className="mt-1 text-sm text-slate-400">
-                        `completed` のまま続行できることを UI で確認できます。
+                        同じ provider session を継続利用して follow-up を送れます。
                       </p>
                     </div>
 
