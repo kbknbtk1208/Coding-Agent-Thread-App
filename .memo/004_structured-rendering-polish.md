@@ -64,6 +64,8 @@
 - S5 向けに `steerActiveTurn` の IPC / Gateway / runtime 契約と `running` 中 UI を追加する
 - S6 向けに `permission.requested` の UI 表示、許可 / 拒否入力、provider への応答返却を実装する
 - 最低限の永続化を追加し、recent sessions と last final result の復元を検討する
+- capability は end-to-end で使える機能のみ公開する方針に合わせ、未実装の `resumeSession` は capability 表示から外すか、IPC / Gateway / runtime / UI まで含めて実装する
+- preload の汎用 `window.ipc` bridge は PoC 限定の escape hatch として扱い、本番寄りフェーズでは use case 単位の typed IPC API に収束させる
 
 ## 次の着手順
 

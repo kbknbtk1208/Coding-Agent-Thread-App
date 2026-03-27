@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-03-26T23:53:24+09:00
+updated_at: 2026-03-27T20:21:29+09:00
 ---
 
 # Architecture
@@ -23,6 +23,8 @@ updated_at: 2026-03-26T23:53:24+09:00
 - Renderer は UI と表示状態に集中し、プロトコル吸収は main 側へ寄せる。
 - Provider ごとの差異は Adapter に閉じ込める。Gateway は「アプリ内イベント」へ正規化する。
 - structured response と rich text response は別物として扱い、片方をもう片方へ無理に寄せない。
+- PoC では provider の実測結果を設計仮説より優先する。仮説と実装観測が食い違った場合は、実装を基準に文書を更新する。
+- PoC では検証速度のために一時的な緩さを許容してよい。ただし、その緩さが本番方針ではない場合は文書上で明示的に区別する。
 - 永続化、レビュー機能、GitHub 連携は後回しにし、技術検証の妨げになる周辺実装を増やさない。
 
 ## 3. 全体像
@@ -85,12 +87,20 @@ flowchart LR
 - Renderer に公開する安全な API の定義
 - 送受信イベント名と payload 型の固定
 - Electron 固有 API を Renderer から隠蔽する
+- PoC 中は検証を止めないための限定的な escape hatch を、一時的に許容してよい
 
 責務ではないこと:
 
 - セッション管理
 - 業務ロジック
 - provider 差分吸収
+- 汎用 bridge を前提にした恒常的な機能設計
+
+運用メモ:
+
+- typed API を原則とする
+- `window.ipc` のような汎用 bridge は、PoC 中の実験・移行・デバッグ用途に限定する
+- 本番開発では use case 単位の typed API に収束させる
 
 ### 4-3. Agent Gateway 層
 
@@ -106,12 +116,14 @@ flowchart LR
 - Provider イベントを共通 `AgentEvent` へ正規化
 - capability 情報の公開
 - 権限要求、エラー、進行状態の中継
+- `ResultEnvelope` をセッション状態へ反映する
 - 必要最小限の永続化
 
 責務ではないこと:
 
 - UI の描画判断
 - provider プロセスごとの詳細プロトコル実装
+- provider ごとの parse / schema 分岐の保持
 - PR レビュー専用の複雑なドメイン判定
 
 ### 4-4. Provider Adapter 層
@@ -126,8 +138,9 @@ flowchart LR
 - provider プロセスの起動と停止
 - provider ごとの session id と app session id の対応付け
 - provider 独自イベントの購読
-- provider のレスポンスを Gateway が扱える粒度まで変換
-- structured output の取得または擬似実現
+- provider のレスポンスから final text や structured candidate を抽出する
+- `shared/domain` の parser / normalizer を用いて structured output を確定する、または擬似実現する
+- Gateway が扱える粒度の `RuntimeSessionEvent` へ変換する
 
 責務ではないこと:
 
@@ -189,6 +202,11 @@ type AgentCapability =
 - `structuredOutput` がなければ JSON 指示 + Normalizer の経路を使う
 - `steerActiveTurn` がなければ実行中の追加指示は出さない
 
+追加ルール:
+
+- capability は UI / IPC / Gateway / Runtime まで end-to-end で到達している機能だけを公開する
+- 将来予定の機能は capability ではなく、Phase や TODO として管理する
+
 ### 5-3. イベントは最小セットへ正規化する
 
 PoC では provider ごとのイベントをそのまま渡さず、次のような最小イベントへ寄せる。
@@ -233,13 +251,16 @@ type AgentEvent =
 
 ### 5-4. structured response は 2 経路で扱う
 
-- Codex: `outputSchema` を使った native structured output を優先する
-- Copilot: JSON 出力指示 + validation + Normalizer で擬似的に structured output を構成する
+- Codex: `outputSchema` を使う。ただし現行の `codex app-server` では、native structured object が別フィールドで返らず、最終回答に JSON text として現れる場合がある。そのため現時点では、`outputSchema` で制約された JSON text を抽出し、`shared/domain` の parser / normalizer で structured result として採用する
+- Copilot: JSON 出力指示 + parser / validation / normalizer で擬似的に structured output を構成する
 
 共通ルール:
 
+- structured 変換は UI に届く前に main 側で完了させる
+- 実装上の既定責務は「Adapter が provider 差分を吸収し、`shared/domain` の parser / normalizer を使い、Gateway が `ResultEnvelope` を状態へ反映する」である
 - UI は `ResultEnvelope` の種類で描画モードを切り替える
 - structured の検証に失敗した場合は rich text へフォールバックする
+- 将来 Codex が native structured object を安定して返すようになった場合は、その payload を優先採用する
 - PR レビュー専用 schema は PoC 時点では固定しない
 
 ### 5-5. ストリーミングと最終結果は別レーンで保持する
@@ -303,8 +324,9 @@ type ResultEnvelope =
 
 ルール:
 
-- Renderer は `kind` のみを見て描画を切り替える
-- structured の妥当性検証は Gateway 側で完了させる
+- Renderer は `kind` を起点に描画を切り替える
+- structured の妥当性検証と fallback 判定は UI 到達前に main 側で完了させる
+- 実装上は Adapter + `shared/domain` が変換責務を持ち、Gateway は確定済み `ResultEnvelope` を canonical data として扱う
 - fallback は renderer の救済表示専用に使う
 
 ### 6-3. 状態モデル
