@@ -11,6 +11,7 @@ import type {
   ResultEnvelope,
   StructuredResultSource,
 } from '../../shared/domain/agent';
+import { ShimmerText } from './ui/shimmer-text';
 import { TextEffect } from './ui/text-effect';
 
 const DEFAULT_CWD = '';
@@ -373,6 +374,14 @@ function renderStreamingRichText(text: string, className: string) {
       segmentDelay={0.018}
       className={className}
     />
+  );
+}
+
+function renderWaitingResponse() {
+  return (
+    <p className="text-sm leading-7">
+      <ShimmerText text="応答を待っています..." className="block font-medium" />
+    </p>
   );
 }
 
@@ -832,9 +841,11 @@ export function SessionConsole() {
                                 turn.response,
                                 'text-sm leading-7 text-slate-200',
                               )
+                            ) : !turn.response ? (
+                              renderWaitingResponse()
                             ) : (
                               <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
-                                {turn.response || '応答を待っています...'}
+                                {turn.response}
                               </pre>
                             )}
                           </div>
