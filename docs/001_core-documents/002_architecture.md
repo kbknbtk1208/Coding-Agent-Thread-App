@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-03-27T20:21:29+09:00
+updated_at: 2026-03-27T23:35:00+09:00
 ---
 
 # Architecture
@@ -8,11 +8,12 @@ updated_at: 2026-03-27T20:21:29+09:00
 
 この文書は、[001-solution.md](./discussion/001-solution.md) を実装可能な設計指針へ落とし込むためのアーキテクチャ定義である。対象は「複数コーディングエージェントを同一 UI から扱えるか」を検証する PoC であり、完成度の高い PR レビュー製品を設計するものではない。
 
-本 PoC の最優先事項は次の 5 点である。
+本 PoC の最優先事項は次の 6 点である。
 
 - UI から provider 固有プロトコルを隠蔽できること
 - `cwd` を指定してセッション開始できること
 - 同一セッションで継続会話できること
+- アプリ再起動後も recent sessions から会話を再開できること
 - 実行中イベントとテキスト断片をストリーミング表示できること
 - structured response と rich text response を同じアプリで描画できること
 
@@ -25,7 +26,7 @@ updated_at: 2026-03-27T20:21:29+09:00
 - structured response と rich text response は別物として扱い、片方をもう片方へ無理に寄せない。
 - PoC では provider の実測結果を設計仮説より優先する。仮説と実装観測が食い違った場合は、実装を基準に文書を更新する。
 - PoC では検証速度のために一時的な緩さを許容してよい。ただし、その緩さが本番方針ではない場合は文書上で明示的に区別する。
-- 永続化、レビュー機能、GitHub 連携は後回しにし、技術検証の妨げになる周辺実装を増やさない。
+- review 機能と GitHub 連携は後回しにし、永続化は session resume に必要な最小限へ絞る。
 
 ## 3. 全体像
 
@@ -38,7 +39,7 @@ flowchart LR
     GW --> COPILOT["Copilot Adapter"]
     CODEX --> CPROC["codex app-server"]
     COPILOT --> PPROC["copilot --acp --stdio"]
-    GW --> STORE["Optional Store\nmemory / electron-store"]
+    GW --> STORE["Session Store\nSQLite / electron-store / memory"]
 ```
 
 ### 3-1. 依存方向
@@ -64,6 +65,7 @@ flowchart LR
 
 - エージェント選択、`cwd` 選択、プロンプト入力
 - セッション一覧、会話履歴、ステータス表示
+- recent sessions と再開可能セッションの表示
 - ストリーミング中テキストの描画
 - structured response / rich text response の表示切り替え
 - capability に応じた操作ボタンの表示制御
@@ -112,11 +114,13 @@ flowchart LR
 責務:
 
 - `AppSession` の生成、再取得、破棄
+- 起動時の session 復元と recent sessions の提供
 - Renderer からの command を Provider Adapter 呼び出しへ変換
 - Provider イベントを共通 `AgentEvent` へ正規化
 - capability 情報の公開
 - 権限要求、エラー、進行状態の中継
 - `ResultEnvelope` をセッション状態へ反映する
+- native resume と app-side rehydrate の戦略選択
 - 必要最小限の永続化
 
 責務ではないこと:
@@ -137,6 +141,7 @@ flowchart LR
 
 - provider プロセスの起動と停止
 - provider ごとの session id と app session id の対応付け
+- native resume を持つ provider では read / resume を実装する
 - provider 独自イベントの購読
 - provider のレスポンスから final text や structured candidate を抽出する
 - `shared/domain` の parser / normalizer を用いて structured output を確定する、または擬似実現する
@@ -189,23 +194,32 @@ Codex と Copilot は非対称である。共通 API は最小化し、追加機
 
 ```ts
 type AgentCapability =
-  | "resumeSession"
-  | "forkSession"
-  | "steerActiveTurn"
+  | "nativeResumeSession"
+  | "nativeForkSession"
+  | "nativeSteerActiveTurn"
   | "structuredOutput"
   | "nativeReview";
 ```
 
 判断例:
 
-- `forkSession` がなければ UI に fork 操作を出さない
+- `nativeForkSession` がなければ UI に fork 操作を出さない
 - `structuredOutput` がなければ JSON 指示 + Normalizer の経路を使う
-- `steerActiveTurn` がなければ実行中の追加指示は出さない
+- `nativeSteerActiveTurn` がなければ実行中の追加指示は出さない
+- `nativeResumeSession` は provider-native resume がある場合だけ公開する
 
 追加ルール:
 
 - capability は UI / IPC / Gateway / Runtime まで end-to-end で到達している機能だけを公開する
 - 将来予定の機能は capability ではなく、Phase や TODO として管理する
+- `nativeResumeSession` は「アプリとして会話を再開できること」ではなく、「provider が保存済み session/thread を直接 resume できること」を意味する
+
+会話再開の扱い:
+
+- UI のユースケースとしては `continueConversation` を共通で持つ
+- provider が `nativeResumeSession` を持つ場合は native resume を優先する
+- provider が `nativeResumeSession` を持たない場合は、Gateway が保存済み履歴または resume summary を使って app-side rehydrate を行う
+- これにより、再開 UX は共通に保ちつつ provider 差分は main 側へ閉じ込める
 
 ### 5-3. イベントは最小セットへ正規化する
 
@@ -276,14 +290,30 @@ type AgentEvent =
 
 権限要求は provider 実装に依存するが、UI へは共通 `permission.requested` として流す。PoC では権限 UI の完成度より、「要求が来たことを UI で認識し、許可・拒否を返せる」ことを優先する。
 
-### 5-7. 永続化は薄く始める
+### 5-7. 永続化は hybrid に寄せて薄く始める
 
-初期はインメモリで成立確認を優先し、必要になれば `electron-store` を追加する。保存対象は最小限とする。
+PoC でも session persistence / resume は scope に含める。ただし、保存対象は「再開 UX を成立させる最小限」に絞る。推奨方針は、アプリ側 store を canonical な UI 復元元にしつつ、provider 側 session/thread id は外部参照として保持する hybrid 方式である。
 
-- 最近使った `cwd`
-- 選択中 agent
-- recent sessions
+保存対象の最小単位:
+
+- `appSessionId`
+- `agent`
+- `providerSessionId` または `threadId`
+- `cwd`
+- モデルや主要設定の snapshot
+- recent sessions 用の summary
 - 最後に描画した final result
+- resume に必要な turn 履歴または compaction 済み summary
+
+provider ごとの扱い:
+
+- Codex: 保存済み `threadId` を使って read / resume を試みる
+- Copilot ACP: native resume を前提にせず、保存済み履歴または summary から新しい provider session を再構成する
+
+ストア候補:
+
+- PoC 初期は `electron-store`
+- 会話履歴が増える段階で SQLite へ移行、または併用する
 
 ### 5-8. 実行制御は単純に保つ
 
@@ -297,8 +327,8 @@ PoC 段階では 1 セッションにつき同時に 1 つの active turn を前
 | --- | --- | --- | --- |
 | `AgentProvider` | 利用する provider の識別 | `kind`, `displayName`, `capabilities` | `codex`, `copilot` を想定 |
 | `WorkspaceContext` | 実行対象ワークスペース | `cwd`, `label` | セッション開始時に固定 |
-| `AppSession` | UI から見た会話単位 | `appSessionId`, `agent`, `cwd`, `status` | provider session を内包する |
-| `ProviderSessionRef` | provider 側セッション参照 | `providerSessionId`, `agent` | UI へ直接露出しない |
+| `AppSession` | UI から見た会話単位 | `appSessionId`, `agent`, `cwd`, `status` | アプリ再起動後も同じ会話として復元される論理主キー |
+| `ProviderSessionRef` | provider 側セッション参照 | `providerSessionId`, `agent`, `resumeStrategy` | UI へ直接露出しない |
 | `ConversationTurn` | ユーザー送信と agent 応答の 1 往復 | `turnId`, `prompt`, `startedAt`, `completedAt` | active turn は 1 つまで |
 | `StreamBuffer` | 途中経過の表示 | `messageId`, `chunks[]` | rich text の暫定描画用 |
 | `ResultEnvelope` | 完了後の最終結果 | `kind`, `structuredData`, `richText` | 描画の切り替え単位 |
@@ -393,12 +423,12 @@ renderer/
 - Copilot と Codex は利用可能機能が異なる
 - 共通最小公倍数に合わせると Codex の強みを捨て、逆に Codex 基準で寄せると Copilot 実装が不自然になる
 
-### 8-3. 本番向け永続化と監査ログ
+### 8-3. 完成形の永続化と監査ログ
 
 やらない理由:
 
-- PoC 成否に対する寄与が小さい
-- 先に DB スキーマを固定すると、会話モデルや result モデルの試行錯誤を阻害する
+- PoC で必要なのは recent sessions と会話再開であり、全文検索や監査証跡の完成ではない
+- 先に完全な DB スキーマを固定すると、会話モデルや result モデルの試行錯誤を阻害する
 
 ### 8-4. shell 非依存の完成形抽象化
 
@@ -430,11 +460,17 @@ renderer/
 
 ### Phase 3
 
-- session resume を追加する
-- Codex `thread/fork` と `turn/steer` を追加する
+- session persistence / continueConversation を追加する
+- provider-native resume と app-side rehydrate の分岐を入れる
 - 必要最小限の永続化を入れる
 
 ### Phase 4
+
+- Codex `thread/fork` と `turn/steer` を追加する
+- permission mediation を追加する
+- capability 表示を end-to-end 実装範囲へ揃える
+
+### Phase 5
 
 - review 的ユースケースを追加するかを再判断する
 - 必要なら review 専用の別ドメイン層を追加する
@@ -445,6 +481,7 @@ renderer/
 
 - UI は provider 差分を意識せずに会話体験を提供できるか
 - Provider Adapter の追加が Gateway と UI の小変更で済むか
+- app-side persistence と provider 参照の併用で、再起動後も会話を継続できるか
 - structured response と rich text response を同じ会話基盤の上で扱えるか
 - Codex 固有機能を capability ベースで安全に露出できるか
 

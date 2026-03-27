@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-03-26T23:53:24+09:00
+updated_at: 2026-03-27T23:35:00+09:00
 ---
 
 # PoC Scenario
@@ -21,6 +21,7 @@ PoC 完了の判断基準は次のとおり。
 - ユーザーが `cwd` を指定して agent を起動できる
 - 実行中の状態変化とテキスト断片を UI で逐次確認できる
 - 同一セッションで follow-up を送れる
+- アプリまたは端末の再起動後も recent session から会話を再開できる
 - structured response と rich text response を同一 UI で描き分けられる
 - Codex 固有機能を capability ベースで追加できる
 
@@ -39,6 +40,7 @@ PoC 完了の判断基準は次のとおり。
 - `AgentSelector`
 - `WorkspaceSelector`
 - `PromptComposer`
+- `SessionList`
 - `SessionPanel`
 - `StatusTimeline`
 - `ResultRenderer`
@@ -67,6 +69,13 @@ PoC では次のどちらかを検証対象 `cwd` とする。
 - structured checklist の題材にしやすい
 - PR / Diff データを用意しなくてよい
 
+### 3-5. セッション再開の前提
+
+- PoC では「会話再開」はアプリ共通ユースケースとして扱う
+- provider が native resume を持つ場合は、その機能を優先利用する
+- provider が native resume を持たない場合でも、アプリ側が永続化した履歴または resume summary を使って再開できればよい
+- 最低限、recent sessions と last final result がアプリ再起動後に復元されることを目指す
+
 ## 4. 採用シナリオ一覧
 
 | ID | 優先度 | シナリオ名 | 主目的 | 対象 provider |
@@ -77,6 +86,7 @@ PoC では次のどちらかを検証対象 `cwd` とする。
 | S4 | P1 | Codex セッション fork | capability ベース拡張の確認 | Codex |
 | S5 | P1 | Codex 実行中 steer | provider 固有操作の確認 | Codex |
 | S6 | P1 | 権限要求の UI 中継 | permission mediation の確認 | 主に Copilot |
+| S7 | P1 | セッション永続化と再開 | recent sessions / app-side resume の確認 | Codex / Copilot |
 
 P0 が完了すれば PoC の中核は成立、P1 が完了すれば「将来のコードレビュー支援アプリへ発展できる見込み」が高いと判断する。
 
@@ -233,7 +243,7 @@ interface ImplementationChecklist {
 ### 前提
 
 - `codex` を選択している
-- セッション capability に `forkSession` が含まれる
+- セッション capability に `nativeForkSession` が含まれる
 - S2 まで完了している
 
 ### ユーザー操作
@@ -247,7 +257,7 @@ interface ImplementationChecklist {
 
 ### 期待されるシステム挙動
 
-1. UI は `forkSession` が有効なときのみ fork ボタンを表示する
+1. UI は `nativeForkSession` が有効なときのみ fork ボタンを表示する
 2. Gateway が Codex Adapter の fork API を呼ぶ
 3. 新しい `appSessionId` が発行される
 4. 分岐先は元セッションの文脈を持つが、履歴表示は別セッションとして扱う
@@ -268,7 +278,7 @@ interface ImplementationChecklist {
 ### 前提
 
 - `codex` を選択している
-- capability に `steerActiveTurn` が含まれる
+- capability に `nativeSteerActiveTurn` が含まれる
 - やや長めの応答が返るプロンプトを使う
 
 ### ユーザー操作
@@ -326,18 +336,64 @@ interface ImplementationChecklist {
 - permission request が無視されず UI から見える
 - 許可・拒否どちらでもセッション状態が破綻しない
 
+## S7. セッション永続化と再開
+
+### 目的
+
+- recent sessions の復元
+- アプリ再起動後の会話再開
+- provider-native resume と app-side rehydrate の切り分け
+
+を成立させる。
+
+### 前提
+
+- S2 まで完了している
+- アプリ内に最低限の session store がある
+- セッションには `appSessionId` と provider 参照、`cwd`、最終結果要約が保存される
+
+### ユーザー操作
+
+1. `codex` または `copilot` でセッションを開始し、少なくとも 1 回 follow-up を行う
+2. アプリを終了する
+3. アプリを再起動し、recent sessions から先ほどの会話を開く
+4. その会話に対して follow-up を送る
+
+### 期待されるシステム挙動
+
+1. 起動時に recent sessions と last final result が session store から復元される
+2. UI は過去セッションの履歴要約と最終結果を、provider 起動前でも表示できる
+3. Codex の場合は保存済み `threadId` を用いて native resume を試みる
+4. Copilot または native resume 非対応 provider の場合は、保存済み履歴または resume summary を使って app-side に再開する
+5. 再開後の follow-up は同じ会話として UI 上で連続表示される
+
+### 合格条件
+
+- recent sessions がアプリ再起動後に復元される
+- ユーザーが履歴を手で貼り直さずに会話を継続できる
+- Renderer は native resume と app-side rehydrate の差を意識しない
+- provider ごとの差は Gateway / Adapter 側に閉じ込められている
+
+### 実装メモ
+
+- `nativeResumeSession` は provider-native resume を意味する capability として扱う
+- UI のユースケースとしては `continueConversation` を共通で持つ
+- PoC では full audit log ではなく、recent sessions と resume summary を優先する
+
 ## 6. 実装順
 
 1. S1 を最初に通す
 2. S2 でセッション継続を確認する
 3. S3 で structured result を導入する
-4. S4 と S5 で Codex 固有機能を追加する
-5. S6 で permission mediation を固める
+4. S7 で recent sessions と会話再開の基盤を入れる
+5. S4 と S5 で Codex 固有機能を追加する
+6. S6 で permission mediation を固める
 
 この順にする理由:
 
 - 先に会話基盤が成立しないと structured や fork の価値を評価できない
 - structured result は rich text より後に追加しても UI 境界を保ちやすい
+- session persistence / resume は provider 固有拡張より先に入れた方が、会話モデルの主キーと store の責務を固めやすい
 - Codex 固有機能は capability ベース設計が成立してから加える方が安全である
 
 ## 7. シナリオごとの成果物
@@ -347,6 +403,7 @@ interface ImplementationChecklist {
 | S1 | session start API、stream 表示、rich text renderer |
 | S2 | session registry、history 表示、follow-up 送信 API |
 | S3 | result schema、validator、structured renderer、fallback |
+| S7 | session store、recent sessions 復元、resume strategy、resume summary |
 | S4 | capability 取得、fork API、派生 session UI |
 | S5 | active turn 管理、steer API、実行中 UI 制御 |
 | S6 | permission event、中継 API、確認 UI |
@@ -374,10 +431,10 @@ PoC 段階では次のシナリオは扱わない。
 
 推奨完了条件:
 
-- 最低完了条件に加えて S4, S5 の少なくとも一方が成立する
+- 最低完了条件に加えて S7 が成立し、S4, S5 の少なくとも一方が成立する
 
 拡張完了条件:
 
-- S6 まで成立し、権限要求を含む実運用寄りの導線が確認できる
+- S6 まで成立し、権限要求と session resume を含む実運用寄りの導線が確認できる
 
 PoC の評価は、機能数ではなく「境界設計が次のユースケースへ拡張可能か」で行う。
