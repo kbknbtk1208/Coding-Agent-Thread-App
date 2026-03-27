@@ -70,6 +70,9 @@ export class AgentGateway {
 
       this.runtimeSessions.set(appSessionId, runtimeSession);
       session.capabilities = [...runtimeSession.capabilities];
+      session.modelSelection = runtimeSession.modelSelection
+        ? { ...runtimeSession.modelSelection }
+        : undefined;
       session.updatedAt = this.now();
 
       this.emit({
@@ -301,6 +304,7 @@ export class AgentGateway {
       ...session,
       capabilities: [...session.capabilities],
       finalResult: session.finalResult ? { ...session.finalResult } : undefined,
+      modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,

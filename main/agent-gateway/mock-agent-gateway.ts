@@ -253,6 +253,7 @@ export class MockAgentGateway {
       ...session,
       capabilities: [...session.capabilities],
       finalResult: session.finalResult ? { ...session.finalResult } : undefined,
+      modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,

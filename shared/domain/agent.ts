@@ -26,6 +26,12 @@ export interface StreamBuffer {
   content: string;
 }
 
+export interface SessionModelSelection {
+  requestedModel?: string;
+  isRequestedModelEnforced: boolean;
+  warning?: string;
+}
+
 export interface ConversationTurn {
   turnId: string;
   messageId: string;
@@ -48,6 +54,7 @@ export interface AppSession {
   turns: ConversationTurn[];
   streamBuffer: StreamBuffer;
   finalResult?: ResultEnvelope;
+  modelSelection?: SessionModelSelection;
 }
 
 export type AgentEvent =

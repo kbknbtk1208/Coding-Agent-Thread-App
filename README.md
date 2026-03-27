@@ -78,6 +78,13 @@ npm run dev
 
 `npm run dev` で Next.js の開発サーバと Electron アプリが同時に起動します。
 
+## Copilot のモデル固定
+
+- この PoC では、アプリが起動する Copilot ACP プロセスに対して repo 実装で `--model gpt-5-mini` を付与します
+- ユーザーの `~/.copilot/config.json` は書き換えません
+- `gpt-5-mini` 固定でのセッション開始に失敗した場合は warning を出し、モデル引数なしの Copilot で 1 回だけ再試行して継続します
+- フォールバック時は詳細ペインに「gpt-5-mini 固定に失敗したため、Copilot の既定モデルで継続中。Premium 消費の可能性あり。」を常時表示します
+
 ## 構成
 
 - `main/`: Electron メインプロセスと preload

@@ -1,4 +1,9 @@
-import type { AgentCapability, AgentKind, AgentStatus } from '../../../shared/domain/agent';
+import type {
+  AgentCapability,
+  AgentKind,
+  AgentStatus,
+  SessionModelSelection,
+} from '../../../shared/domain/agent';
 
 export type RuntimeSessionEvent =
   | { type: 'status.changed'; status: AgentStatus }
@@ -27,6 +32,7 @@ export interface SendPromptInput {
 export interface RuntimeSessionHandle {
   agent: AgentKind;
   capabilities: AgentCapability[];
+  modelSelection?: SessionModelSelection;
   providerSessionId: string;
   sendPrompt(input: SendPromptInput): Promise<void>;
   dispose(): Promise<void>;

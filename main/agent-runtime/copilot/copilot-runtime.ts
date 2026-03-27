@@ -1,4 +1,4 @@
-import type { AgentCapability } from '../../../shared/domain/agent';
+import type { AgentCapability, SessionModelSelection } from '../../../shared/domain/agent';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
@@ -9,6 +9,10 @@ import type {
 } from '../shared/runtime-contracts';
 
 const COPILOT_CAPABILITIES: AgentCapability[] = ['resumeSession', 'structuredOutput'];
+const COPILOT_BASE_ARGS = ['--acp', '--stdio'] as const;
+const COPILOT_REQUESTED_MODEL = 'gpt-5-mini';
+const COPILOT_MODEL_FALLBACK_WARNING =
+  'gpt-5-mini 固定に失敗したため、Copilot の既定モデルで継続中。Premium 消費の可能性あり。';
 
 interface CopilotInitializeResult {
   protocolVersion: number;
@@ -16,6 +20,12 @@ interface CopilotInitializeResult {
 
 interface CopilotSessionResult {
   sessionId: string;
+}
+
+interface CopilotBootstrapResult {
+  client: JsonRpcProcess;
+  sessionId: string;
+  modelSelection: SessionModelSelection;
 }
 
 interface CopilotTurnContext {
@@ -30,35 +40,100 @@ export class CopilotRuntime implements AgentRuntime {
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionHandle> {
     let notificationHandler = (_method: string, _params: unknown) => {};
     let requestHandler = (_id: number, _method: string, _params: unknown) => {};
-    const client = new JsonRpcProcess(
-      'copilot.cmd',
-      ['--acp', '--stdio'],
-      input.cwd,
-      (message) => notificationHandler(message.method, message.params),
-      (message) => requestHandler(message.id, message.method, message.params),
-      true,
-    );
 
-    await client.request<CopilotInitializeResult>('initialize', {
-      clientCapabilities: {},
-      protocolVersion: 1,
-    });
+    const createClient = (args: string[]) =>
+      new JsonRpcProcess(
+        'copilot.cmd',
+        args,
+        input.cwd,
+        (message) => notificationHandler(message.method, message.params),
+        (message) => requestHandler(message.id, message.method, message.params),
+        true,
+      );
 
-    const created = await client.request<CopilotSessionResult>('session/new', {
-      cwd: input.cwd,
-      mcpServers: [],
-    });
+    const started = await this.startBootstrappedSession(createClient, input.cwd);
 
     const session = new CopilotRuntimeSession(
-      client,
-      created.sessionId,
+      started.client,
+      started.sessionId,
       input.emit,
       COPILOT_CAPABILITIES,
+      started.modelSelection,
     );
     notificationHandler = (method, params) => session.handleNotification(method, params);
     requestHandler = (id, method, params) => session.handleRequest(id, method, params);
 
     return session;
+  }
+
+  private async startBootstrappedSession(
+    createClient: (args: string[]) => JsonRpcProcess,
+    cwd: string,
+  ): Promise<CopilotBootstrapResult> {
+    try {
+      return await this.startSessionWithArgs(
+        createClient,
+        cwd,
+        [...COPILOT_BASE_ARGS, '--model', COPILOT_REQUESTED_MODEL],
+        {
+          requestedModel: COPILOT_REQUESTED_MODEL,
+          isRequestedModelEnforced: true,
+        },
+      );
+    } catch (pinError) {
+      try {
+        return await this.startSessionWithArgs(createClient, cwd, [...COPILOT_BASE_ARGS], {
+          requestedModel: COPILOT_REQUESTED_MODEL,
+          isRequestedModelEnforced: false,
+          warning: COPILOT_MODEL_FALLBACK_WARNING,
+        });
+      } catch (fallbackError) {
+        throw new Error(
+          [
+            `Copilot session start failed with requested model ${COPILOT_REQUESTED_MODEL}.`,
+            `Pin error: ${this.getErrorMessage(pinError)}`,
+            `Fallback error: ${this.getErrorMessage(fallbackError)}`,
+          ].join(' '),
+        );
+      }
+    }
+  }
+
+  private async startSessionWithArgs(
+    createClient: (args: string[]) => JsonRpcProcess,
+    cwd: string,
+    args: string[],
+    modelSelection: SessionModelSelection,
+  ): Promise<CopilotBootstrapResult> {
+    let client: JsonRpcProcess | undefined;
+
+    try {
+      client = createClient(args);
+      await client.request<CopilotInitializeResult>('initialize', {
+        clientCapabilities: {},
+        protocolVersion: 1,
+      });
+
+      const created = await client.request<CopilotSessionResult>('session/new', {
+        cwd,
+        mcpServers: [],
+      });
+
+      return {
+        client,
+        modelSelection,
+        sessionId: created.sessionId,
+      };
+    } catch (error) {
+      if (client) {
+        await client.dispose();
+      }
+      throw error;
+    }
+  }
+
+  private getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -72,6 +147,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
     readonly providerSessionId: string,
     private readonly emit: (event: RuntimeSessionEvent) => void,
     readonly capabilities: AgentCapability[],
+    readonly modelSelection: SessionModelSelection,
   ) {}
 
   async sendPrompt(input: SendPromptInput): Promise<void> {

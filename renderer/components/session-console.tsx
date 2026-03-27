@@ -202,6 +202,8 @@ export function SessionConsole() {
 
   const selectedSession =
     sessions.find((session) => session.appSessionId === selectedSessionId) ?? null;
+  const selectedCopilotModelSelection =
+    selectedSession?.agent === 'copilot' ? selectedSession.modelSelection : undefined;
 
   const handleStartSession = async () => {
     setErrorMessage(null);
@@ -418,6 +420,24 @@ export function SessionConsole() {
               </div>
             ) : (
               <div className="mt-6 space-y-6">
+                {selectedCopilotModelSelection?.warning ? (
+                  <div className="rounded-[1.4rem] border border-amber-200/30 bg-amber-300/10 px-4 py-4 text-sm leading-7 text-amber-50">
+                    {selectedCopilotModelSelection.warning}
+                  </div>
+                ) : null}
+
+                {selectedCopilotModelSelection?.requestedModel &&
+                selectedCopilotModelSelection.isRequestedModelEnforced ? (
+                  <div className="rounded-[1.4rem] border border-cyan-200/20 bg-cyan-300/10 px-4 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/75">
+                      Copilot Model
+                    </p>
+                    <p className="mt-2 text-sm text-cyan-50">
+                      Model: {selectedCopilotModelSelection.requestedModel} (fixed)
+                    </p>
+                  </div>
+                ) : null}
+
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
                   <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
                     <div className="mb-4 flex items-center justify-between">
