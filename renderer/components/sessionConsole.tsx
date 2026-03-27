@@ -4,13 +4,19 @@ import type {
   AgentKind,
   AgentStatus,
   AppSession,
+  ConversationResponseMode,
   ConversationTurn,
+  ResultEnvelope,
 } from '../../shared/domain/agent';
 
 const DEFAULT_CWD = 'C:\\Users\\nkubo\\Dev\\Coding-Agent-Thread-App';
-const DEFAULT_PROMPT =
+const DEFAULT_RICH_TEXT_PROMPT =
   'このリポジトリの目的、技術スタック、次に読むべきファイルを 5 項目以内で要約して';
+const DEFAULT_STRUCTURED_PROMPT =
+  'このリポジトリで新機能実装に着手する前のチェックリストを JSON で返して。各項目は id, title, reason, priority を含めて。priority は high / medium / low のいずれかにして。';
 const DEFAULT_FOLLOW_UP = '今の要約を前提に、このリポジトリで最初に実装すべきものを 3 つに絞って';
+const DEFAULT_STRUCTURED_FOLLOW_UP =
+  '今の会話を前提に、次の実装フェーズへ進む前のチェックリストを JSON で返して。各項目は id, title, reason, priority を含めて。priority は high / medium / low のいずれかにして。';
 
 const STATUS_LABELS: Record<AgentStatus, string> = {
   completed: 'Completed / 次入力待ち',
@@ -30,19 +36,24 @@ const STATUS_STYLES: Record<AgentStatus, string> = {
   waiting_permission: 'border-fuchsia-200/25 bg-fuchsia-300/12 text-fuchsia-50',
 };
 
+const MODE_LABELS: Record<ConversationResponseMode, string> = {
+  implementationChecklist: 'Structured Checklist',
+  richText: 'Rich Text',
+};
+
+const MODE_STYLES: Record<ConversationResponseMode, string> = {
+  implementationChecklist: 'border-emerald-200/30 bg-emerald-300/12 text-emerald-50',
+  richText: 'border-slate-200/20 bg-white/8 text-slate-100',
+};
+
+const PRIORITY_STYLES = {
+  high: 'border-rose-200/30 bg-rose-300/12 text-rose-50',
+  low: 'border-slate-200/20 bg-white/6 text-slate-200',
+  medium: 'border-amber-200/30 bg-amber-300/12 text-amber-50',
+} as const;
+
 function sortSessions(sessions: AppSession[]) {
   return [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-}
-
-function upsertSession(sessions: AppSession[], nextSession: AppSession) {
-  return sortSessions([
-    nextSession,
-    ...sessions.filter((session) => session.appSessionId !== nextSession.appSessionId),
-  ]);
-}
-
-function canSendPrompt(status: AgentStatus) {
-  return status === 'idle' || status === 'completed' || status === 'failed';
 }
 
 function patchLatestTurn(
@@ -57,6 +68,34 @@ function patchLatestTurn(
   return turns.map((turn, index) => (index === latestTurnIndex ? updater(turn) : turn));
 }
 
+function upsertSession(sessions: AppSession[], nextSession: AppSession) {
+  return sortSessions([
+    nextSession,
+    ...sessions.filter((session) => session.appSessionId !== nextSession.appSessionId),
+  ]);
+}
+
+function canSendPrompt(status: AgentStatus) {
+  return status === 'idle' || status === 'completed' || status === 'failed';
+}
+
+function getLatestMode(session: AppSession) {
+  return session.turns.at(-1)?.responseMode ?? 'richText';
+}
+
+function toResultEnvelope(
+  event: Extract<AgentEvent, { type: 'result.richText' | 'result.structured' }>,
+) {
+  return event.type === 'result.richText'
+    ? { content: event.content, format: event.format, kind: 'richText' as const }
+    : {
+        data: event.data,
+        fallbackRichText: event.fallbackRichText,
+        kind: 'structured' as const,
+        schemaName: event.schemaName,
+      };
+}
+
 function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
   switch (event.type) {
     case 'session.capabilities':
@@ -65,8 +104,7 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         capabilities: [...event.capabilities],
         updatedAt: new Date().toISOString(),
       };
-    case 'status.changed': {
-      const completedAt = event.status === 'completed' ? new Date().toISOString() : undefined;
+    case 'status.changed':
       return {
         ...session,
         status: event.status,
@@ -75,30 +113,26 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
             ? { content: '', messageId: null }
             : session.streamBuffer,
         turns:
-          completedAt && session.turns.length > 0
+          event.status === 'completed' && session.turns.length > 0
             ? patchLatestTurn(session.turns, (turn) => ({
                 ...turn,
-                completedAt,
+                completedAt: new Date().toISOString(),
                 status: event.status,
               }))
             : session.turns,
         updatedAt: new Date().toISOString(),
       };
-    }
     case 'message.delta':
       return {
         ...session,
+        status: 'running',
         streamBuffer: {
           content: session.streamBuffer.content + event.text,
           messageId: event.messageId,
         },
         turns: patchLatestTurn(session.turns, (turn) =>
           turn.messageId === event.messageId
-            ? {
-                ...turn,
-                response: turn.response + event.text,
-                status: 'running',
-              }
+            ? { ...turn, response: turn.response + event.text, status: 'running' }
             : turn,
         ),
         updatedAt: new Date().toISOString(),
@@ -108,53 +142,125 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         ...session,
         turns: patchLatestTurn(session.turns, (turn) =>
           turn.messageId === event.messageId
-            ? {
-                ...turn,
-                completedAt: new Date().toISOString(),
-                status: 'completed',
-              }
+            ? { ...turn, completedAt: new Date().toISOString(), status: 'completed' }
             : turn,
         ),
         updatedAt: new Date().toISOString(),
       };
     case 'result.richText':
+    case 'result.structured': {
+      const result = toResultEnvelope(event);
       return {
         ...session,
-        finalResult: {
-          content: event.content,
-          format: event.format,
-          kind: 'richText',
-        },
+        finalResult: result,
         turns: patchLatestTurn(session.turns, (turn) => ({
           ...turn,
-          response: event.content,
-          result: {
-            content: event.content,
-            format: event.format,
-            kind: 'richText',
-          },
+          response: event.type === 'result.richText' ? event.content : turn.response,
+          result,
         })),
         updatedAt: new Date().toISOString(),
       };
+    }
+    case 'permission.requested':
+      return { ...session, status: 'waiting_permission', updatedAt: new Date().toISOString() };
     case 'error':
       return {
         ...session,
         status: 'failed',
+        streamBuffer: { content: '', messageId: null },
+        turns: patchLatestTurn(session.turns, (turn) => ({
+          ...turn,
+          completedAt: new Date().toISOString(),
+          status: 'failed',
+        })),
         updatedAt: new Date().toISOString(),
       };
-    case 'permission.requested':
     case 'session.started':
-      return session;
     default:
       return session;
   }
 }
 
+function ModeSelect(props: {
+  label: string;
+  value: ConversationResponseMode;
+  onChange: (value: ConversationResponseMode) => void;
+}) {
+  return (
+    <label className="block text-sm text-slate-200">
+      <span className="mb-2 block text-xs uppercase tracking-[0.22em] text-slate-400">
+        {props.label}
+      </span>
+      <select
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value as ConversationResponseMode)}
+        className="w-full rounded-[1.15rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50"
+      >
+        <option value="richText">Rich Text</option>
+        <option value="implementationChecklist">Structured Checklist</option>
+      </select>
+    </label>
+  );
+}
+
+function renderResult(result?: ResultEnvelope) {
+  if (!result) {
+    return (
+      <div className="rounded-[1.3rem] border border-dashed border-white/10 px-4 py-8 text-sm leading-7 text-slate-400">
+        まだ最終結果はありません。streaming 中は下に `Streaming Buffer` が出て、完了後にここへ
+        canonical な結果が表示されます。
+      </div>
+    );
+  }
+
+  if (result.kind === 'richText') {
+    return (
+      <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">{result.content}</pre>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {result.data.items.map((item) => (
+        <article
+          key={item.id}
+          className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{item.id}</p>
+              <h5 className="mt-2 text-sm font-semibold text-white">{item.title}</h5>
+            </div>
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${PRIORITY_STYLES[item.priority]}`}
+            >
+              {item.priority}
+            </span>
+          </div>
+          <p className="mt-3 text-sm leading-7 text-slate-300">{item.reason}</p>
+        </article>
+      ))}
+      {result.fallbackRichText ? (
+        <details className="rounded-[1.3rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            Fallback Rich Text
+          </summary>
+          <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
+            {result.fallbackRichText}
+          </pre>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 export function SessionConsole() {
   const [agent, setAgent] = useState<AgentKind>('codex');
   const [cwd, setCwd] = useState(DEFAULT_CWD);
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState(DEFAULT_RICH_TEXT_PROMPT);
+  const [startMode, setStartMode] = useState<ConversationResponseMode>('richText');
   const [followUpPrompt, setFollowUpPrompt] = useState(DEFAULT_FOLLOW_UP);
+  const [followUpMode, setFollowUpMode] = useState<ConversationResponseMode>('richText');
   const [sessions, setSessions] = useState<AppSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -165,10 +271,13 @@ export function SessionConsole() {
 
     const loadSessions = async () => {
       try {
-        const nextSessions = await window.agentApi.listSessions();
+        const nextSessions = sortSessions(await window.agentApi.listSessions());
         if (!isCancelled) {
-          setSessions(sortSessions(nextSessions));
-          setSelectedSessionId((current) => current ?? nextSessions[0]?.appSessionId ?? null);
+          setSessions(nextSessions);
+          setSelectedSessionId(nextSessions[0]?.appSessionId ?? null);
+          if (nextSessions[0]) {
+            setFollowUpMode(getLatestMode(nextSessions[0]));
+          }
         }
       } catch (error) {
         if (!isCancelled) {
@@ -185,9 +294,9 @@ export function SessionConsole() {
       if (event.type === 'error') {
         setErrorMessage(event.error.message);
       }
-      setSessions((currentSessions) =>
+      setSessions((current) =>
         sortSessions(
-          currentSessions.map((session) =>
+          current.map((session) =>
             session.appSessionId === event.appSessionId ? applyAgentEvent(session, event) : session,
           ),
         ),
@@ -202,17 +311,21 @@ export function SessionConsole() {
 
   const selectedSession =
     sessions.find((session) => session.appSessionId === selectedSessionId) ?? null;
-  const selectedCopilotModelSelection =
-    selectedSession?.agent === 'copilot' ? selectedSession.modelSelection : undefined;
 
   const handleStartSession = async () => {
     setErrorMessage(null);
     setIsSubmitting(true);
 
     try {
-      const session = await window.agentApi.startSession({ agent, cwd, prompt });
-      setSessions((currentSessions) => upsertSession(currentSessions, session));
+      const session = await window.agentApi.startSession({
+        agent,
+        cwd,
+        prompt,
+        responseMode: startMode,
+      });
+      setSessions((current) => upsertSession(current, session));
       setSelectedSessionId(session.appSessionId);
+      setFollowUpMode(getLatestMode(session));
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : '新規セッションの開始に失敗しました。',
@@ -234,8 +347,9 @@ export function SessionConsole() {
       const session = await window.agentApi.sendFollowUp({
         appSessionId: selectedSession.appSessionId,
         prompt: followUpPrompt,
+        responseMode: followUpMode,
       });
-      setSessions((currentSessions) => upsertSession(currentSessions, session));
+      setSessions((current) => upsertSession(current, session));
       setSelectedSessionId(session.appSessionId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'follow-up の送信に失敗しました。');
@@ -256,9 +370,8 @@ export function SessionConsole() {
               実 provider を正規化して扱う Session Gateway
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-300 sm:text-base">
-              `awaiting_input` は持たず、ターン完了後も `completed` のまま follow-up
-              を受け付けます。 `codex app-server` と `copilot --acp --stdio` の差分を main
-              側で吸収し、UI には正規化イベントだけを流します。
+              `streamBuffer` は進行中断片、`finalResult` は完了後の canonical data
+              として保持します。`result.richText` と `result.structured` を同じ UI で描き分けます。
             </p>
           </div>
           <div className="rounded-[1.5rem] border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-50">
@@ -273,11 +386,11 @@ export function SessionConsole() {
                 <div>
                   <h3 className="text-lg font-semibold text-white">新規セッション</h3>
                   <p className="mt-1 text-sm text-slate-400">
-                    `cwd` と provider を指定して実 session を開始します。
+                    `cwd`、provider、結果モードを指定して session を開始します。
                   </p>
                 </div>
                 <span className="rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100">
-                  S1 / S2
+                  S1 / S2 / S3
                 </span>
               </div>
 
@@ -307,17 +420,37 @@ export function SessionConsole() {
                   />
                 </label>
 
-                <label className="block text-sm text-slate-200">
-                  <span className="mb-2 block text-xs uppercase tracking-[0.22em] text-slate-400">
-                    Prompt
-                  </span>
-                  <textarea
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    rows={5}
-                    className="w-full rounded-[1.45rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-cyan-200/50"
-                  />
-                </label>
+                <ModeSelect label="Response Mode" value={startMode} onChange={setStartMode} />
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStartMode('richText');
+                      setPrompt(DEFAULT_RICH_TEXT_PROMPT);
+                    }}
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                  >
+                    S1 サンプル
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStartMode('implementationChecklist');
+                      setPrompt(DEFAULT_STRUCTURED_PROMPT);
+                    }}
+                    className="rounded-full border border-emerald-200/20 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-50 transition hover:bg-emerald-300/16"
+                  >
+                    S3 サンプル
+                  </button>
+                </div>
+
+                <textarea
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  rows={6}
+                  className="w-full rounded-[1.45rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-cyan-200/50"
+                />
 
                 <button
                   type="button"
@@ -332,12 +465,7 @@ export function SessionConsole() {
 
             <div className="rounded-[1.7rem] border border-white/10 bg-black/20 p-5">
               <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-white">セッション一覧</h3>
-                  <p className="mt-1 text-sm text-slate-400">
-                    provider session を保持したまま follow-up 送信が可能です。
-                  </p>
-                </div>
+                <h3 className="text-lg font-semibold text-white">セッション一覧</h3>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
                   {sessions.length} sessions
                 </span>
@@ -354,7 +482,10 @@ export function SessionConsole() {
                   <button
                     key={session.appSessionId}
                     type="button"
-                    onClick={() => setSelectedSessionId(session.appSessionId)}
+                    onClick={() => {
+                      setSelectedSessionId(session.appSessionId);
+                      setFollowUpMode(getLatestMode(session));
+                    }}
                     className={`w-full rounded-[1.5rem] border px-4 py-4 text-left transition ${
                       selectedSessionId === session.appSessionId
                         ? 'border-cyan-200/40 bg-cyan-300/10'
@@ -362,11 +493,16 @@ export function SessionConsole() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="space-y-2">
                         <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-100/80">
                           {session.agent}
                         </p>
-                        <p className="mt-2 text-sm text-white">{session.cwd}</p>
+                        <p className="text-sm text-white">{session.cwd}</p>
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-medium ${MODE_STYLES[getLatestMode(session)]}`}
+                        >
+                          {MODE_LABELS[getLatestMode(session)]}
+                        </span>
                       </div>
                       <span
                         className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[session.status]}`}
@@ -415,30 +551,11 @@ export function SessionConsole() {
 
             {!selectedSession ? (
               <div className="mt-6 rounded-[1.7rem] border border-dashed border-white/10 px-6 py-12 text-center text-sm leading-7 text-slate-400">
-                左のフォームからセッションを開始すると、status timeline
-                と会話履歴がここに表示されます。
+                左のフォームからセッションを開始すると、最終結果と会話履歴がここに表示されます。
               </div>
             ) : (
               <div className="mt-6 space-y-6">
-                {selectedCopilotModelSelection?.warning ? (
-                  <div className="rounded-[1.4rem] border border-amber-200/30 bg-amber-300/10 px-4 py-4 text-sm leading-7 text-amber-50">
-                    {selectedCopilotModelSelection.warning}
-                  </div>
-                ) : null}
-
-                {selectedCopilotModelSelection?.requestedModel &&
-                selectedCopilotModelSelection.isRequestedModelEnforced ? (
-                  <div className="rounded-[1.4rem] border border-cyan-200/20 bg-cyan-300/10 px-4 py-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/75">
-                      Copilot Model
-                    </p>
-                    <p className="mt-2 text-sm text-cyan-50">
-                      Model: {selectedCopilotModelSelection.requestedModel} (fixed)
-                    </p>
-                  </div>
-                ) : null}
-
-                <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
                   <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
                     <div className="mb-4 flex items-center justify-between">
                       <h4 className="text-lg font-semibold text-white">Status Timeline</h4>
@@ -448,8 +565,7 @@ export function SessionConsole() {
                         {STATUS_LABELS[selectedSession.status]}
                       </span>
                     </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
                       {selectedSession.turns.map((turn, index) => (
                         <div
                           key={turn.turnId}
@@ -458,51 +574,79 @@ export function SessionConsole() {
                           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
                             Turn {index + 1}
                           </p>
-                          <p className="mt-3 text-sm font-medium text-white">
-                            {STATUS_LABELS[turn.status]}
-                          </p>
-                          <p className="mt-4 text-xs leading-6 text-slate-400">
-                            開始: {new Date(turn.startedAt).toLocaleString('ja-JP')}
-                          </p>
-                          {turn.completedAt ? (
-                            <p className="text-xs leading-6 text-slate-400">
-                              完了: {new Date(turn.completedAt).toLocaleString('ja-JP')}
-                            </p>
-                          ) : null}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${MODE_STYLES[turn.responseMode]}`}
+                            >
+                              {MODE_LABELS[turn.responseMode]}
+                            </span>
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[turn.status]}`}
+                            >
+                              {STATUS_LABELS[turn.status]}
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
-                    <div className="mb-4">
-                      <h4 className="text-lg font-semibold text-white">Follow-up</h4>
-                      <p className="mt-1 text-sm text-slate-400">
-                        同じ provider session を継続利用して follow-up を送れます。
-                      </p>
+                  <div className="space-y-4">
+                    <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
+                      <h4 className="text-lg font-semibold text-white">Final Result</h4>
+                      <div className="mt-4">{renderResult(selectedSession.finalResult)}</div>
                     </div>
 
-                    <textarea
-                      value={followUpPrompt}
-                      onChange={(event) => setFollowUpPrompt(event.target.value)}
-                      rows={6}
-                      disabled={!canSendPrompt(selectedSession.status) || isSubmitting}
-                      className="w-full rounded-[1.45rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-cyan-200/50 disabled:cursor-not-allowed disabled:bg-slate-900/60 disabled:text-slate-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSendFollowUp}
-                      disabled={!canSendPrompt(selectedSession.status) || isSubmitting}
-                      className="mt-4 w-full rounded-full border border-cyan-200/30 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-50 transition hover:border-cyan-100/40 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
-                    >
-                      follow-up を送信
-                    </button>
+                    <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
+                      <h4 className="text-lg font-semibold text-white">Follow-up</h4>
+                      <ModeSelect
+                        label="Follow-up Mode"
+                        value={followUpMode}
+                        onChange={setFollowUpMode}
+                      />
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFollowUpMode('richText');
+                            setFollowUpPrompt(DEFAULT_FOLLOW_UP);
+                          }}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                        >
+                          S2 サンプル
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFollowUpMode('implementationChecklist');
+                            setFollowUpPrompt(DEFAULT_STRUCTURED_FOLLOW_UP);
+                          }}
+                          className="rounded-full border border-emerald-200/20 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-50 transition hover:bg-emerald-300/16"
+                        >
+                          S3 サンプル
+                        </button>
+                      </div>
+                      <textarea
+                        value={followUpPrompt}
+                        onChange={(event) => setFollowUpPrompt(event.target.value)}
+                        rows={6}
+                        disabled={!canSendPrompt(selectedSession.status) || isSubmitting}
+                        className="mt-4 w-full rounded-[1.45rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-cyan-200/50 disabled:cursor-not-allowed disabled:bg-slate-900/60 disabled:text-slate-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSendFollowUp}
+                        disabled={!canSendPrompt(selectedSession.status) || isSubmitting}
+                        className="mt-4 w-full rounded-full border border-cyan-200/30 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-50 transition hover:border-cyan-100/40 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                      >
+                        follow-up を送信
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
                   <h4 className="text-lg font-semibold text-white">Conversation</h4>
-
                   <div className="mt-4 space-y-5">
                     {selectedSession.turns.map((turn, index) => (
                       <article
@@ -518,20 +662,32 @@ export function SessionConsole() {
                               {turn.prompt}
                             </p>
                           </div>
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs font-medium ${STATUS_STYLES[turn.status]}`}
-                          >
-                            {STATUS_LABELS[turn.status]}
-                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs font-medium ${MODE_STYLES[turn.responseMode]}`}
+                            >
+                              {MODE_LABELS[turn.responseMode]}
+                            </span>
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs font-medium ${STATUS_STYLES[turn.status]}`}
+                            >
+                              {STATUS_LABELS[turn.status]}
+                            </span>
+                          </div>
                         </div>
-
                         <div className="mt-4">
                           <p className="text-xs uppercase tracking-[0.28em] text-slate-500">
                             Agent Response
                           </p>
-                          <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
-                            {turn.response || '応答を待っています...'}
-                          </pre>
+                          <div className="mt-3">
+                            {turn.result ? (
+                              renderResult(turn.result)
+                            ) : (
+                              <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
+                                {turn.response || '応答を待っています...'}
+                              </pre>
+                            )}
+                          </div>
                         </div>
                       </article>
                     ))}

@@ -1,4 +1,9 @@
 import type { AgentCapability } from '../../../shared/domain/agent';
+import {
+  IMPLEMENTATION_CHECKLIST_JSON_SCHEMA,
+  buildImplementationChecklistPrompt,
+  parseImplementationChecklistText,
+} from '../../../shared/domain/implementation-checklist';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
@@ -29,6 +34,7 @@ interface CodexTurnStartResult {
 
 interface CodexTurnContext {
   messageId: string;
+  responseMode: SendPromptInput['responseMode'];
   providerTurnId?: string;
   finalText: string;
   isRunning: boolean;
@@ -88,6 +94,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
   async sendPrompt(input: SendPromptInput): Promise<void> {
     this.activeTurn = {
       messageId: input.messageId,
+      responseMode: input.responseMode,
       finalAnswerItemId: null,
       finalText: '',
       isRunning: false,
@@ -96,7 +103,19 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
     const response = await this.client.request<CodexTurnStartResult>('turn/start', {
       approvalPolicy: 'never',
       cwd: this.cwd,
-      input: [{ type: 'text', text: input.prompt }],
+      input: [
+        {
+          type: 'text',
+          text:
+            input.responseMode === 'implementationChecklist'
+              ? buildImplementationChecklistPrompt(input.prompt)
+              : input.prompt,
+        },
+      ],
+      outputSchema:
+        input.responseMode === 'implementationChecklist'
+          ? IMPLEMENTATION_CHECKLIST_JSON_SCHEMA
+          : undefined,
       sandboxPolicy: {
         access: { type: 'fullAccess' },
         type: 'readOnly',
@@ -217,11 +236,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
         messageId: this.activeTurn.messageId,
         type: 'message.completed',
       });
-      this.emit({
-        content: finalText,
-        format: 'markdown',
-        type: 'result.richText',
-      });
+      this.emitResult(this.activeTurn.responseMode, finalText);
       this.emit({
         status: 'completed',
         type: 'status.changed',
@@ -239,6 +254,27 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       type: 'error',
     });
     this.activeTurn = null;
+  }
+
+  private emitResult(responseMode: SendPromptInput['responseMode'], finalText: string) {
+    if (responseMode === 'implementationChecklist') {
+      const parsed = parseImplementationChecklistText(finalText);
+      if (parsed) {
+        this.emit({
+          data: parsed,
+          fallbackRichText: finalText,
+          schemaName: 'implementation-checklist',
+          type: 'result.structured',
+        });
+        return;
+      }
+    }
+
+    this.emit({
+      content: finalText,
+      format: 'markdown',
+      type: 'result.richText',
+    });
   }
 
   private markRunning() {

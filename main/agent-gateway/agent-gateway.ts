@@ -3,7 +3,9 @@ import type {
   AgentEvent,
   AgentKind,
   AppSession,
+  ConversationResponseMode,
   ConversationTurn,
+  ResultEnvelope,
 } from '../../shared/domain/agent';
 import type {
   AgentSessionSnapshot,
@@ -46,7 +48,8 @@ export class AgentGateway {
 
     const now = this.now();
     const appSessionId = randomUUID();
-    const turn = this.createTurn(input.prompt, now);
+    const responseMode = input.responseMode ?? 'richText';
+    const turn = this.createTurn(input.prompt, responseMode, now);
     const session: AppSession = {
       agent: input.agent,
       appSessionId,
@@ -95,6 +98,7 @@ export class AgentGateway {
         .sendPrompt({
           messageId: turn.messageId,
           prompt: turn.prompt,
+          responseMode: turn.responseMode,
         })
         .catch((error) => {
           this.applyError(
@@ -129,10 +133,12 @@ export class AgentGateway {
     }
 
     const now = this.now();
-    const turn = this.createTurn(input.prompt, now);
+    const responseMode = input.responseMode ?? 'richText';
+    const turn = this.createTurn(input.prompt, responseMode, now);
     session.status = 'starting';
     session.streamBuffer = { content: '', messageId: turn.messageId };
     session.turns = [...session.turns, turn];
+    session.finalResult = undefined;
     session.updatedAt = now;
 
     this.emit({
@@ -146,6 +152,7 @@ export class AgentGateway {
         .sendPrompt({
           messageId: turn.messageId,
           prompt: turn.prompt,
+          responseMode: turn.responseMode,
         })
         .catch((error) => {
           this.applyError(
@@ -233,6 +240,21 @@ export class AgentGateway {
         session.updatedAt = this.now();
         break;
       }
+      case 'result.structured': {
+        const result = {
+          data: event.data,
+          fallbackRichText: event.fallbackRichText,
+          kind: 'structured' as const,
+          schemaName: event.schemaName,
+        };
+        const latestTurn = session.turns.at(-1);
+        if (latestTurn) {
+          latestTurn.result = result;
+        }
+        session.finalResult = result;
+        session.updatedAt = this.now();
+        break;
+      }
       case 'permission.requested': {
         session.status = 'waiting_permission';
         session.updatedAt = this.now();
@@ -286,12 +308,17 @@ export class AgentGateway {
     });
   }
 
-  private createTurn(prompt: string, startedAt: string): ConversationTurn {
+  private createTurn(
+    prompt: string,
+    responseMode: ConversationResponseMode,
+    startedAt: string,
+  ): ConversationTurn {
     return {
       completedAt: undefined,
       messageId: randomUUID(),
       prompt: prompt.trim(),
       response: '',
+      responseMode,
       result: undefined,
       startedAt,
       status: 'starting',
@@ -303,13 +330,27 @@ export class AgentGateway {
     return {
       ...session,
       capabilities: [...session.capabilities],
-      finalResult: session.finalResult ? { ...session.finalResult } : undefined,
+      finalResult: session.finalResult ? this.cloneResultEnvelope(session.finalResult) : undefined,
       modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,
-        result: turn.result ? { ...turn.result } : undefined,
+        result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
       })),
+    };
+  }
+
+  private cloneResultEnvelope(result: ResultEnvelope): ResultEnvelope {
+    if (result.kind === 'richText') {
+      return { ...result };
+    }
+
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        items: result.data.items.map((item) => ({ ...item })),
+      },
     };
   }
 

@@ -3,7 +3,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import Image from 'next/image';
 
-import { SessionConsole } from '../components/session-console';
+import { SessionConsole } from '../components/sessionConsole';
 
 export default function HomePage() {
   return (

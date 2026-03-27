@@ -4,7 +4,9 @@ import type {
   AgentEvent,
   AgentKind,
   AppSession,
+  ConversationResponseMode,
   ConversationTurn,
+  ResultEnvelope,
 } from '../../shared/domain/agent';
 import type {
   AgentSessionSnapshot,
@@ -37,7 +39,7 @@ export class MockAgentGateway {
 
     const now = this.now();
     const appSessionId = randomUUID();
-    const turn = this.createTurn(input.prompt, now);
+    const turn = this.createTurn(input.prompt, input.responseMode ?? 'richText', now);
     const session: AppSession = {
       agent: input.agent,
       appSessionId,
@@ -69,8 +71,9 @@ export class MockAgentGateway {
     }
 
     const now = this.now();
-    const turn = this.createTurn(input.prompt, now);
+    const turn = this.createTurn(input.prompt, input.responseMode ?? 'richText', now);
     session.status = 'starting';
+    session.finalResult = undefined;
     session.streamBuffer = { content: '', messageId: turn.messageId };
     session.turns = [...session.turns, turn];
     session.updatedAt = now;
@@ -235,12 +238,17 @@ export class MockAgentGateway {
     return chunks;
   }
 
-  private createTurn(prompt: string, startedAt: string): ConversationTurn {
+  private createTurn(
+    prompt: string,
+    responseMode: ConversationResponseMode,
+    startedAt: string,
+  ): ConversationTurn {
     return {
       completedAt: undefined,
       messageId: randomUUID(),
       prompt: prompt.trim(),
       response: '',
+      responseMode,
       result: undefined,
       startedAt,
       status: 'starting',
@@ -252,13 +260,27 @@ export class MockAgentGateway {
     return {
       ...session,
       capabilities: [...session.capabilities],
-      finalResult: session.finalResult ? { ...session.finalResult } : undefined,
+      finalResult: session.finalResult ? this.cloneResultEnvelope(session.finalResult) : undefined,
       modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,
-        result: turn.result ? { ...turn.result } : undefined,
+        result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
       })),
+    };
+  }
+
+  private cloneResultEnvelope(result: ResultEnvelope): ResultEnvelope {
+    if (result.kind === 'richText') {
+      return { ...result };
+    }
+
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        items: result.data.items.map((item) => ({ ...item })),
+      },
     };
   }
 

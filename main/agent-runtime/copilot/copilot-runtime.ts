@@ -1,4 +1,8 @@
 import type { AgentCapability, SessionModelSelection } from '../../../shared/domain/agent';
+import {
+  buildImplementationChecklistPrompt,
+  parseImplementationChecklistText,
+} from '../../../shared/domain/implementation-checklist';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
@@ -30,6 +34,7 @@ interface CopilotBootstrapResult {
 
 interface CopilotTurnContext {
   messageId: string;
+  responseMode: SendPromptInput['responseMode'];
   finalText: string;
   isRunning: boolean;
 }
@@ -155,10 +160,19 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       finalText: '',
       isRunning: false,
       messageId: input.messageId,
+      responseMode: input.responseMode,
     };
 
     const response = await this.client.request<{ stopReason: string }>('session/prompt', {
-      prompt: [{ type: 'text', text: input.prompt }],
+      prompt: [
+        {
+          type: 'text',
+          text:
+            input.responseMode === 'implementationChecklist'
+              ? buildImplementationChecklistPrompt(input.prompt)
+              : input.prompt,
+        },
+      ],
       sessionId: this.providerSessionId,
     });
 
@@ -167,11 +181,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       messageId: input.messageId,
       type: 'message.completed',
     });
-    this.emit({
-      content: finalText,
-      format: 'markdown',
-      type: 'result.richText',
-    });
+    this.emitResult(input.responseMode, finalText);
     if (response.stopReason === 'end_turn') {
       this.emit({
         status: 'completed',
@@ -240,6 +250,27 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
     });
     this.client.respond(id, {
       outcome: { outcome: 'cancelled' },
+    });
+  }
+
+  private emitResult(responseMode: SendPromptInput['responseMode'], finalText: string) {
+    if (responseMode === 'implementationChecklist') {
+      const parsed = parseImplementationChecklistText(finalText);
+      if (parsed) {
+        this.emit({
+          data: parsed,
+          fallbackRichText: finalText,
+          schemaName: 'implementation-checklist',
+          type: 'result.structured',
+        });
+        return;
+      }
+    }
+
+    this.emit({
+      content: finalText,
+      format: 'markdown',
+      type: 'result.richText',
     });
   }
 

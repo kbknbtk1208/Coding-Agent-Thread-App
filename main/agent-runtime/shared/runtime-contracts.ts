@@ -2,13 +2,24 @@ import type {
   AgentCapability,
   AgentKind,
   AgentStatus,
+  ConversationResponseMode,
   SessionModelSelection,
 } from '../../../shared/domain/agent';
+import {
+  IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
+  type ImplementationChecklist,
+} from '../../../shared/domain/implementation-checklist';
 
 export type RuntimeSessionEvent =
   | { type: 'status.changed'; status: AgentStatus }
   | { type: 'message.delta'; messageId: string; text: string }
   | { type: 'message.completed'; messageId: string }
+  | {
+      type: 'result.structured';
+      schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
+      data: ImplementationChecklist;
+      fallbackRichText?: string;
+    }
   | {
       type: 'result.richText';
       format: 'markdown';
@@ -27,6 +38,7 @@ export type RuntimeSessionEvent =
 export interface SendPromptInput {
   messageId: string;
   prompt: string;
+  responseMode: ConversationResponseMode;
 }
 
 export interface RuntimeSessionHandle {

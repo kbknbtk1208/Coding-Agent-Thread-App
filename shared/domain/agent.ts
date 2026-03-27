@@ -1,3 +1,8 @@
+import {
+  IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
+  type ImplementationChecklist,
+} from './implementation-checklist';
+
 export type AgentKind = 'codex' | 'copilot';
 
 export type AgentCapability =
@@ -15,11 +20,22 @@ export type AgentStatus =
   | 'completed'
   | 'failed';
 
-export interface ResultEnvelope {
+export type ConversationResponseMode = 'richText' | 'implementationChecklist';
+
+export interface RichTextResultEnvelope {
   kind: 'richText';
   format: 'markdown';
   content: string;
 }
+
+export interface StructuredResultEnvelope {
+  kind: 'structured';
+  schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
+  data: ImplementationChecklist;
+  fallbackRichText?: string;
+}
+
+export type ResultEnvelope = RichTextResultEnvelope | StructuredResultEnvelope;
 
 export interface StreamBuffer {
   messageId: string | null;
@@ -37,6 +53,7 @@ export interface ConversationTurn {
   messageId: string;
   prompt: string;
   response: string;
+  responseMode: ConversationResponseMode;
   status: AgentStatus;
   startedAt: string;
   completedAt?: string;
@@ -72,6 +89,13 @@ export type AgentEvent =
       text: string;
     }
   | { type: 'message.completed'; appSessionId: string; messageId: string }
+  | {
+      type: 'result.structured';
+      appSessionId: string;
+      schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
+      data: ImplementationChecklist;
+      fallbackRichText?: string;
+    }
   | {
       type: 'result.richText';
       appSessionId: string;
