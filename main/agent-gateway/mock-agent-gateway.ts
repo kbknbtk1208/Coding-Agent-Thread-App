@@ -8,6 +8,7 @@ import type {
   ConversationTurn,
   ResultEnvelope,
 } from '../../shared/domain/agent';
+import type { ImplementationChecklist } from '../../shared/domain/implementation-checklist';
 import type {
   AgentSessionSnapshot,
   SendFollowUpInput,
@@ -118,7 +119,9 @@ export class MockAgentGateway {
       return;
     }
 
-    const response = this.buildResponse(session, turn.prompt);
+    const result = this.buildResultEnvelope(session, turn.prompt);
+    const response =
+      result.kind === 'structured' ? (result.fallbackRichText ?? '') : result.content;
     const chunks = this.chunkText(response);
 
     setTimeout(() => {
@@ -136,7 +139,7 @@ export class MockAgentGateway {
         type: 'status.changed',
       });
 
-      this.pushChunk(appSessionId, currentTurn.turnId, chunks, 0, response);
+      this.pushChunk(appSessionId, currentTurn.turnId, chunks, 0, result);
     }, RUNNING_DELAY_MS);
   }
 
@@ -145,7 +148,7 @@ export class MockAgentGateway {
     turnId: string,
     chunks: string[],
     chunkIndex: number,
-    response: string,
+    result: ResultEnvelope,
   ) {
     const session = this.sessions.get(appSessionId);
     const turn = session?.turns.find((candidate) => candidate.turnId === turnId);
@@ -155,11 +158,6 @@ export class MockAgentGateway {
 
     if (chunkIndex >= chunks.length) {
       const completedAt = this.now();
-      const result = {
-        content: response,
-        format: 'markdown' as const,
-        kind: 'richText' as const,
-      };
 
       turn.completedAt = completedAt;
       turn.result = result;
@@ -176,9 +174,22 @@ export class MockAgentGateway {
       });
       this.emit({
         appSessionId,
-        content: response,
-        format: 'markdown',
-        type: 'result.richText',
+        ...(result.kind === 'richText'
+          ? {
+              content: result.content,
+              format: result.format,
+              source: result.source,
+              structuredParseError: result.structuredParseError,
+              structuredSchemaName: result.structuredSchemaName,
+              type: 'result.richText' as const,
+            }
+          : {
+              data: result.data,
+              fallbackRichText: result.fallbackRichText,
+              schemaName: result.schemaName,
+              source: result.source,
+              type: 'result.structured' as const,
+            }),
       });
       this.emit({
         appSessionId,
@@ -205,7 +216,7 @@ export class MockAgentGateway {
     });
 
     setTimeout(() => {
-      this.pushChunk(appSessionId, turnId, chunks, chunkIndex + 1, response);
+      this.pushChunk(appSessionId, turnId, chunks, chunkIndex + 1, result);
     }, STREAM_INTERVAL_MS);
   }
 
@@ -226,6 +237,67 @@ export class MockAgentGateway {
       '3. `awaiting_input` を別状態にせず、1 セッション 1 active turn のまま単純化します。',
       '4. Gateway は provider 差分を隠蔽し、Renderer には正規化イベントだけを渡します。',
     ].join('\n');
+  }
+
+  private buildResultEnvelope(session: AppSession, prompt: string): ResultEnvelope {
+    if (session.turns.at(-1)?.responseMode === 'implementationChecklist') {
+      if (/fallback|parse failure|parse-fail/i.test(prompt)) {
+        const response = this.buildResponse(session, prompt);
+        return {
+          content: response,
+          format: 'markdown',
+          kind: 'richText',
+          source: 'structuredParseFallback',
+          structuredParseError: 'mock で structured checklist の JSON 化に失敗しました。',
+          structuredSchemaName: 'implementation-checklist',
+        };
+      }
+
+      const checklist = this.buildChecklist(prompt);
+      return {
+        data: checklist,
+        fallbackRichText: JSON.stringify(checklist, null, 2),
+        kind: 'structured',
+        schemaName: 'implementation-checklist',
+        source: session.agent === 'codex' ? 'codexOutputSchema' : 'promptedJson',
+      };
+    }
+
+    const response = this.buildResponse(session, prompt);
+    return {
+      content: response,
+      format: 'markdown',
+      kind: 'richText',
+      source: 'richText',
+    };
+  }
+
+  private buildChecklist(prompt: string): ImplementationChecklist {
+    const summary = prompt.trim().slice(0, 24) || 'task';
+
+    return {
+      type: 'implementation-checklist',
+      items: [
+        {
+          id: '1',
+          title: 'Lint と typecheck を先に通す',
+          reason: `${summary} の回帰を早く検出するため`,
+          priority: 'high',
+        },
+        {
+          id: '2',
+          title: 'UI の表示崩れを確認する',
+          reason: 'structured result と rich text fallback の両方を見分けるため',
+          priority: 'medium',
+        },
+        {
+          id: '3',
+          title: 'Playwright で主要導線を確認する',
+          reason: '実行後の動作確認を機械的に残すため',
+          priority: 'low',
+        },
+      ],
+    };
   }
 
   private chunkText(text: string): string[] {

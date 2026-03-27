@@ -3,6 +3,8 @@ import type {
   AgentKind,
   AgentStatus,
   ConversationResponseMode,
+  RichTextResultSource,
+  StructuredResultSource,
   SessionModelSelection,
 } from '../../../shared/domain/agent';
 import {
@@ -18,12 +20,16 @@ export type RuntimeSessionEvent =
       type: 'result.structured';
       schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
       data: ImplementationChecklist;
+      source: StructuredResultSource;
       fallbackRichText?: string;
     }
   | {
       type: 'result.richText';
       format: 'markdown';
       content: string;
+      source: RichTextResultSource;
+      structuredParseError?: string;
+      structuredSchemaName?: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
     }
   | {
       type: 'permission.requested';

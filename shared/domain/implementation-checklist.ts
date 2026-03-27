@@ -14,6 +14,21 @@ export interface ImplementationChecklist {
   items: ImplementationChecklistItem[];
 }
 
+export type ImplementationChecklistParseFailureReason =
+  | 'emptyResponse'
+  | 'jsonParseFailed'
+  | 'schemaValidationFailed';
+
+export type ImplementationChecklistParseResult =
+  | {
+      ok: true;
+      value: ImplementationChecklist;
+    }
+  | {
+      ok: false;
+      reason: ImplementationChecklistParseFailureReason;
+    };
+
 export const IMPLEMENTATION_CHECKLIST_JSON_SCHEMA = {
   additionalProperties: false,
   properties: {
@@ -67,16 +82,38 @@ export function buildImplementationChecklistPrompt(prompt: string) {
 }
 
 export function parseImplementationChecklistText(text: string): ImplementationChecklist | null {
+  const parsed = parseImplementationChecklistResponse(text);
+  return parsed.ok ? parsed.value : null;
+}
+
+export function parseImplementationChecklistResponse(
+  text: string,
+): ImplementationChecklistParseResult {
   const candidate = extractJsonCandidate(text);
-  if (candidate === null) {
-    return null;
+  if (!candidate.ok) {
+    return candidate;
   }
 
-  return normalizeImplementationChecklist(candidate);
+  const normalized = normalizeImplementationChecklist(candidate.value);
+  if (normalized) {
+    return {
+      ok: true,
+      value: normalized,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: 'schemaValidationFailed',
+  };
 }
 
 export function normalizeImplementationChecklist(value: unknown): ImplementationChecklist | null {
   if (!isRecord(value)) {
+    return null;
+  }
+
+  if (value.type !== IMPLEMENTATION_CHECKLIST_SCHEMA_NAME) {
     return null;
   }
 
@@ -145,32 +182,52 @@ function createChecklistItemId(title: string, index: number) {
   return normalized || `item-${index + 1}`;
 }
 
-function extractJsonCandidate(text: string): unknown | null {
+function extractJsonCandidate(
+  text: string,
+): ImplementationChecklistParseResult | { ok: true; value: unknown } {
   const trimmed = text.trim();
   if (!trimmed) {
-    return null;
+    return {
+      ok: false,
+      reason: 'emptyResponse',
+    };
   }
 
   const direct = tryParseJson(trimmed);
   if (direct !== null) {
-    return direct;
+    return {
+      ok: true,
+      value: direct,
+    };
   }
 
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fencedMatch?.[1]) {
     const fenced = tryParseJson(fencedMatch[1].trim());
     if (fenced !== null) {
-      return fenced;
+      return {
+        ok: true,
+        value: fenced,
+      };
     }
   }
 
   const firstBrace = trimmed.indexOf('{');
   const lastBrace = trimmed.lastIndexOf('}');
   if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return tryParseJson(trimmed.slice(firstBrace, lastBrace + 1));
+    const sliced = tryParseJson(trimmed.slice(firstBrace, lastBrace + 1));
+    if (sliced !== null) {
+      return {
+        ok: true,
+        value: sliced,
+      };
+    }
   }
 
-  return null;
+  return {
+    ok: false,
+    reason: 'jsonParseFailed',
+  };
 }
 
 function tryParseJson(text: string): unknown | null {

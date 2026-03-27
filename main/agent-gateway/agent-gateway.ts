@@ -230,6 +230,9 @@ export class AgentGateway {
           content: event.content,
           format: event.format,
           kind: 'richText' as const,
+          source: event.source,
+          structuredParseError: event.structuredParseError,
+          structuredSchemaName: event.structuredSchemaName,
         };
         const latestTurn = session.turns.at(-1);
         if (latestTurn) {
@@ -246,6 +249,7 @@ export class AgentGateway {
           fallbackRichText: event.fallbackRichText,
           kind: 'structured' as const,
           schemaName: event.schemaName,
+          source: event.source,
         };
         const latestTurn = session.turns.at(-1);
         if (latestTurn) {

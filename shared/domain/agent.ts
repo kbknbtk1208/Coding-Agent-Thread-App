@@ -22,16 +22,24 @@ export type AgentStatus =
 
 export type ConversationResponseMode = 'richText' | 'implementationChecklist';
 
+export type StructuredResultSource = 'codexOutputSchema' | 'promptedJson';
+
+export type RichTextResultSource = 'richText' | 'structuredParseFallback';
+
 export interface RichTextResultEnvelope {
   kind: 'richText';
   format: 'markdown';
   content: string;
+  source: RichTextResultSource;
+  structuredParseError?: string;
+  structuredSchemaName?: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
 }
 
 export interface StructuredResultEnvelope {
   kind: 'structured';
   schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
   data: ImplementationChecklist;
+  source: StructuredResultSource;
   fallbackRichText?: string;
 }
 
@@ -94,6 +102,7 @@ export type AgentEvent =
       appSessionId: string;
       schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
       data: ImplementationChecklist;
+      source: StructuredResultSource;
       fallbackRichText?: string;
     }
   | {
@@ -101,6 +110,9 @@ export type AgentEvent =
       appSessionId: string;
       format: 'markdown';
       content: string;
+      source: RichTextResultSource;
+      structuredParseError?: string;
+      structuredSchemaName?: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
     }
   | {
       type: 'permission.requested';

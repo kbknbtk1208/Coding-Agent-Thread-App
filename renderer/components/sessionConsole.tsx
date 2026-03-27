@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type {
   AgentEvent,
   AgentKind,
@@ -7,6 +9,7 @@ import type {
   ConversationResponseMode,
   ConversationTurn,
   ResultEnvelope,
+  StructuredResultSource,
 } from '../../shared/domain/agent';
 import { TextEffect } from './ui/text-effect';
 
@@ -46,6 +49,11 @@ const MODE_STYLES: Record<ConversationResponseMode, string> = {
   implementationChecklist: 'border-emerald-200/30 bg-emerald-300/12 text-emerald-50',
   richText: 'border-slate-200/20 bg-white/8 text-slate-100',
 };
+
+const RESULT_SOURCE_LABELS: Record<StructuredResultSource, string> = {
+  codexOutputSchema: 'Codex Output Schema',
+  promptedJson: 'Prompted JSON',
+} as const;
 
 const PRIORITY_STYLES = {
   high: 'border-rose-200/30 bg-rose-300/12 text-rose-50',
@@ -88,13 +96,25 @@ function toResultEnvelope(
   event: Extract<AgentEvent, { type: 'result.richText' | 'result.structured' }>,
 ) {
   return event.type === 'result.richText'
-    ? { content: event.content, format: event.format, kind: 'richText' as const }
+    ? {
+        content: event.content,
+        format: event.format,
+        kind: 'richText' as const,
+        source: event.source,
+        structuredParseError: event.structuredParseError,
+        structuredSchemaName: event.structuredSchemaName,
+      }
     : {
         data: event.data,
         fallbackRichText: event.fallbackRichText,
         kind: 'structured' as const,
         schemaName: event.schemaName,
+        source: event.source,
       };
+}
+
+function getResultSourceLabel(source: StructuredResultSource) {
+  return RESULT_SOURCE_LABELS[source];
 }
 
 function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
@@ -216,42 +236,129 @@ function renderResult(result?: ResultEnvelope) {
 
   if (result.kind === 'richText') {
     return (
-      <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">{result.content}</pre>
+      <div className="space-y-4">
+        {result.source === 'structuredParseFallback' ? (
+          <div className="rounded-[1.1rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
+            <p className="font-semibold">
+              Structured 変換に失敗したため rich text へ fallback しました。
+            </p>
+            <p className="mt-1 text-amber-50/80">
+              schema: `{result.structuredSchemaName ?? 'implementation-checklist'}`
+            </p>
+            {result.structuredParseError ? (
+              <p className="mt-1 text-amber-50/80">{result.structuredParseError}</p>
+            ) : null}
+          </div>
+        ) : null}
+        {result.source === 'structuredParseFallback' ? (
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-[1.2rem] border border-white/10 bg-black/40 p-4 text-sm leading-7 text-slate-100">
+            {result.content || 'structured fallback の raw text が空です。'}
+          </pre>
+        ) : (
+          <MarkdownRenderer content={result.content} />
+        )}
+      </div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {result.data.items.map((item) => (
-        <article
-          key={item.id}
-          className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{item.id}</p>
-              <h5 className="mt-2 text-sm font-semibold text-white">{item.title}</h5>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-emerald-200/30 bg-emerald-300/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-50">
+          Structured Checklist
+        </span>
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200">
+          {getResultSourceLabel(result.source)}
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        {result.data.items.map((item) => (
+          <article
+            key={item.id}
+            className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{item.id}</p>
+                <h5 className="mt-2 text-sm font-semibold text-white">{item.title}</h5>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-xs font-medium ${PRIORITY_STYLES[item.priority]}`}
+              >
+                {item.priority}
+              </span>
             </div>
-            <span
-              className={`rounded-full border px-3 py-1 text-xs font-medium ${PRIORITY_STYLES[item.priority]}`}
-            >
-              {item.priority}
-            </span>
-          </div>
-          <p className="mt-3 text-sm leading-7 text-slate-300">{item.reason}</p>
-        </article>
-      ))}
+            <p className="mt-3 text-sm leading-7 text-slate-300">{item.reason}</p>
+          </article>
+        ))}
+      </div>
+
       {result.fallbackRichText ? (
         <details className="rounded-[1.3rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-            Fallback Rich Text
+            Raw JSON Text
           </summary>
-          <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
-            {result.fallbackRichText}
-          </pre>
+          <div className="mt-3">
+            <pre className="overflow-x-auto whitespace-pre-wrap rounded-[1.2rem] border border-white/10 bg-black/40 p-4 text-sm leading-7 text-slate-100">
+              {result.fallbackRichText}
+            </pre>
+          </div>
         </details>
       ) : null}
     </div>
+  );
+}
+
+function MarkdownRenderer({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ children, ...props }) => (
+          <a
+            {...props}
+            className="text-cyan-200 underline decoration-cyan-300/40 decoration-2 underline-offset-4"
+            rel="noreferrer"
+            target="_blank"
+          >
+            {children}
+          </a>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-cyan-200/40 pl-4 text-slate-300">
+            {children}
+          </blockquote>
+        ),
+        code: ({ children, className }) => (
+          <code
+            className={`${className ?? ''} rounded bg-black/30 px-1.5 py-0.5 font-mono text-[0.92em] text-cyan-50`}
+          >
+            {children}
+          </code>
+        ),
+        h1: ({ children }) => (
+          <h1 className="text-2xl font-semibold tracking-[-0.04em] text-white">{children}</h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="text-xl font-semibold tracking-[-0.03em] text-white">{children}</h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="text-lg font-semibold tracking-[-0.03em] text-white">{children}</h3>
+        ),
+        li: ({ children }) => <li className="leading-7 text-slate-200">{children}</li>,
+        ol: ({ children }) => <ol className="list-decimal space-y-2 pl-6">{children}</ol>,
+        p: ({ children }) => <p className="text-sm leading-7 text-slate-200">{children}</p>,
+        pre: ({ children }) => (
+          <pre className="overflow-x-auto rounded-[1.2rem] border border-white/10 bg-black/40 p-4 text-sm leading-7 text-slate-100">
+            {children}
+          </pre>
+        ),
+        ul: ({ children }) => <ul className="list-disc space-y-2 pl-6">{children}</ul>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
   );
 }
 

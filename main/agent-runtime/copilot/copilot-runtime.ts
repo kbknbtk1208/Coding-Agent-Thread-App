@@ -1,7 +1,7 @@
 import type { AgentCapability, SessionModelSelection } from '../../../shared/domain/agent';
 import {
   buildImplementationChecklistPrompt,
-  parseImplementationChecklistText,
+  parseImplementationChecklistResponse,
 } from '../../../shared/domain/implementation-checklist';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
@@ -255,23 +255,47 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
 
   private emitResult(responseMode: SendPromptInput['responseMode'], finalText: string) {
     if (responseMode === 'implementationChecklist') {
-      const parsed = parseImplementationChecklistText(finalText);
-      if (parsed) {
+      const parsed = parseImplementationChecklistResponse(finalText);
+      if (parsed.ok) {
         this.emit({
-          data: parsed,
           fallbackRichText: finalText,
+          data: parsed.value,
           schemaName: 'implementation-checklist',
+          source: 'promptedJson',
           type: 'result.structured',
         });
         return;
       }
+
+      this.emit({
+        content: finalText,
+        format: 'markdown',
+        source: 'structuredParseFallback',
+        structuredParseError: this.describeChecklistParseFailure(parsed.reason),
+        structuredSchemaName: 'implementation-checklist',
+        type: 'result.richText',
+      });
+      return;
     }
 
     this.emit({
       content: finalText,
       format: 'markdown',
+      source: 'richText',
       type: 'result.richText',
     });
+  }
+
+  private describeChecklistParseFailure(reason: string) {
+    switch (reason) {
+      case 'emptyResponse':
+        return 'structured checklist の応答が空でした。';
+      case 'schemaValidationFailed':
+        return 'JSON は取得できましたが checklist schema に合致しませんでした。';
+      case 'jsonParseFailed':
+      default:
+        return 'structured checklist を JSON として解釈できませんでした。';
+    }
   }
 
   private markRunning() {
