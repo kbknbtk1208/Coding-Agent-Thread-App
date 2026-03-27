@@ -130,23 +130,45 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
       return {
         ...session,
         status: event.status,
+        progressHint:
+          event.status === 'completed' || event.status === 'failed'
+            ? undefined
+            : session.progressHint,
         streamBuffer:
           event.status === 'completed' || event.status === 'failed'
             ? { content: '', messageId: null }
             : session.streamBuffer,
         turns:
-          event.status === 'completed' && session.turns.length > 0
+          (event.status === 'completed' || event.status === 'failed') && session.turns.length > 0
             ? patchLatestTurn(session.turns, (turn) => ({
                 ...turn,
                 completedAt: new Date().toISOString(),
+                progressHint: undefined,
                 status: event.status,
               }))
             : session.turns,
         updatedAt: new Date().toISOString(),
       };
+    case 'progress.updated':
+      return {
+        ...session,
+        progressHint: { ...event.progressHint },
+        status: 'running',
+        turns: patchLatestTurn(session.turns, (turn) =>
+          turn.messageId === event.messageId
+            ? {
+                ...turn,
+                progressHint: { ...event.progressHint },
+                status: 'running',
+              }
+            : turn,
+        ),
+        updatedAt: new Date().toISOString(),
+      };
     case 'message.delta':
       return {
         ...session,
+        progressHint: undefined,
         status: 'running',
         streamBuffer: {
           content: session.streamBuffer.content + event.text,
@@ -154,7 +176,12 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         },
         turns: patchLatestTurn(session.turns, (turn) =>
           turn.messageId === event.messageId
-            ? { ...turn, response: turn.response + event.text, status: 'running' }
+            ? {
+                ...turn,
+                progressHint: undefined,
+                response: turn.response + event.text,
+                status: 'running',
+              }
             : turn,
         ),
         updatedAt: new Date().toISOString(),
@@ -175,8 +202,10 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
       return {
         ...session,
         finalResult: result,
+        progressHint: undefined,
         turns: patchLatestTurn(session.turns, (turn) => ({
           ...turn,
+          progressHint: undefined,
           response: event.type === 'result.richText' ? event.content : turn.response,
           result,
         })),
@@ -184,15 +213,27 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
       };
     }
     case 'permission.requested':
-      return { ...session, status: 'waiting_permission', updatedAt: new Date().toISOString() };
+      return {
+        ...session,
+        progressHint: undefined,
+        status: 'waiting_permission',
+        turns: patchLatestTurn(session.turns, (turn) => ({
+          ...turn,
+          progressHint: undefined,
+          status: 'waiting_permission',
+        })),
+        updatedAt: new Date().toISOString(),
+      };
     case 'error':
       return {
         ...session,
+        progressHint: undefined,
         status: 'failed',
         streamBuffer: { content: '', messageId: null },
         turns: patchLatestTurn(session.turns, (turn) => ({
           ...turn,
           completedAt: new Date().toISOString(),
+          progressHint: undefined,
           status: 'failed',
         })),
         updatedAt: new Date().toISOString(),
@@ -377,10 +418,10 @@ function renderStreamingRichText(text: string, className: string) {
   );
 }
 
-function renderWaitingResponse() {
+function renderWaitingResponse(text = '応答を待っています...') {
   return (
     <p className="text-sm leading-7">
-      <ShimmerText text="応答を待っています..." className="block font-medium" />
+      <ShimmerText text={text} className="block font-medium" />
     </p>
   );
 }
@@ -834,20 +875,28 @@ export function SessionConsole() {
                             Agent Response
                           </p>
                           <div className="mt-3">
-                            {turn.result ? (
-                              renderResult(turn.result)
-                            ) : turn.responseMode === 'richText' && turn.response ? (
-                              renderStreamingRichText(
-                                turn.response,
-                                'text-sm leading-7 text-slate-200',
-                              )
-                            ) : !turn.response ? (
-                              renderWaitingResponse()
-                            ) : (
-                              <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
-                                {turn.response}
-                              </pre>
-                            )}
+                            {(() => {
+                              const isLatestTurn = index === selectedSession.turns.length - 1;
+                              const waitingText =
+                                isLatestTurn && !turn.response && !turn.result
+                                  ? (turn.progressHint?.text ?? selectedSession.progressHint?.text)
+                                  : undefined;
+
+                              return turn.result ? (
+                                renderResult(turn.result)
+                              ) : turn.responseMode === 'richText' && turn.response ? (
+                                renderStreamingRichText(
+                                  turn.response,
+                                  'text-sm leading-7 text-slate-200',
+                                )
+                              ) : !turn.response ? (
+                                renderWaitingResponse(waitingText)
+                              ) : (
+                                <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
+                                  {turn.response}
+                                </pre>
+                              );
+                            })()}
                           </div>
                         </div>
                       </article>

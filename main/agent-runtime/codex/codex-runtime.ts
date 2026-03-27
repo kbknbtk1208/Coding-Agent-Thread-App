@@ -1,4 +1,4 @@
-import type { AgentCapability } from '../../../shared/domain/agent';
+import type { AgentCapability, ProgressHint } from '../../../shared/domain/agent';
 import {
   IMPLEMENTATION_CHECKLIST_JSON_SCHEMA,
   buildImplementationChecklistPrompt,
@@ -146,6 +146,11 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       return;
     }
 
+    if (method === 'turn/plan/updated') {
+      this.handlePlanUpdated();
+      return;
+    }
+
     if (method === 'item/agentMessage/delta') {
       this.handleMessageDelta(params);
       return;
@@ -181,7 +186,37 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       this.getStringValue(item, 'phase') === 'final_answer'
     ) {
       this.activeTurn.finalAnswerItemId = this.getStringValue(item, 'id') ?? null;
+      return;
     }
+
+    const progressHint = this.describeProgressHint(item);
+    if (!progressHint) {
+      return;
+    }
+
+    this.markRunning();
+    this.emit({
+      messageId: this.activeTurn.messageId,
+      progressHint,
+      type: 'progress.updated',
+    });
+  }
+
+  private handlePlanUpdated() {
+    if (!this.activeTurn) {
+      return;
+    }
+
+    this.markRunning();
+    this.emit({
+      messageId: this.activeTurn.messageId,
+      progressHint: {
+        kind: 'plan',
+        text: '計画を更新しています...',
+        updatedAt: new Date().toISOString(),
+      },
+      type: 'progress.updated',
+    });
   }
 
   private handleMessageDelta(params: unknown) {
@@ -337,6 +372,130 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       source: 'richText',
       type: 'result.richText',
     });
+  }
+
+  private describeProgressHint(item: Record<string, unknown>): ProgressHint | null {
+    const itemId = this.getStringValue(item, 'id') ?? undefined;
+    const type = this.getStringValue(item, 'type');
+    const updatedAt = new Date().toISOString();
+
+    switch (type) {
+      case 'commandExecution':
+        return {
+          itemId,
+          kind: 'command',
+          text: this.describeCommandExecution(item),
+          updatedAt,
+        };
+      case 'dynamicToolCall':
+      case 'mcpToolCall':
+        return {
+          itemId,
+          kind: 'tool',
+          text: this.describeToolCall(item),
+          updatedAt,
+        };
+      case 'fileChange':
+        return {
+          itemId,
+          kind: 'file',
+          text: 'ファイル変更を準備しています...',
+          updatedAt,
+        };
+      case 'webSearch':
+        return {
+          itemId,
+          kind: 'search',
+          text: this.describeWebSearch(item),
+          updatedAt,
+        };
+      case 'reasoning':
+        return {
+          itemId,
+          kind: 'reasoning',
+          text: '考えています...',
+          updatedAt,
+        };
+      case 'plan':
+        return {
+          itemId,
+          kind: 'plan',
+          text: '計画を立てています...',
+          updatedAt,
+        };
+      case 'enteredReviewMode':
+        return {
+          itemId,
+          kind: 'review',
+          text: 'レビューを開始しています...',
+          updatedAt,
+        };
+      case 'exitedReviewMode':
+        return {
+          itemId,
+          kind: 'review',
+          text: 'レビューを終了しています...',
+          updatedAt,
+        };
+      case 'contextCompaction':
+        return {
+          itemId,
+          kind: 'other',
+          text: '会話を圧縮しています...',
+          updatedAt,
+        };
+      case 'agentMessage':
+        return this.getStringValue(item, 'phase') === 'commentary'
+          ? {
+              itemId,
+              kind: 'other',
+              text: '応答をまとめています...',
+              updatedAt,
+            }
+          : null;
+      default:
+        return null;
+    }
+  }
+
+  private describeCommandExecution(item: Record<string, unknown>) {
+    const command = this.getStringValue(item, 'command');
+    if (!command) {
+      return 'コマンドを実行しています...';
+    }
+
+    return `コマンドを実行しています: ${this.summarizeText(command)}`;
+  }
+
+  private describeToolCall(item: Record<string, unknown>) {
+    const server = this.getStringValue(item, 'server');
+    const tool = this.getStringValue(item, 'tool');
+    if (server && tool) {
+      return `ツールを呼び出しています: ${server}/${tool}`;
+    }
+    if (tool) {
+      return `ツールを呼び出しています: ${tool}`;
+    }
+
+    return 'ツールを呼び出しています...';
+  }
+
+  private describeWebSearch(item: Record<string, unknown>) {
+    const query = this.getStringValue(item, 'query');
+    if (!query) {
+      return '検索しています...';
+    }
+
+    return `検索しています: ${this.summarizeText(query)}`;
+  }
+
+  private summarizeText(value: string) {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= 72) {
+      return normalized;
+    }
+
+    return `${normalized.slice(0, 69)}...`;
   }
 
   private markRunning() {

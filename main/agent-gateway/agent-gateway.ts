@@ -57,6 +57,7 @@ export class AgentGateway {
       createdAt: now,
       cwd: input.cwd.trim(),
       status: 'starting',
+      progressHint: undefined,
       streamBuffer: { content: '', messageId: turn.messageId },
       turns: [turn],
       updatedAt: now,
@@ -136,6 +137,7 @@ export class AgentGateway {
     const responseMode = input.responseMode ?? 'richText';
     const turn = this.createTurn(input.prompt, responseMode, now);
     session.status = 'starting';
+    session.progressHint = undefined;
     session.streamBuffer = { content: '', messageId: turn.messageId };
     session.turns = [...session.turns, turn];
     session.finalResult = undefined;
@@ -187,19 +189,33 @@ export class AgentGateway {
 
     switch (event.type) {
       case 'status.changed': {
-        const completedAt = event.status === 'completed' ? this.now() : undefined;
+        const terminalAt =
+          event.status === 'completed' || event.status === 'failed' ? this.now() : undefined;
         session.status = event.status;
         session.updatedAt = this.now();
-        if (event.status === 'completed' || event.status === 'failed') {
+        if (terminalAt) {
+          session.progressHint = undefined;
           session.streamBuffer = { content: '', messageId: null };
         }
-        if (completedAt && session.turns.length > 0) {
+        if (terminalAt && session.turns.length > 0) {
           const latestTurn = session.turns.at(-1);
           if (latestTurn) {
-            latestTurn.completedAt = completedAt;
+            latestTurn.completedAt = terminalAt;
             latestTurn.status = event.status;
+            latestTurn.progressHint = undefined;
           }
         }
+        break;
+      }
+      case 'progress.updated': {
+        const latestTurn = session.turns.at(-1);
+        session.status = 'running';
+        session.progressHint = { ...event.progressHint };
+        if (latestTurn && latestTurn.messageId === event.messageId) {
+          latestTurn.progressHint = { ...event.progressHint };
+          latestTurn.status = 'running';
+        }
+        session.updatedAt = this.now();
         break;
       }
       case 'message.delta': {
@@ -207,8 +223,10 @@ export class AgentGateway {
         if (latestTurn && latestTurn.messageId === event.messageId) {
           latestTurn.response += event.text;
           latestTurn.status = 'running';
+          latestTurn.progressHint = undefined;
         }
         session.status = 'running';
+        session.progressHint = undefined;
         session.streamBuffer = {
           content: session.streamBuffer.content + event.text,
           messageId: event.messageId,
@@ -238,8 +256,10 @@ export class AgentGateway {
         if (latestTurn) {
           latestTurn.response = event.content;
           latestTurn.result = result;
+          latestTurn.progressHint = undefined;
         }
         session.finalResult = result;
+        session.progressHint = undefined;
         session.updatedAt = this.now();
         break;
       }
@@ -254,24 +274,34 @@ export class AgentGateway {
         const latestTurn = session.turns.at(-1);
         if (latestTurn) {
           latestTurn.result = result;
+          latestTurn.progressHint = undefined;
         }
         session.finalResult = result;
+        session.progressHint = undefined;
         session.updatedAt = this.now();
         break;
       }
       case 'permission.requested': {
         session.status = 'waiting_permission';
+        session.progressHint = undefined;
         session.updatedAt = this.now();
+        const latestTurn = session.turns.at(-1);
+        if (latestTurn) {
+          latestTurn.progressHint = undefined;
+          latestTurn.status = 'waiting_permission';
+        }
         break;
       }
       case 'error': {
         session.status = 'failed';
+        session.progressHint = undefined;
         session.streamBuffer = { content: '', messageId: null };
         session.updatedAt = this.now();
         const latestTurn = session.turns.at(-1);
         if (latestTurn) {
           latestTurn.completedAt = this.now();
           latestTurn.status = 'failed';
+          latestTurn.progressHint = undefined;
         }
         break;
       }
@@ -292,6 +322,7 @@ export class AgentGateway {
     }
 
     session.status = 'failed';
+    session.progressHint = undefined;
     session.streamBuffer = { content: '', messageId: null };
     session.updatedAt = this.now();
 
@@ -299,6 +330,7 @@ export class AgentGateway {
     if (latestTurn) {
       latestTurn.completedAt = this.now();
       latestTurn.status = 'failed';
+      latestTurn.progressHint = undefined;
     }
 
     this.emit({
@@ -323,6 +355,7 @@ export class AgentGateway {
       prompt: prompt.trim(),
       response: '',
       responseMode,
+      progressHint: undefined,
       result: undefined,
       startedAt,
       status: 'starting',
@@ -336,9 +369,11 @@ export class AgentGateway {
       capabilities: [...session.capabilities],
       finalResult: session.finalResult ? this.cloneResultEnvelope(session.finalResult) : undefined,
       modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
+      progressHint: session.progressHint ? { ...session.progressHint } : undefined,
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,
+        progressHint: turn.progressHint ? { ...turn.progressHint } : undefined,
         result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
       })),
     };

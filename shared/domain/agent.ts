@@ -22,6 +22,23 @@ export type AgentStatus =
 
 export type ConversationResponseMode = 'richText' | 'implementationChecklist';
 
+export type AgentProgressKind =
+  | 'search'
+  | 'command'
+  | 'file'
+  | 'tool'
+  | 'reasoning'
+  | 'plan'
+  | 'review'
+  | 'other';
+
+export interface ProgressHint {
+  kind: AgentProgressKind;
+  text: string;
+  itemId?: string;
+  updatedAt: string;
+}
+
 export type StructuredResultSource = 'codexOutputSchema' | 'promptedJson';
 
 export type RichTextResultSource = 'richText' | 'structuredParseFallback';
@@ -65,6 +82,7 @@ export interface ConversationTurn {
   status: AgentStatus;
   startedAt: string;
   completedAt?: string;
+  progressHint?: ProgressHint;
   result?: ResultEnvelope;
 }
 
@@ -79,6 +97,7 @@ export interface AppSession {
   turns: ConversationTurn[];
   streamBuffer: StreamBuffer;
   finalResult?: ResultEnvelope;
+  progressHint?: ProgressHint;
   modelSelection?: SessionModelSelection;
 }
 
@@ -90,6 +109,12 @@ export type AgentEvent =
       capabilities: AgentCapability[];
     }
   | { type: 'status.changed'; appSessionId: string; status: AgentStatus }
+  | {
+      type: 'progress.updated';
+      appSessionId: string;
+      messageId: string;
+      progressHint: ProgressHint;
+    }
   | {
       type: 'message.delta';
       appSessionId: string;

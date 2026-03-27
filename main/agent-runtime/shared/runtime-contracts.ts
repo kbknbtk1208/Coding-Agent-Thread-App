@@ -6,6 +6,7 @@ import type {
   RichTextResultSource,
   StructuredResultSource,
   SessionModelSelection,
+  ProgressHint,
 } from '../../../shared/domain/agent';
 import {
   IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
@@ -14,6 +15,11 @@ import {
 
 export type RuntimeSessionEvent =
   | { type: 'status.changed'; status: AgentStatus }
+  | {
+      type: 'progress.updated';
+      messageId: string;
+      progressHint: ProgressHint;
+    }
   | { type: 'message.delta'; messageId: string; text: string }
   | { type: 'message.completed'; messageId: string }
   | {
