@@ -240,6 +240,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       messageId: this.activeTurn.messageId,
       text: delta,
       type: 'message.delta',
+      updatedAt: new Date().toISOString(),
     });
   }
 

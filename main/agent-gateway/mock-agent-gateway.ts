@@ -8,6 +8,10 @@ import type {
   ConversationTurn,
   ResultEnvelope,
 } from '../../shared/domain/agent';
+import {
+  applyMessageDeltaToTurn,
+  cloneIntermediateSegments,
+} from '../../shared/domain/intermediate-segments';
 import type { ImplementationChecklist } from '../../shared/domain/implementation-checklist';
 import type {
   AgentSessionSnapshot,
@@ -200,8 +204,11 @@ export class MockAgentGateway {
     }
 
     const chunk = chunks[chunkIndex];
-    turn.response += chunk;
-    turn.status = 'running';
+    const nextTurn = applyMessageDeltaToTurn(turn, session.agent, chunk, this.now());
+    nextTurn.status = 'running';
+    session.turns = session.turns.map((candidate) =>
+      candidate.turnId === turnId ? nextTurn : candidate,
+    );
     session.streamBuffer = {
       content: session.streamBuffer.content + chunk,
       messageId: turn.messageId,
@@ -213,6 +220,7 @@ export class MockAgentGateway {
       messageId: turn.messageId,
       text: chunk,
       type: 'message.delta',
+      updatedAt: this.now(),
     });
 
     setTimeout(() => {
@@ -320,6 +328,7 @@ export class MockAgentGateway {
       messageId: randomUUID(),
       prompt: prompt.trim(),
       response: '',
+      intermediateSegments: [],
       responseMode,
       result: undefined,
       startedAt,
@@ -337,6 +346,7 @@ export class MockAgentGateway {
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,
+        intermediateSegments: cloneIntermediateSegments(turn.intermediateSegments ?? []),
         result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
       })),
     };

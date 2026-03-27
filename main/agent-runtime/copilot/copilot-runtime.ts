@@ -235,6 +235,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       messageId: this.activeTurn.messageId,
       text,
       type: 'message.delta',
+      updatedAt: new Date().toISOString(),
     });
   }
 

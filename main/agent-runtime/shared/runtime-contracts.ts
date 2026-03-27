@@ -20,7 +20,7 @@ export type RuntimeSessionEvent =
       messageId: string;
       progressHint: ProgressHint;
     }
-  | { type: 'message.delta'; messageId: string; text: string }
+  | { type: 'message.delta'; messageId: string; text: string; updatedAt: string }
   | { type: 'message.completed'; messageId: string }
   | {
       type: 'result.structured';

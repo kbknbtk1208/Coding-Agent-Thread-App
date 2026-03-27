@@ -7,6 +7,11 @@ import type {
   ConversationTurn,
   ResultEnvelope,
 } from '../../shared/domain/agent';
+import {
+  applyMessageDeltaToTurn,
+  applyProgressHintToTurn,
+  cloneIntermediateSegments,
+} from '../../shared/domain/intermediate-segments';
 import type {
   AgentSessionSnapshot,
   SendFollowUpInput,
@@ -212,8 +217,13 @@ export class AgentGateway {
         session.status = 'running';
         session.progressHint = { ...event.progressHint };
         if (latestTurn && latestTurn.messageId === event.messageId) {
-          latestTurn.progressHint = { ...event.progressHint };
-          latestTurn.status = 'running';
+          const nextTurn = applyProgressHintToTurn(
+            latestTurn,
+            event.progressHint,
+            event.progressHint.updatedAt,
+          );
+          nextTurn.status = 'running';
+          session.turns[session.turns.length - 1] = nextTurn;
         }
         session.updatedAt = this.now();
         break;
@@ -221,9 +231,14 @@ export class AgentGateway {
       case 'message.delta': {
         const latestTurn = session.turns.at(-1);
         if (latestTurn && latestTurn.messageId === event.messageId) {
-          latestTurn.response += event.text;
-          latestTurn.status = 'running';
-          latestTurn.progressHint = undefined;
+          const nextTurn = applyMessageDeltaToTurn(
+            latestTurn,
+            session.agent,
+            event.text,
+            event.updatedAt,
+          );
+          nextTurn.status = 'running';
+          session.turns[session.turns.length - 1] = nextTurn;
         }
         session.status = 'running';
         session.progressHint = undefined;
@@ -254,7 +269,6 @@ export class AgentGateway {
         };
         const latestTurn = session.turns.at(-1);
         if (latestTurn) {
-          latestTurn.response = event.content;
           latestTurn.result = result;
           latestTurn.progressHint = undefined;
         }
@@ -354,6 +368,7 @@ export class AgentGateway {
       messageId: randomUUID(),
       prompt: prompt.trim(),
       response: '',
+      intermediateSegments: [],
       responseMode,
       progressHint: undefined,
       result: undefined,
@@ -373,6 +388,7 @@ export class AgentGateway {
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,
+        intermediateSegments: cloneIntermediateSegments(turn.intermediateSegments ?? []),
         progressHint: turn.progressHint ? { ...turn.progressHint } : undefined,
         result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
       })),

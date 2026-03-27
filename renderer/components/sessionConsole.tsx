@@ -6,11 +6,17 @@ import type {
   AgentKind,
   AgentStatus,
   AppSession,
+  ConversationIntermediateSegment,
   ConversationResponseMode,
   ConversationTurn,
   ResultEnvelope,
   StructuredResultSource,
 } from '../../shared/domain/agent';
+import {
+  applyMessageDeltaToTurn,
+  applyProgressHintToTurn,
+  cloneIntermediateSegments,
+} from '../../shared/domain/intermediate-segments';
 import { ShimmerText } from './ui/shimmer-text';
 import { TextEffect } from './ui/text-effect';
 
@@ -85,6 +91,60 @@ function upsertSession(sessions: AppSession[], nextSession: AppSession) {
   ]);
 }
 
+function normalizeTurn(turn: ConversationTurn): ConversationTurn {
+  return {
+    ...turn,
+    intermediateSegments: turn.intermediateSegments ?? [],
+  };
+}
+
+function normalizeSession(session: AppSession): AppSession {
+  return {
+    ...session,
+    turns: session.turns.map(normalizeTurn),
+  };
+}
+
+function mergeTurnSnapshots(
+  existingTurn: ConversationTurn | undefined,
+  nextTurn: ConversationTurn,
+) {
+  if (!existingTurn) {
+    return normalizeTurn(nextTurn);
+  }
+
+  return {
+    ...existingTurn,
+    ...nextTurn,
+    intermediateSegments:
+      nextTurn.intermediateSegments?.length > 0
+        ? cloneIntermediateSegments(nextTurn.intermediateSegments)
+        : cloneIntermediateSegments(existingTurn.intermediateSegments ?? []),
+  };
+}
+
+function mergeSessionSnapshot(existingSession: AppSession | undefined, nextSession: AppSession) {
+  if (!existingSession) {
+    return normalizeSession(nextSession);
+  }
+
+  const turnsById = new Map<string, ConversationTurn>();
+  existingSession.turns.forEach((turn) => {
+    turnsById.set(turn.turnId, turn);
+    turnsById.set(turn.messageId, turn);
+  });
+  return {
+    ...existingSession,
+    ...nextSession,
+    turns: nextSession.turns.map((turn, index) =>
+      mergeTurnSnapshots(
+        turnsById.get(turn.turnId) ?? turnsById.get(turn.messageId) ?? existingSession.turns[index],
+        turn,
+      ),
+    ),
+  };
+}
+
 function canSendPrompt(status: AgentStatus) {
   return status === 'idle' || status === 'completed' || status === 'failed';
 }
@@ -157,8 +217,7 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         turns: patchLatestTurn(session.turns, (turn) =>
           turn.messageId === event.messageId
             ? {
-                ...turn,
-                progressHint: { ...event.progressHint },
+                ...applyProgressHintToTurn(turn, event.progressHint, event.progressHint.updatedAt),
                 status: 'running',
               }
             : turn,
@@ -177,9 +236,7 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         turns: patchLatestTurn(session.turns, (turn) =>
           turn.messageId === event.messageId
             ? {
-                ...turn,
-                progressHint: undefined,
-                response: turn.response + event.text,
+                ...applyMessageDeltaToTurn(turn, session.agent, event.text, event.updatedAt),
                 status: 'running',
               }
             : turn,
@@ -206,7 +263,6 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         turns: patchLatestTurn(session.turns, (turn) => ({
           ...turn,
           progressHint: undefined,
-          response: event.type === 'result.richText' ? event.content : turn.response,
           result,
         })),
         updatedAt: new Date().toISOString(),
@@ -426,6 +482,48 @@ function renderWaitingResponse(text = '応答を待っています...') {
   );
 }
 
+function renderIntermediateSegments(
+  segments: ConversationIntermediateSegment[],
+  options: { isLatestTurn: boolean; turn: ConversationTurn },
+) {
+  return (
+    <div className="space-y-4">
+      {segments.map((segment, index) => {
+        const isLatestSegment = index === segments.length - 1;
+        const isActiveSegment =
+          options.isLatestTurn &&
+          isLatestSegment &&
+          !options.turn.result &&
+          (options.turn.status === 'starting' || options.turn.status === 'running');
+
+        if (segment.kind === 'progress') {
+          return (
+            <div key={segment.segmentId}>
+              {isActiveSegment ? (
+                renderWaitingResponse(segment.text)
+              ) : (
+                <p className="whitespace-pre-wrap text-sm leading-7 text-slate-400">
+                  {segment.text}
+                </p>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div key={segment.segmentId}>
+            {isActiveSegment ? (
+              renderStreamingRichText(segment.text, 'text-sm leading-7 text-slate-200')
+            ) : (
+              <p className="whitespace-pre-wrap text-sm leading-7 text-slate-200">{segment.text}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SessionConsole() {
   const [agent, setAgent] = useState<AgentKind>('codex');
   const [cwd, setCwd] = useState(DEFAULT_CWD);
@@ -466,7 +564,9 @@ export function SessionConsole() {
 
     const loadSessions = async () => {
       try {
-        const nextSessions = sortSessions(await window.agentApi.listSessions());
+        const nextSessions = sortSessions(
+          (await window.agentApi.listSessions()).map(normalizeSession),
+        );
         if (!isCancelled) {
           setSessions(nextSessions);
           setSelectedSessionId(nextSessions[0]?.appSessionId ?? null);
@@ -518,7 +618,13 @@ export function SessionConsole() {
         prompt,
         responseMode: startMode,
       });
-      setSessions((current) => upsertSession(current, session));
+      setSessions((current) => {
+        const mergedSession = mergeSessionSnapshot(
+          current.find((item) => item.appSessionId === session.appSessionId),
+          session,
+        );
+        return upsertSession(current, mergedSession);
+      });
       setSelectedSessionId(session.appSessionId);
       setFollowUpMode(getLatestMode(session));
     } catch (error) {
@@ -544,7 +650,13 @@ export function SessionConsole() {
         prompt: followUpPrompt,
         responseMode: followUpMode,
       });
-      setSessions((current) => upsertSession(current, session));
+      setSessions((current) => {
+        const mergedSession = mergeSessionSnapshot(
+          current.find((item) => item.appSessionId === session.appSessionId),
+          session,
+        );
+        return upsertSession(current, mergedSession);
+      });
       setSelectedSessionId(session.appSessionId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'follow-up の送信に失敗しました。');
@@ -877,14 +989,41 @@ export function SessionConsole() {
                           <div className="mt-3">
                             {(() => {
                               const isLatestTurn = index === selectedSession.turns.length - 1;
+                              const intermediateSegments = turn.intermediateSegments ?? [];
                               const waitingText =
-                                isLatestTurn && !turn.response && !turn.result
+                                isLatestTurn &&
+                                intermediateSegments.length === 0 &&
+                                !turn.response &&
+                                !turn.result
                                   ? (turn.progressHint?.text ?? selectedSession.progressHint?.text)
                                   : undefined;
 
-                              return turn.result ? (
-                                renderResult(turn.result)
-                              ) : turn.responseMode === 'richText' && turn.response ? (
+                              if (intermediateSegments.length > 0 || turn.result) {
+                                return (
+                                  <div className="space-y-5">
+                                    {intermediateSegments.length > 0
+                                      ? renderIntermediateSegments(intermediateSegments, {
+                                          isLatestTurn,
+                                          turn,
+                                        })
+                                      : null}
+                                    {turn.result ? (
+                                      intermediateSegments.length > 0 ? (
+                                        <div className="space-y-4 border-t border-white/10 pt-4">
+                                          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                                            Final Output
+                                          </p>
+                                          {renderResult(turn.result)}
+                                        </div>
+                                      ) : (
+                                        renderResult(turn.result)
+                                      )
+                                    ) : null}
+                                  </div>
+                                );
+                              }
+
+                              return turn.responseMode === 'richText' && turn.response ? (
                                 renderStreamingRichText(
                                   turn.response,
                                   'text-sm leading-7 text-slate-200',

@@ -39,6 +39,16 @@ export interface ProgressHint {
   updatedAt: string;
 }
 
+export type ConversationIntermediateSegmentKind = 'progress' | 'message';
+
+export interface ConversationIntermediateSegment {
+  kind: ConversationIntermediateSegmentKind;
+  progressKind?: AgentProgressKind;
+  segmentId: string;
+  text: string;
+  updatedAt: string;
+}
+
 export type StructuredResultSource = 'codexOutputSchema' | 'promptedJson';
 
 export type RichTextResultSource = 'richText' | 'structuredParseFallback';
@@ -78,6 +88,7 @@ export interface ConversationTurn {
   messageId: string;
   prompt: string;
   response: string;
+  intermediateSegments: ConversationIntermediateSegment[];
   responseMode: ConversationResponseMode;
   status: AgentStatus;
   startedAt: string;
@@ -120,6 +131,7 @@ export type AgentEvent =
       appSessionId: string;
       messageId: string;
       text: string;
+      updatedAt: string;
     }
   | { type: 'message.completed'; appSessionId: string; messageId: string }
   | {
