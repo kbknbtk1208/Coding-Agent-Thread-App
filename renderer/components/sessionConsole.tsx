@@ -13,7 +13,7 @@ import type {
 } from '../../shared/domain/agent';
 import { TextEffect } from './ui/text-effect';
 
-const DEFAULT_CWD = 'C:\\Users\\nkubo\\Dev\\Coding-Agent-Thread-App';
+const DEFAULT_CWD = '';
 const DEFAULT_RICH_TEXT_PROMPT =
   'このリポジトリの目的、技術スタック、次に読むべきファイルを 5 項目以内で要約して';
 const DEFAULT_STRUCTURED_PROMPT =
@@ -387,6 +387,29 @@ export function SessionConsole() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    void window.agentApi
+      .getDefaultCwd()
+      .then((defaultCwd) => {
+        if (!isCancelled) {
+          setCwd((current) => current || defaultCwd);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setErrorMessage(
+            error instanceof Error ? error.message : '初期 cwd の取得に失敗しました。',
+          );
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;

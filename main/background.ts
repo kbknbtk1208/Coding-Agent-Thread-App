@@ -1,5 +1,5 @@
 import path from 'path';
-import { app, ipcMain } from 'electron';
+import { BrowserWindow, app, ipcMain } from 'electron';
 import serve from 'electron-serve';
 import {
   AGENT_IPC_CHANNELS,
@@ -10,6 +10,35 @@ import { AgentGateway } from './agent-gateway/agent-gateway';
 import { createWindow } from './helpers';
 
 const isProd = process.env.NODE_ENV === 'production';
+const devServerPort = process.argv[2];
+
+let mainWindow: BrowserWindow | null = null;
+
+async function createMainAppWindow() {
+  const window = createWindow('main', {
+    width: 1000,
+    height: 600,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
+
+  mainWindow = window;
+
+  if (isProd) {
+    await window.loadURL('app://./home');
+  } else {
+    await window.loadURL(`http://localhost:${devServerPort}/home`);
+  }
+
+  return window;
+}
 
 if (isProd) {
   serve({ directory: 'app' });
@@ -20,27 +49,21 @@ if (isProd) {
 (async () => {
   await app.whenReady();
 
-  const mainWindow = createWindow('main', {
-    width: 1000,
-    height: 600,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-    },
-  });
-
-  if (isProd) {
-    await mainWindow.loadURL('app://./home');
-  } else {
-    const port = process.argv[2];
-    await mainWindow.loadURL(`http://localhost:${port}/home`);
-  }
+  await createMainAppWindow();
 
   const gateway = new AgentGateway((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
     mainWindow.webContents.send(AGENT_IPC_CHANNELS.event, event);
   });
 
   ipcMain.handle(AGENT_IPC_CHANNELS.listSessions, () => {
     return gateway.listSessions();
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.getDefaultCwd, () => {
+    return process.cwd();
   });
 
   ipcMain.handle(AGENT_IPC_CHANNELS.startSession, (_event, input: StartSessionInput) => {
@@ -54,8 +77,20 @@ if (isProd) {
   app.on('before-quit', () => {
     void gateway.dispose();
   });
+
+  app.on('activate', () => {
+    const existingWindow = BrowserWindow.getAllWindows()[0];
+    if (existingWindow) {
+      existingWindow.focus();
+      return;
+    }
+
+    void createMainAppWindow();
+  });
 })();
 
 app.on('window-all-closed', () => {
-  app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });

@@ -22,6 +22,9 @@ const handler = {
 };
 
 const agentApi = {
+  getDefaultCwd(): Promise<string> {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.getDefaultCwd);
+  },
   listSessions(): Promise<AgentSessionSnapshot[]> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.listSessions);
   },

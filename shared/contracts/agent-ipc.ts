@@ -2,6 +2,7 @@ import type { AgentEvent, AgentKind, AppSession, ConversationResponseMode } from
 
 export const AGENT_IPC_CHANNELS = {
   event: 'agent:event',
+  getDefaultCwd: 'agent:get-default-cwd',
   listSessions: 'agent:list-sessions',
   sendFollowUp: 'agent:send-follow-up',
   startSession: 'agent:start-session',

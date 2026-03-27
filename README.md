@@ -57,12 +57,13 @@
 
 ## 前提環境
 
-- Windows
-- PowerShell
+- Windows または macOS
+- Windows は PowerShell、macOS は Terminal / zsh を想定
 - Node.js 22 系
 - npm 10 系
+- Codex CLI と GitHub Copilot CLI が利用可能であること
 
-**ただし、本番開発時はMac OSを使用**
+現時点の実動作確認は Windows 中心です。macOS でも起動しやすいように OS 依存の初期値は外していますが、実機確認は別途必要です。
 
 ## セットアップ
 
