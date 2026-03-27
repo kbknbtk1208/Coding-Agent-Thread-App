@@ -1,4 +1,7 @@
 export const IMPLEMENTATION_CHECKLIST_SCHEMA_NAME = 'implementation-checklist' as const;
+export const STRUCTURED_FALLBACK_VERIFICATION_MARKER = '[verify-structured-fallback]' as const;
+export const STRUCTURED_FALLBACK_VERIFICATION_REASON =
+  'structured fallback UI の検証用に parse を意図的にスキップしました。';
 
 export type ChecklistPriority = 'high' | 'medium' | 'low';
 
@@ -60,8 +63,16 @@ export const IMPLEMENTATION_CHECKLIST_JSON_SCHEMA = {
 } as const;
 
 export function buildImplementationChecklistPrompt(prompt: string) {
+  const trimmedPrompt = prompt.trim();
+  const shouldForceStructuredFallback = trimmedPrompt.includes(
+    STRUCTURED_FALLBACK_VERIFICATION_MARKER,
+  );
+  const normalizedPrompt = trimmedPrompt
+    .replace(STRUCTURED_FALLBACK_VERIFICATION_MARKER, '')
+    .trim();
+
   return [
-    prompt.trim(),
+    normalizedPrompt,
     '',
     '返答は JSON オブジェクトのみで返してください。',
     'Markdown コードフェンス、前置き、補足説明は禁止です。',
@@ -78,6 +89,25 @@ export function buildImplementationChecklistPrompt(prompt: string) {
     '  ]',
     '}',
     'priority は high / medium / low のいずれかにしてください。',
+    ...(shouldForceStructuredFallback
+      ? [
+          '',
+          'これは structured fallback の検証です。',
+          '上記の JSON 指示は無視し、必ず通常の Markdown 箇条書きだけで返答してください。',
+          'JSON、コードフェンス、波括弧は含めないでください。',
+        ]
+      : []),
+  ].join('\n');
+}
+
+export function buildStructuredFallbackVerificationPrompt(prompt: string) {
+  return [
+    prompt.trim(),
+    '',
+    'これは structured fallback UI の検証です。',
+    'JSON オブジェクト、コードフェンス、schema 形式の出力は禁止です。',
+    '代わりに Markdown の箇条書きで、3 項目以内のチェックポイントを返してください。',
+    '各項目には短い title と reason が分かる説明を含めてください。',
   ].join('\n');
 }
 

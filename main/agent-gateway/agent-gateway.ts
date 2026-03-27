@@ -54,7 +54,7 @@ export class AgentGateway {
     const now = this.now();
     const appSessionId = randomUUID();
     const responseMode = input.responseMode ?? 'richText';
-    const turn = this.createTurn(input.prompt, responseMode, now);
+    const turn = this.createTurn(input.prompt, responseMode, now, input.structuredOutputMode);
     const session: AppSession = {
       agent: input.agent,
       appSessionId,
@@ -105,6 +105,7 @@ export class AgentGateway {
           messageId: turn.messageId,
           prompt: turn.prompt,
           responseMode: turn.responseMode,
+          structuredOutputMode: turn.structuredOutputMode,
         })
         .catch((error) => {
           this.applyError(
@@ -140,7 +141,7 @@ export class AgentGateway {
 
     const now = this.now();
     const responseMode = input.responseMode ?? 'richText';
-    const turn = this.createTurn(input.prompt, responseMode, now);
+    const turn = this.createTurn(input.prompt, responseMode, now, input.structuredOutputMode);
     session.status = 'starting';
     session.progressHint = undefined;
     session.streamBuffer = { content: '', messageId: turn.messageId };
@@ -160,6 +161,7 @@ export class AgentGateway {
           messageId: turn.messageId,
           prompt: turn.prompt,
           responseMode: turn.responseMode,
+          structuredOutputMode: turn.structuredOutputMode,
         })
         .catch((error) => {
           this.applyError(
@@ -362,6 +364,7 @@ export class AgentGateway {
     prompt: string,
     responseMode: ConversationResponseMode,
     startedAt: string,
+    structuredOutputMode?: StartSessionInput['structuredOutputMode'],
   ): ConversationTurn {
     return {
       completedAt: undefined,
@@ -370,6 +373,8 @@ export class AgentGateway {
       response: '',
       intermediateSegments: [],
       responseMode,
+      structuredOutputMode:
+        responseMode === 'implementationChecklist' ? (structuredOutputMode ?? 'normal') : undefined,
       progressHint: undefined,
       result: undefined,
       startedAt,

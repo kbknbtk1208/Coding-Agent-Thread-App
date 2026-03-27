@@ -1,5 +1,7 @@
 import type { AgentCapability, SessionModelSelection } from '../../../shared/domain/agent';
 import {
+  STRUCTURED_FALLBACK_VERIFICATION_REASON,
+  buildStructuredFallbackVerificationPrompt,
   buildImplementationChecklistPrompt,
   parseImplementationChecklistResponse,
 } from '../../../shared/domain/implementation-checklist';
@@ -12,7 +14,7 @@ import type {
   SendPromptInput,
 } from '../shared/runtime-contracts';
 
-const COPILOT_CAPABILITIES: AgentCapability[] = ['resumeSession', 'structuredOutput'];
+const COPILOT_CAPABILITIES: AgentCapability[] = ['structuredOutput'];
 const COPILOT_BASE_ARGS = ['--acp', '--stdio'] as const;
 const COPILOT_REQUESTED_MODEL = 'gpt-5-mini';
 const COPILOT_MODEL_FALLBACK_WARNING =
@@ -35,6 +37,7 @@ interface CopilotBootstrapResult {
 interface CopilotTurnContext {
   messageId: string;
   responseMode: SendPromptInput['responseMode'];
+  structuredOutputMode?: SendPromptInput['structuredOutputMode'];
   finalText: string;
   isRunning: boolean;
 }
@@ -161,6 +164,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       isRunning: false,
       messageId: input.messageId,
       responseMode: input.responseMode,
+      structuredOutputMode: input.structuredOutputMode,
     };
 
     const response = await this.client.request<{ stopReason: string }>('session/prompt', {
@@ -169,7 +173,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
           type: 'text',
           text:
             input.responseMode === 'implementationChecklist'
-              ? buildImplementationChecklistPrompt(input.prompt)
+              ? this.buildPromptText(input)
               : input.prompt,
         },
       ],
@@ -181,7 +185,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       messageId: input.messageId,
       type: 'message.completed',
     });
-    this.emitResult(input.responseMode, finalText);
+    this.emitResult(input.responseMode, input.structuredOutputMode, finalText);
     if (response.stopReason === 'end_turn') {
       this.emit({
         status: 'completed',
@@ -254,8 +258,24 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
     });
   }
 
-  private emitResult(responseMode: SendPromptInput['responseMode'], finalText: string) {
+  private emitResult(
+    responseMode: SendPromptInput['responseMode'],
+    structuredOutputMode: SendPromptInput['structuredOutputMode'],
+    finalText: string,
+  ) {
     if (responseMode === 'implementationChecklist') {
+      if (structuredOutputMode === 'forceFallback') {
+        this.emit({
+          content: finalText,
+          format: 'markdown',
+          source: 'structuredParseFallback',
+          structuredParseError: STRUCTURED_FALLBACK_VERIFICATION_REASON,
+          structuredSchemaName: 'implementation-checklist',
+          type: 'result.richText',
+        });
+        return;
+      }
+
       const parsed = parseImplementationChecklistResponse(finalText);
       if (parsed.ok) {
         this.emit({
@@ -285,6 +305,16 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       source: 'richText',
       type: 'result.richText',
     });
+  }
+
+  private buildPromptText(input: SendPromptInput) {
+    if (input.responseMode !== 'implementationChecklist') {
+      return input.prompt;
+    }
+
+    return input.structuredOutputMode === 'forceFallback'
+      ? buildStructuredFallbackVerificationPrompt(input.prompt)
+      : buildImplementationChecklistPrompt(input.prompt);
   }
 
   private describeChecklistParseFailure(reason: string) {

@@ -1,6 +1,8 @@
 import type { AgentCapability, ProgressHint } from '../../../shared/domain/agent';
 import {
   IMPLEMENTATION_CHECKLIST_JSON_SCHEMA,
+  STRUCTURED_FALLBACK_VERIFICATION_REASON,
+  buildStructuredFallbackVerificationPrompt,
   buildImplementationChecklistPrompt,
   normalizeImplementationChecklist,
   parseImplementationChecklistResponse,
@@ -14,12 +16,7 @@ import type {
   SendPromptInput,
 } from '../shared/runtime-contracts';
 
-const CODEX_CAPABILITIES: AgentCapability[] = [
-  'resumeSession',
-  'forkSession',
-  'steerActiveTurn',
-  'structuredOutput',
-];
+const CODEX_CAPABILITIES: AgentCapability[] = ['structuredOutput'];
 
 interface CodexThreadStartResult {
   thread: {
@@ -36,6 +33,7 @@ interface CodexTurnStartResult {
 interface CodexTurnContext {
   messageId: string;
   responseMode: SendPromptInput['responseMode'];
+  structuredOutputMode?: SendPromptInput['structuredOutputMode'];
   providerTurnId?: string;
   finalText: string;
   nativeStructuredChecklist: ReturnType<typeof normalizeImplementationChecklist> | null;
@@ -97,6 +95,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
     this.activeTurn = {
       messageId: input.messageId,
       responseMode: input.responseMode,
+      structuredOutputMode: input.structuredOutputMode,
       finalAnswerItemId: null,
       finalText: '',
       nativeStructuredChecklist: null,
@@ -111,12 +110,13 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
           type: 'text',
           text:
             input.responseMode === 'implementationChecklist'
-              ? buildImplementationChecklistPrompt(input.prompt)
+              ? this.buildPromptText(input)
               : input.prompt,
         },
       ],
       outputSchema:
-        input.responseMode === 'implementationChecklist'
+        input.responseMode === 'implementationChecklist' &&
+        input.structuredOutputMode !== 'forceFallback'
           ? IMPLEMENTATION_CHECKLIST_JSON_SCHEMA
           : undefined,
       sandboxPolicy: {
@@ -333,6 +333,18 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
 
   private emitResult(turn: CodexTurnContext, finalText: string) {
     if (turn.responseMode === 'implementationChecklist') {
+      if (turn.structuredOutputMode === 'forceFallback') {
+        this.emit({
+          content: finalText,
+          format: 'markdown',
+          source: 'structuredParseFallback',
+          structuredParseError: STRUCTURED_FALLBACK_VERIFICATION_REASON,
+          structuredSchemaName: 'implementation-checklist',
+          type: 'result.richText',
+        });
+        return;
+      }
+
       if (turn.nativeStructuredChecklist) {
         this.emit({
           data: turn.nativeStructuredChecklist,
@@ -373,6 +385,16 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       source: 'richText',
       type: 'result.richText',
     });
+  }
+
+  private buildPromptText(input: SendPromptInput) {
+    if (input.responseMode !== 'implementationChecklist') {
+      return input.prompt;
+    }
+
+    return input.structuredOutputMode === 'forceFallback'
+      ? buildStructuredFallbackVerificationPrompt(input.prompt)
+      : buildImplementationChecklistPrompt(input.prompt);
   }
 
   private describeProgressHint(item: Record<string, unknown>): ProgressHint | null {

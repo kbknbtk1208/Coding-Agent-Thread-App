@@ -13,6 +13,7 @@ import {
   cloneIntermediateSegments,
 } from '../../shared/domain/intermediate-segments';
 import type { ImplementationChecklist } from '../../shared/domain/implementation-checklist';
+import { STRUCTURED_FALLBACK_VERIFICATION_REASON } from '../../shared/domain/implementation-checklist';
 import type {
   AgentSessionSnapshot,
   SendFollowUpInput,
@@ -44,7 +45,12 @@ export class MockAgentGateway {
 
     const now = this.now();
     const appSessionId = randomUUID();
-    const turn = this.createTurn(input.prompt, input.responseMode ?? 'richText', now);
+    const turn = this.createTurn(
+      input.prompt,
+      input.responseMode ?? 'richText',
+      now,
+      input.structuredOutputMode,
+    );
     const session: AppSession = {
       agent: input.agent,
       appSessionId,
@@ -76,7 +82,12 @@ export class MockAgentGateway {
     }
 
     const now = this.now();
-    const turn = this.createTurn(input.prompt, input.responseMode ?? 'richText', now);
+    const turn = this.createTurn(
+      input.prompt,
+      input.responseMode ?? 'richText',
+      now,
+      input.structuredOutputMode,
+    );
     session.status = 'starting';
     session.finalResult = undefined;
     session.streamBuffer = { content: '', messageId: turn.messageId };
@@ -249,6 +260,17 @@ export class MockAgentGateway {
 
   private buildResultEnvelope(session: AppSession, prompt: string): ResultEnvelope {
     if (session.turns.at(-1)?.responseMode === 'implementationChecklist') {
+      if (session.turns.at(-1)?.structuredOutputMode === 'forceFallback') {
+        return {
+          content: this.buildResponse(session, prompt),
+          format: 'markdown',
+          kind: 'richText',
+          source: 'structuredParseFallback',
+          structuredParseError: STRUCTURED_FALLBACK_VERIFICATION_REASON,
+          structuredSchemaName: 'implementation-checklist',
+        };
+      }
+
       if (/fallback|parse failure|parse-fail/i.test(prompt)) {
         const response = this.buildResponse(session, prompt);
         return {
@@ -322,6 +344,7 @@ export class MockAgentGateway {
     prompt: string,
     responseMode: ConversationResponseMode,
     startedAt: string,
+    structuredOutputMode?: StartSessionInput['structuredOutputMode'],
   ): ConversationTurn {
     return {
       completedAt: undefined,
@@ -330,6 +353,8 @@ export class MockAgentGateway {
       response: '',
       intermediateSegments: [],
       responseMode,
+      structuredOutputMode:
+        responseMode === 'implementationChecklist' ? (structuredOutputMode ?? 'normal') : undefined,
       result: undefined,
       startedAt,
       status: 'starting',
@@ -366,12 +391,8 @@ export class MockAgentGateway {
     };
   }
 
-  private getCapabilities(agent: AgentKind): AgentCapability[] {
-    if (agent === 'codex') {
-      return ['resumeSession', 'forkSession', 'steerActiveTurn', 'structuredOutput'];
-    }
-
-    return ['resumeSession', 'structuredOutput'];
+  private getCapabilities(_agent: AgentKind): AgentCapability[] {
+    return ['structuredOutput'];
   }
 
   private assertText(value: string, message: string) {

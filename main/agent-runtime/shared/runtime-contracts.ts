@@ -7,6 +7,7 @@ import type {
   StructuredResultSource,
   SessionModelSelection,
   ProgressHint,
+  StructuredOutputMode,
 } from '../../../shared/domain/agent';
 import {
   IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
@@ -51,6 +52,7 @@ export interface SendPromptInput {
   messageId: string;
   prompt: string;
   responseMode: ConversationResponseMode;
+  structuredOutputMode?: StructuredOutputMode;
 }
 
 export interface RuntimeSessionHandle {

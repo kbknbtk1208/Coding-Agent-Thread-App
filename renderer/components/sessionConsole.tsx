@@ -9,7 +9,9 @@ import type {
   ConversationIntermediateSegment,
   ConversationResponseMode,
   ConversationTurn,
+  RichTextResultSource,
   ResultEnvelope,
+  StructuredOutputMode,
   StructuredResultSource,
 } from '../../shared/domain/agent';
 import {
@@ -25,9 +27,17 @@ const DEFAULT_RICH_TEXT_PROMPT =
   'このリポジトリの目的、技術スタック、次に読むべきファイルを 5 項目以内で要約して';
 const DEFAULT_STRUCTURED_PROMPT =
   'このリポジトリで新機能実装に着手する前のチェックリストを JSON で返して。各項目は id, title, reason, priority を含めて。priority は high / medium / low のいずれかにして。';
+const DEFAULT_STRUCTURED_FALLBACK_PROMPT = [
+  'このリポジトリで新機能実装に着手する前のチェックリストを返して。',
+  'これは fallback 表示の検証なので、通常の Markdown 箇条書きだけで答えて。',
+].join('\n');
 const DEFAULT_FOLLOW_UP = '今の要約を前提に、このリポジトリで最初に実装すべきものを 3 つに絞って';
 const DEFAULT_STRUCTURED_FOLLOW_UP =
   '今の会話を前提に、次の実装フェーズへ進む前のチェックリストを JSON で返して。各項目は id, title, reason, priority を含めて。priority は high / medium / low のいずれかにして。';
+const DEFAULT_STRUCTURED_FALLBACK_FOLLOW_UP = [
+  '今の会話を前提に、次の実装フェーズへ進む前のチェックリストを返して。',
+  'これは fallback 表示の検証なので、通常の Markdown 箇条書きだけで答えて。',
+].join('\n');
 
 const STATUS_LABELS: Record<AgentStatus, string> = {
   completed: 'Completed / 次入力待ち',
@@ -60,6 +70,16 @@ const MODE_STYLES: Record<ConversationResponseMode, string> = {
 const RESULT_SOURCE_LABELS: Record<StructuredResultSource, string> = {
   codexOutputSchema: 'Codex Output Schema',
   promptedJson: 'Prompted JSON',
+} as const;
+
+const RICH_TEXT_SOURCE_LABELS: Record<RichTextResultSource, string> = {
+  richText: 'Rich Text',
+  structuredParseFallback: 'Structured Parse Fallback',
+} as const;
+
+const MODEL_SELECTION_STYLES = {
+  fallback: 'border-amber-200/20 bg-amber-300/10 text-amber-50',
+  pinned: 'border-emerald-200/20 bg-emerald-300/10 text-emerald-50',
 } as const;
 
 const PRIORITY_STYLES = {
@@ -153,6 +173,10 @@ function getLatestMode(session: AppSession) {
   return session.turns.at(-1)?.responseMode ?? 'richText';
 }
 
+function getLatestStructuredOutputMode(session: AppSession): StructuredOutputMode {
+  return session.turns.at(-1)?.structuredOutputMode ?? 'normal';
+}
+
 function toResultEnvelope(
   event: Extract<AgentEvent, { type: 'result.richText' | 'result.structured' }>,
 ) {
@@ -176,6 +200,10 @@ function toResultEnvelope(
 
 function getResultSourceLabel(source: StructuredResultSource) {
   return RESULT_SOURCE_LABELS[source];
+}
+
+function getRichTextResultSourceLabel(source: RichTextResultSource) {
+  return RICH_TEXT_SOURCE_LABELS[source];
 }
 
 function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
@@ -335,6 +363,19 @@ function renderResult(result?: ResultEnvelope) {
   if (result.kind === 'richText') {
     return (
       <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-slate-200/20 bg-white/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-100">
+            Rich Text
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200">
+            {getRichTextResultSourceLabel(result.source)}
+          </span>
+          {result.structuredSchemaName ? (
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
+              schema: {result.structuredSchemaName}
+            </span>
+          ) : null}
+        </div>
         {result.source === 'structuredParseFallback' ? (
           <div className="rounded-[1.1rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
             <p className="font-semibold">
@@ -403,6 +444,47 @@ function renderResult(result?: ResultEnvelope) {
             </pre>
           </div>
         </details>
+      ) : null}
+    </div>
+  );
+}
+
+function renderModelSelection(session: AppSession) {
+  if (!session.modelSelection) {
+    return null;
+  }
+
+  const statusLabel = session.modelSelection.warning ? 'Fallback Active' : 'Pinned';
+  const statusStyle = session.modelSelection.warning
+    ? MODEL_SELECTION_STYLES.fallback
+    : MODEL_SELECTION_STYLES.pinned;
+
+  return (
+    <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h4 className="text-lg font-semibold text-white">Model Selection</h4>
+        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusStyle}`}>
+          {statusLabel}
+        </span>
+      </div>
+      <div className="mt-4 space-y-2 text-sm leading-7 text-slate-300">
+        <p>
+          requested model:{' '}
+          <span className="font-medium text-white">
+            {session.modelSelection.requestedModel ?? 'provider default'}
+          </span>
+        </p>
+        <p>
+          enforcement:{' '}
+          <span className="font-medium text-white">
+            {session.modelSelection.isRequestedModelEnforced ? 'enforced' : 'fallback to default'}
+          </span>
+        </p>
+      </div>
+      {session.modelSelection.warning ? (
+        <div className="mt-4 rounded-[1.1rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
+          {session.modelSelection.warning}
+        </div>
       ) : null}
     </div>
   );
@@ -529,8 +611,12 @@ export function SessionConsole() {
   const [cwd, setCwd] = useState(DEFAULT_CWD);
   const [prompt, setPrompt] = useState(DEFAULT_RICH_TEXT_PROMPT);
   const [startMode, setStartMode] = useState<ConversationResponseMode>('richText');
+  const [startStructuredOutputMode, setStartStructuredOutputMode] =
+    useState<StructuredOutputMode>('normal');
   const [followUpPrompt, setFollowUpPrompt] = useState(DEFAULT_FOLLOW_UP);
   const [followUpMode, setFollowUpMode] = useState<ConversationResponseMode>('richText');
+  const [followUpStructuredOutputMode, setFollowUpStructuredOutputMode] =
+    useState<StructuredOutputMode>('normal');
   const [sessions, setSessions] = useState<AppSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -572,6 +658,7 @@ export function SessionConsole() {
           setSelectedSessionId(nextSessions[0]?.appSessionId ?? null);
           if (nextSessions[0]) {
             setFollowUpMode(getLatestMode(nextSessions[0]));
+            setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(nextSessions[0]));
           }
         }
       } catch (error) {
@@ -617,6 +704,8 @@ export function SessionConsole() {
         cwd,
         prompt,
         responseMode: startMode,
+        structuredOutputMode:
+          startMode === 'implementationChecklist' ? startStructuredOutputMode : undefined,
       });
       setSessions((current) => {
         const mergedSession = mergeSessionSnapshot(
@@ -627,6 +716,7 @@ export function SessionConsole() {
       });
       setSelectedSessionId(session.appSessionId);
       setFollowUpMode(getLatestMode(session));
+      setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : '新規セッションの開始に失敗しました。',
@@ -649,6 +739,8 @@ export function SessionConsole() {
         appSessionId: selectedSession.appSessionId,
         prompt: followUpPrompt,
         responseMode: followUpMode,
+        structuredOutputMode:
+          followUpMode === 'implementationChecklist' ? followUpStructuredOutputMode : undefined,
       });
       setSessions((current) => {
         const mergedSession = mergeSessionSnapshot(
@@ -658,6 +750,7 @@ export function SessionConsole() {
         return upsertSession(current, mergedSession);
       });
       setSelectedSessionId(session.appSessionId);
+      setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'follow-up の送信に失敗しました。');
     } finally {
@@ -727,13 +820,21 @@ export function SessionConsole() {
                   />
                 </label>
 
-                <ModeSelect label="Response Mode" value={startMode} onChange={setStartMode} />
+                <ModeSelect
+                  label="Response Mode"
+                  value={startMode}
+                  onChange={(value) => {
+                    setStartMode(value);
+                    setStartStructuredOutputMode('normal');
+                  }}
+                />
 
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setStartMode('richText');
+                      setStartStructuredOutputMode('normal');
                       setPrompt(DEFAULT_RICH_TEXT_PROMPT);
                     }}
                     className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
@@ -744,13 +845,33 @@ export function SessionConsole() {
                     type="button"
                     onClick={() => {
                       setStartMode('implementationChecklist');
+                      setStartStructuredOutputMode('normal');
                       setPrompt(DEFAULT_STRUCTURED_PROMPT);
                     }}
                     className="rounded-full border border-emerald-200/20 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-50 transition hover:bg-emerald-300/16"
                   >
                     S3 サンプル
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStartMode('implementationChecklist');
+                      setStartStructuredOutputMode('forceFallback');
+                      setPrompt(DEFAULT_STRUCTURED_FALLBACK_PROMPT);
+                    }}
+                    className="rounded-full border border-amber-200/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-50 transition hover:bg-amber-300/16"
+                  >
+                    S3 fallback 検証
+                  </button>
                 </div>
+
+                {startMode === 'implementationChecklist' &&
+                startStructuredOutputMode === 'forceFallback' ? (
+                  <div className="rounded-[1.2rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
+                    structured fallback 検証モードが有効です。provider には JSON ではなく Markdown
+                    箇条書きを返す検証指示を送ります。
+                  </div>
+                ) : null}
 
                 <textarea
                   value={prompt}
@@ -792,6 +913,7 @@ export function SessionConsole() {
                     onClick={() => {
                       setSelectedSessionId(session.appSessionId);
                       setFollowUpMode(getLatestMode(session));
+                      setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
                     }}
                     className={`w-full rounded-[1.5rem] border px-4 py-4 text-left transition ${
                       selectedSessionId === session.appSessionId
@@ -899,6 +1021,8 @@ export function SessionConsole() {
                   </div>
 
                   <div className="space-y-4">
+                    {renderModelSelection(selectedSession)}
+
                     <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
                       <h4 className="text-lg font-semibold text-white">Final Result</h4>
                       <div className="mt-4">{renderResult(selectedSession.finalResult)}</div>
@@ -909,13 +1033,17 @@ export function SessionConsole() {
                       <ModeSelect
                         label="Follow-up Mode"
                         value={followUpMode}
-                        onChange={setFollowUpMode}
+                        onChange={(value) => {
+                          setFollowUpMode(value);
+                          setFollowUpStructuredOutputMode('normal');
+                        }}
                       />
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => {
                             setFollowUpMode('richText');
+                            setFollowUpStructuredOutputMode('normal');
                             setFollowUpPrompt(DEFAULT_FOLLOW_UP);
                           }}
                           className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
@@ -926,13 +1054,32 @@ export function SessionConsole() {
                           type="button"
                           onClick={() => {
                             setFollowUpMode('implementationChecklist');
+                            setFollowUpStructuredOutputMode('normal');
                             setFollowUpPrompt(DEFAULT_STRUCTURED_FOLLOW_UP);
                           }}
                           className="rounded-full border border-emerald-200/20 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-50 transition hover:bg-emerald-300/16"
                         >
                           S3 サンプル
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFollowUpMode('implementationChecklist');
+                            setFollowUpStructuredOutputMode('forceFallback');
+                            setFollowUpPrompt(DEFAULT_STRUCTURED_FALLBACK_FOLLOW_UP);
+                          }}
+                          className="rounded-full border border-amber-200/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-50 transition hover:bg-amber-300/16"
+                        >
+                          S3 fallback 検証
+                        </button>
                       </div>
+                      {followUpMode === 'implementationChecklist' &&
+                      followUpStructuredOutputMode === 'forceFallback' ? (
+                        <div className="mt-4 rounded-[1.2rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
+                          structured fallback 検証モードが有効です。follow-up でも JSON ではなく
+                          Markdown 箇条書きを返す検証指示を送ります。
+                        </div>
+                      ) : null}
                       <textarea
                         value={followUpPrompt}
                         onChange={(event) => setFollowUpPrompt(event.target.value)}

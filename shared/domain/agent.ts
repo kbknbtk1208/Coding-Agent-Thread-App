@@ -6,9 +6,9 @@ import {
 export type AgentKind = 'codex' | 'copilot';
 
 export type AgentCapability =
-  | 'resumeSession'
-  | 'forkSession'
-  | 'steerActiveTurn'
+  | 'nativeResumeSession'
+  | 'nativeForkSession'
+  | 'nativeSteerActiveTurn'
   | 'structuredOutput'
   | 'nativeReview';
 
@@ -21,6 +21,7 @@ export type AgentStatus =
   | 'failed';
 
 export type ConversationResponseMode = 'richText' | 'implementationChecklist';
+export type StructuredOutputMode = 'normal' | 'forceFallback';
 
 export type AgentProgressKind =
   | 'search'
@@ -90,6 +91,7 @@ export interface ConversationTurn {
   response: string;
   intermediateSegments: ConversationIntermediateSegment[];
   responseMode: ConversationResponseMode;
+  structuredOutputMode?: StructuredOutputMode;
   status: AgentStatus;
   startedAt: string;
   completedAt?: string;
