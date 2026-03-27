@@ -8,6 +8,7 @@ import type {
   ConversationTurn,
   ResultEnvelope,
 } from '../../shared/domain/agent';
+import { TextEffect } from './ui/text-effect';
 
 const DEFAULT_CWD = 'C:\\Users\\nkubo\\Dev\\Coding-Agent-Thread-App';
 const DEFAULT_RICH_TEXT_PROMPT =
@@ -251,6 +252,20 @@ function renderResult(result?: ResultEnvelope) {
         </details>
       ) : null}
     </div>
+  );
+}
+
+function renderStreamingRichText(text: string, className: string) {
+  return (
+    <TextEffect
+      as="p"
+      text={text}
+      layout="flow"
+      preserveWhitespace
+      staggerWindow={32}
+      segmentDelay={0.018}
+      className={className}
+    />
   );
 }
 
@@ -682,6 +697,11 @@ export function SessionConsole() {
                           <div className="mt-3">
                             {turn.result ? (
                               renderResult(turn.result)
+                            ) : turn.responseMode === 'richText' && turn.response ? (
+                              renderStreamingRichText(
+                                turn.response,
+                                'text-sm leading-7 text-slate-200',
+                              )
                             ) : (
                               <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
                                 {turn.response || '応答を待っています...'}
@@ -698,9 +718,18 @@ export function SessionConsole() {
                       <p className="text-xs uppercase tracking-[0.28em] text-amber-50/80">
                         Streaming Buffer
                       </p>
-                      <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-amber-50">
-                        {selectedSession.streamBuffer.content}
-                      </pre>
+                      <div className="mt-3">
+                        {getLatestMode(selectedSession) === 'richText' ? (
+                          renderStreamingRichText(
+                            selectedSession.streamBuffer.content,
+                            'text-sm leading-7 text-amber-50',
+                          )
+                        ) : (
+                          <pre className="whitespace-pre-wrap text-sm leading-7 text-amber-50">
+                            {selectedSession.streamBuffer.content}
+                          </pre>
+                        )}
+                      </div>
                     </div>
                   ) : null}
                 </div>
