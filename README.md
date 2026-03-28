@@ -69,7 +69,10 @@
 
 ```powershell
 npm install
+npx electron-builder install-app-deps
 ```
+
+`better-sqlite3` はネイティブモジュールのため、`npm install` 後に Electron 向けのリビルドが必要です。`package.json` の `postinstall` に設定済みですが、初回インストール時にはリビルドが走らない場合があります。IPC ハンドラ未登録エラー（`No handler registered for 'agent:list-sessions'`）が発生した場合は、上記の `npx electron-builder install-app-deps` を手動で実行してください。
 
 ## 開発起動
 

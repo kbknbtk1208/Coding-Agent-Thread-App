@@ -7,6 +7,7 @@ import {
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
 import { AgentGateway } from './agent-gateway/agent-gateway';
+import { SqliteSessionStore } from './agent-gateway/session-store';
 import { createWindow } from './helpers';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -51,12 +52,13 @@ if (isProd) {
 
   await createMainAppWindow();
 
+  const sessionStore = new SqliteSessionStore(app.getPath('userData'));
   const gateway = new AgentGateway((event) => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       return;
     }
     mainWindow.webContents.send(AGENT_IPC_CHANNELS.event, event);
-  });
+  }, sessionStore);
 
   ipcMain.handle(AGENT_IPC_CHANNELS.listSessions, () => {
     return gateway.listSessions();

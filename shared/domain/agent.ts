@@ -112,6 +112,7 @@ export interface AppSession {
   finalResult?: ResultEnvelope;
   progressHint?: ProgressHint;
   modelSelection?: SessionModelSelection;
+  providerSessionId?: string;
 }
 
 export type AgentEvent =

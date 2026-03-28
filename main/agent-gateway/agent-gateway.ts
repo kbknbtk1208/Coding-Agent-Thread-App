@@ -24,6 +24,7 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionHandle,
 } from '../agent-runtime/shared/runtime-contracts';
+import type { PersistedSession, SessionStore } from './session-store';
 
 type EmitAgentEvent = (event: AgentEvent) => void;
 
@@ -39,12 +40,27 @@ export class AgentGateway {
     copilot: new CopilotRuntime(),
   };
 
-  constructor(private readonly emit: EmitAgentEvent) {}
+  constructor(
+    private readonly emit: EmitAgentEvent,
+    private readonly sessionStore?: SessionStore,
+  ) {}
 
   listSessions(): AgentSessionSnapshot[] {
-    return Array.from(this.sessions.values())
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .map((session) => this.cloneSession(session));
+    const inMemoryIds = new Set(this.sessions.keys());
+    const inMemory = Array.from(this.sessions.values()).map((session) =>
+      this.cloneSession(session),
+    );
+
+    const persisted = this.sessionStore
+      ? this.sessionStore
+          .loadAll()
+          .filter((p) => !inMemoryIds.has(p.appSessionId))
+          .map((p) => this.rehydrateSnapshot(p))
+      : [];
+
+    return [...inMemory, ...persisted].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    );
   }
 
   async startSession(input: StartSessionInput): Promise<AgentSessionSnapshot> {
@@ -82,7 +98,10 @@ export class AgentGateway {
       session.modelSelection = runtimeSession.modelSelection
         ? { ...runtimeSession.modelSelection }
         : undefined;
+      session.providerSessionId = runtimeSession.providerSessionId;
       session.updatedAt = this.now();
+
+      this.persistSession(session);
 
       this.emit({
         agent: session.agent,
@@ -180,6 +199,11 @@ export class AgentGateway {
   }
 
   async dispose() {
+    const activeSessions = Array.from(this.sessions.values());
+    for (const session of activeSessions) {
+      this.persistSession(session);
+    }
+
     const handles = Array.from(this.runtimeSessions.values());
     this.runtimeSessions.clear();
 
@@ -211,6 +235,9 @@ export class AgentGateway {
             latestTurn.status = event.status;
             latestTurn.progressHint = undefined;
           }
+        }
+        if (terminalAt) {
+          this.persistSession(session);
         }
         break;
       }
@@ -277,6 +304,7 @@ export class AgentGateway {
         session.finalResult = result;
         session.progressHint = undefined;
         session.updatedAt = this.now();
+        this.persistSession(session);
         break;
       }
       case 'result.structured': {
@@ -295,6 +323,7 @@ export class AgentGateway {
         session.finalResult = result;
         session.progressHint = undefined;
         session.updatedAt = this.now();
+        this.persistSession(session);
         break;
       }
       case 'permission.requested': {
@@ -411,6 +440,103 @@ export class AgentGateway {
         ...result.data,
         items: result.data.items.map((item) => ({ ...item })),
       },
+    };
+  }
+
+  private persistSession(session: AppSession): void {
+    if (!this.sessionStore) {
+      return;
+    }
+
+    const providerSessionId =
+      session.providerSessionId ??
+      this.runtimeSessions.get(session.appSessionId)?.providerSessionId;
+
+    if (!providerSessionId) {
+      return;
+    }
+
+    const persisted = this.buildPersistedSession(session, providerSessionId);
+    this.sessionStore.save(persisted);
+  }
+
+  private buildPersistedSession(session: AppSession, providerSessionId: string): PersistedSession {
+    return {
+      appSessionId: session.appSessionId,
+      agent: session.agent,
+      providerSessionId,
+      cwd: session.cwd,
+      capabilities: [...session.capabilities],
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      turns: session.turns
+        .filter((t) => t.status === 'completed' || t.status === 'failed')
+        .map((t) => ({
+          turnId: t.turnId,
+          messageId: t.messageId,
+          prompt: t.prompt,
+          response: t.response,
+          responseMode: t.responseMode,
+          structuredOutputMode: t.structuredOutputMode,
+          status: t.status as 'completed' | 'failed',
+          startedAt: t.startedAt,
+          completedAt: t.completedAt,
+          result: t.result,
+        })),
+      finalResult: session.finalResult,
+      modelSelection: session.modelSelection,
+      resumeSummary: this.buildResumeSummary(session),
+    };
+  }
+
+  private buildResumeSummary(session: AppSession): string {
+    const firstPrompt = session.turns[0]?.prompt ?? '';
+    const promptSummary =
+      firstPrompt.length > 100 ? `${firstPrompt.slice(0, 100)}...` : firstPrompt;
+
+    const result = session.finalResult;
+    if (!result) {
+      return promptSummary;
+    }
+
+    if (result.kind === 'richText') {
+      const content = result.content;
+      const resultSummary = content.length > 200 ? `${content.slice(0, 200)}...` : content;
+      return `${promptSummary}\n---\n${resultSummary}`;
+    }
+
+    const itemCount = result.data.items.length;
+    return `${promptSummary}\n---\nChecklist: ${String(itemCount)} items`;
+  }
+
+  private rehydrateSnapshot(persisted: PersistedSession): AgentSessionSnapshot {
+    return {
+      appSessionId: persisted.appSessionId,
+      agent: persisted.agent,
+      cwd: persisted.cwd,
+      status: 'completed',
+      capabilities: [...persisted.capabilities],
+      createdAt: persisted.createdAt,
+      updatedAt: persisted.updatedAt,
+      turns: persisted.turns.map((t) => ({
+        turnId: t.turnId,
+        messageId: t.messageId,
+        prompt: t.prompt,
+        response: t.response,
+        intermediateSegments: [],
+        responseMode: t.responseMode,
+        structuredOutputMode: t.structuredOutputMode,
+        status: t.status,
+        startedAt: t.startedAt,
+        completedAt: t.completedAt,
+        progressHint: undefined,
+        result: t.result,
+      })),
+      streamBuffer: { content: '', messageId: null },
+      finalResult: persisted.finalResult,
+      progressHint: undefined,
+      modelSelection: persisted.modelSelection,
+      providerSessionId: persisted.providerSessionId,
     };
   }
 
