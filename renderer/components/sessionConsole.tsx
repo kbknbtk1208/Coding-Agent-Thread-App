@@ -19,6 +19,8 @@ import {
   applyProgressHintToTurn,
   cloneIntermediateSegments,
 } from '../../shared/domain/intermediate-segments';
+import { ChainOfThought } from './ui/chain-of-thought';
+import { Reasoning } from './ui/reasoning';
 import { ShimmerText } from './ui/shimmer-text';
 import { TextEffect } from './ui/text-effect';
 
@@ -568,40 +570,46 @@ function renderIntermediateSegments(
   segments: ConversationIntermediateSegment[],
   options: { isLatestTurn: boolean; turn: ConversationTurn },
 ) {
+  const isActiveTurn =
+    options.isLatestTurn &&
+    !options.turn.result &&
+    (options.turn.status === 'starting' || options.turn.status === 'running');
+
+  const latestSegment = segments.at(-1);
+  const messageSegments = segments.filter((s) => s.kind === 'message');
+
+  // Determine the hint/running text to show below ChainOfThought
+  const hintText: string | null = isActiveTurn
+    ? latestSegment !== undefined && latestSegment.kind === 'progress'
+      ? latestSegment.text
+      : 'running'
+    : null;
+
+  // The segmentId of the currently streaming message segment (if any)
+  const activeMessageSegmentId: string | null =
+    isActiveTurn && latestSegment !== undefined && latestSegment.kind === 'message'
+      ? latestSegment.segmentId
+      : null;
+
   return (
-    <div className="space-y-4">
-      {segments.map((segment, index) => {
-        const isLatestSegment = index === segments.length - 1;
-        const isActiveSegment =
-          options.isLatestTurn &&
-          isLatestSegment &&
-          !options.turn.result &&
-          (options.turn.status === 'starting' || options.turn.status === 'running');
-
-        if (segment.kind === 'progress') {
-          return (
-            <div key={segment.segmentId}>
-              {isActiveSegment ? (
-                renderWaitingResponse(segment.text)
-              ) : (
-                <p className="whitespace-pre-wrap text-sm leading-7 text-slate-400">
-                  {segment.text}
-                </p>
-              )}
-            </div>
-          );
-        }
-
-        return (
-          <div key={segment.segmentId}>
-            {isActiveSegment ? (
-              renderStreamingRichText(segment.text, 'text-sm leading-7 text-slate-200')
-            ) : (
-              <p className="whitespace-pre-wrap text-sm leading-7 text-slate-200">{segment.text}</p>
-            )}
-          </div>
-        );
-      })}
+    <div className="space-y-3">
+      {messageSegments.length > 0 ? (
+        <ChainOfThought>
+          {messageSegments.map((segment) => {
+            const isActiveSegment = segment.segmentId === activeMessageSegmentId;
+            return (
+              <Reasoning key={segment.segmentId} isActive={isActiveSegment}>
+                {isActiveSegment ? (
+                  renderStreamingRichText(segment.text, 'whitespace-pre-wrap text-sm leading-7')
+                ) : (
+                  <span className="whitespace-pre-wrap">{segment.text}</span>
+                )}
+              </Reasoning>
+            );
+          })}
+        </ChainOfThought>
+      ) : null}
+      {hintText !== null ? renderWaitingResponse(hintText) : null}
     </div>
   );
 }
@@ -1137,25 +1145,31 @@ export function SessionConsole() {
                             {(() => {
                               const isLatestTurn = index === selectedSession.turns.length - 1;
                               const intermediateSegments = turn.intermediateSegments ?? [];
-                              const waitingText =
+                              const isActiveTurn =
                                 isLatestTurn &&
-                                intermediateSegments.length === 0 &&
-                                !turn.response &&
-                                !turn.result
-                                  ? (turn.progressHint?.text ?? selectedSession.progressHint?.text)
-                                  : undefined;
+                                !turn.result &&
+                                (turn.status === 'starting' || turn.status === 'running');
+                              const hasVisibleIntermediateContent =
+                                intermediateSegments.some(
+                                  (segment) => segment.kind === 'message',
+                                ) || isActiveTurn;
+                              const waitingText = isActiveTurn
+                                ? (turn.progressHint?.text ??
+                                  selectedSession.progressHint?.text ??
+                                  'running')
+                                : undefined;
 
-                              if (intermediateSegments.length > 0 || turn.result) {
+                              if (hasVisibleIntermediateContent || turn.result) {
                                 return (
                                   <div className="space-y-5">
-                                    {intermediateSegments.length > 0
+                                    {hasVisibleIntermediateContent
                                       ? renderIntermediateSegments(intermediateSegments, {
                                           isLatestTurn,
                                           turn,
                                         })
                                       : null}
                                     {turn.result ? (
-                                      intermediateSegments.length > 0 ? (
+                                      hasVisibleIntermediateContent ? (
                                         <div className="space-y-4 border-t border-white/10 pt-4">
                                           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
                                             Final Output
