@@ -13,6 +13,7 @@ import {
   IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
   type ImplementationChecklist,
 } from '../../../shared/domain/implementation-checklist';
+import type { ResumeContext } from '../../../shared/domain/resume-context';
 
 export type RuntimeSessionEvent =
   | { type: 'status.changed'; status: AgentStatus }
@@ -75,6 +76,7 @@ export interface ResumeRuntimeSessionInput {
   providerSessionId: string;
   cwd: string;
   emit: (event: RuntimeSessionEvent) => void;
+  resumeContext?: ResumeContext;
 }
 
 export interface AgentRuntime {

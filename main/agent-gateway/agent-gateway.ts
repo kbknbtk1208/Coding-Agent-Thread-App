@@ -12,6 +12,7 @@ import {
   applyProgressHintToTurn,
   cloneIntermediateSegments,
 } from '../../shared/domain/intermediate-segments';
+import type { ResumeContext, ResumeContextTurn } from '../../shared/domain/resume-context';
 import type {
   AgentSessionSnapshot,
   ContinueConversationInput,
@@ -484,6 +485,7 @@ export class AgentGateway {
         providerSessionId: persisted.providerSessionId,
         cwd: session.cwd,
         emit: (event) => this.handleRuntimeEvent(session.appSessionId, event),
+        resumeContext: this.buildResumeContext(persisted),
       });
     }
 
@@ -492,6 +494,18 @@ export class AgentGateway {
       cwd: session.cwd,
       emit: (event) => this.handleRuntimeEvent(session.appSessionId, event),
     });
+  }
+
+  private buildResumeContext(persisted: PersistedSession): ResumeContext {
+    return {
+      turns: persisted.turns.flatMap((turn) => {
+        const result: ResumeContextTurn[] = [{ role: 'user', content: turn.prompt }];
+        if (turn.response) {
+          result.push({ role: 'assistant', content: turn.response });
+        }
+        return result;
+      }),
+    };
   }
 
   private getRestoredSessionStatus(persisted: PersistedSession): AppSession['status'] {

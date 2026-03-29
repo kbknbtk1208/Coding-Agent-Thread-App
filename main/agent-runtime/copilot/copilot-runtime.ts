@@ -5,10 +5,12 @@ import {
   buildImplementationChecklistPrompt,
   parseImplementationChecklistResponse,
 } from '../../../shared/domain/implementation-checklist';
+import type { ResumeContext } from '../../../shared/domain/resume-context';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
   CreateRuntimeSessionInput,
+  ResumeRuntimeSessionInput,
   RuntimeSessionEvent,
   RuntimeSessionHandle,
   SendPromptInput,
@@ -46,6 +48,17 @@ export class CopilotRuntime implements AgentRuntime {
   readonly agent = 'copilot' as const;
 
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionHandle> {
+    return this.bootstrapSession(input, null);
+  }
+
+  async resumeSession(input: ResumeRuntimeSessionInput): Promise<RuntimeSessionHandle> {
+    return this.bootstrapSession(input, input.resumeContext ?? null);
+  }
+
+  private async bootstrapSession(
+    input: CreateRuntimeSessionInput,
+    resumeContext: ResumeContext | null,
+  ): Promise<RuntimeSessionHandle> {
     let notificationHandler = (_method: string, _params: unknown) => {};
     let requestHandler = (_id: number, _method: string, _params: unknown) => {};
 
@@ -67,6 +80,7 @@ export class CopilotRuntime implements AgentRuntime {
       input.emit,
       COPILOT_CAPABILITIES,
       started.modelSelection,
+      resumeContext,
     );
     notificationHandler = (method, params) => session.handleNotification(method, params);
     requestHandler = (id, method, params) => session.handleRequest(id, method, params);
@@ -149,6 +163,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
   readonly agent = 'copilot' as const;
 
   private activeTurn: CopilotTurnContext | null = null;
+  private resumeContext: ResumeContext | null;
 
   constructor(
     private readonly client: JsonRpcProcess,
@@ -156,7 +171,10 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
     private readonly emit: (event: RuntimeSessionEvent) => void,
     readonly capabilities: AgentCapability[],
     readonly modelSelection: SessionModelSelection,
-  ) {}
+    resumeContext: ResumeContext | null = null,
+  ) {
+    this.resumeContext = resumeContext;
+  }
 
   async sendPrompt(input: SendPromptInput): Promise<void> {
     this.activeTurn = {
@@ -167,14 +185,16 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       structuredOutputMode: input.structuredOutputMode,
     };
 
+    const basePromptText =
+      input.responseMode === 'implementationChecklist' ? this.buildPromptText(input) : input.prompt;
+
+    const promptText = this.consumeResumeContext(basePromptText);
+
     const response = await this.client.request<{ stopReason: string }>('session/prompt', {
       prompt: [
         {
           type: 'text',
-          text:
-            input.responseMode === 'implementationChecklist'
-              ? this.buildPromptText(input)
-              : input.prompt,
+          text: promptText,
         },
       ],
       sessionId: this.providerSessionId,
@@ -315,6 +335,30 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
     return input.structuredOutputMode === 'forceFallback'
       ? buildStructuredFallbackVerificationPrompt(input.prompt)
       : buildImplementationChecklistPrompt(input.prompt);
+  }
+
+  private consumeResumeContext(promptText: string): string {
+    if (!this.resumeContext) {
+      return promptText;
+    }
+    const context = this.resumeContext;
+    this.resumeContext = null;
+    return this.buildRehydratedPrompt(context, promptText);
+  }
+
+  private buildRehydratedPrompt(context: ResumeContext, userPrompt: string): string {
+    const historyBlock = context.turns
+      .map((t) => (t.role === 'user' ? `[User]: ${t.content}` : `[Assistant]: ${t.content}`))
+      .join('\n\n');
+
+    return [
+      '以下はこのセッションの以前の会話履歴です。この文脈を踏まえて応答してください。',
+      '---',
+      historyBlock,
+      '---',
+      '',
+      userPrompt,
+    ].join('\n');
   }
 
   private describeChecklistParseFailure(reason: string) {
