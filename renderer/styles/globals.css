@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@git-diff-view/react/styles/diff-view.css";
 
 @layer base {
   :root {
@@ -35,6 +36,37 @@
 }
 
 @layer components {
+  /* §4.8 Scroll-jitter prevention: enable native scroll anchoring
+     for the diff view wrapper so that hunk expansion, thread insertion,
+     and extend-row changes do not shift the visible viewport. */
+  [data-theme="dark"] .diff-line {
+    overflow-anchor: auto;
+  }
+
+  /* Dark theme overrides for @git-diff-view */
+  [data-theme="dark"] {
+    --diff-border--: rgba(255, 255, 255, 0.1);
+    --diff-plain-content--: #04070a;
+    --diff-expand-content--: #081116;
+    --diff-plain-lineNumber--: #081116;
+    --diff-expand-lineNumber--: #081116;
+    --diff-plain-lineNumber-color--: #6b7280;
+    --diff-expand-lineNumber-color--: #6b7280;
+    --diff-add-content--: rgba(16, 185, 129, 0.08);
+    --diff-del-content--: rgba(239, 68, 68, 0.08);
+    --diff-add-lineNumber--: rgba(16, 185, 129, 0.15);
+    --diff-del-lineNumber--: rgba(239, 68, 68, 0.15);
+    --diff-add-content-highlight--: rgba(16, 185, 129, 0.2);
+    --diff-del-content-highlight--: rgba(239, 68, 68, 0.2);
+    --diff-hunk-content--: rgba(103, 232, 249, 0.06);
+    --diff-hunk-lineNumber--: rgba(103, 232, 249, 0.12);
+    --diff-hunk-lineNumber-hover--: #22d3ee;
+    --diff-hunk-content-color--: #67e8f9;
+    --diff-add-widget--: #22d3ee;
+    --diff-add-widget-color--: #04070a;
+    --diff-empty-content--: #0a0f14;
+  }
+
   .glass-panel {
     backdrop-filter: blur(22px);
     background: linear-gradient(

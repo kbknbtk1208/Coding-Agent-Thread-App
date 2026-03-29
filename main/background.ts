@@ -6,9 +6,16 @@ import {
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
+import {
+  REVIEW_IPC_CHANNELS,
+  type CreateReviewThreadInput,
+  type GetReviewDataInput,
+  type ReplyReviewThreadInput,
+} from '../shared/contracts/review-ipc';
 import { AgentGateway } from './agent-gateway/agent-gateway';
 import { SqliteSessionStore } from './agent-gateway/session-store';
 import { createWindow } from './helpers';
+import { ReviewGateway } from './review-gateway/review-gateway';
 
 const isProd = process.env.NODE_ENV === 'production';
 const devServerPort = process.argv[2];
@@ -74,6 +81,33 @@ if (isProd) {
 
   ipcMain.handle(AGENT_IPC_CHANNELS.sendFollowUp, (_event, input: SendFollowUpInput) => {
     return gateway.sendFollowUp(input);
+  });
+
+  const reviewGateway = new ReviewGateway();
+
+  ipcMain.handle(REVIEW_IPC_CHANNELS.getReviewData, (_event, input: GetReviewDataInput) => {
+    return reviewGateway.getReviewData(input.reviewId, input.provider);
+  });
+
+  ipcMain.handle(REVIEW_IPC_CHANNELS.createThread, (_event, input: CreateReviewThreadInput) => {
+    const thread = reviewGateway.createThread(
+      input.reviewId,
+      input.provider,
+      input.fileId,
+      input.anchor,
+      input.body,
+    );
+    return { thread };
+  });
+
+  ipcMain.handle(REVIEW_IPC_CHANNELS.replyThread, (_event, input: ReplyReviewThreadInput) => {
+    const thread = reviewGateway.replyThread(
+      input.reviewId,
+      input.provider,
+      input.threadId,
+      input.body,
+    );
+    return { thread };
   });
 
   app.on('before-quit', () => {

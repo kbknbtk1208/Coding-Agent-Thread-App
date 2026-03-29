@@ -58,6 +58,12 @@ export default function HomePage() {
               >
                 UI Component を開く
               </Link>
+              <Link
+                href="/mr"
+                className="rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                MR Review を開く
+              </Link>
             </div>
           </div>
         </section>

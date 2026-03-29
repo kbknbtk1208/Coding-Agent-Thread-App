@@ -6,6 +6,15 @@ import {
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
+import {
+  REVIEW_IPC_CHANNELS,
+  type CreateReviewThreadInput,
+  type CreateReviewThreadResult,
+  type GetReviewDataInput,
+  type GetReviewDataResult,
+  type ReplyReviewThreadInput,
+  type ReplyReviewThreadResult,
+} from '../shared/contracts/review-ipc';
 
 const handler = {
   send(channel: string, value: unknown) {
@@ -45,8 +54,22 @@ const agentApi = {
   },
 };
 
+const reviewApi = {
+  getReviewData(input: GetReviewDataInput): Promise<GetReviewDataResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.getReviewData, input);
+  },
+  createThread(input: CreateReviewThreadInput): Promise<CreateReviewThreadResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.createThread, input);
+  },
+  replyThread(input: ReplyReviewThreadInput): Promise<ReplyReviewThreadResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.replyThread, input);
+  },
+};
+
 contextBridge.exposeInMainWorld('ipc', handler);
 contextBridge.exposeInMainWorld('agentApi', agentApi);
+contextBridge.exposeInMainWorld('reviewApi', reviewApi);
 
 export type IpcHandler = typeof handler;
 export type AgentApi = typeof agentApi;
+export type ReviewApi = typeof reviewApi;
