@@ -21,7 +21,7 @@
 
 - 動作確認は `playwright` skill を使用し、手順は `docs/002_quality/playwright-electron-cdp.md` を参照
 - スクリーンショットは `.playwright-cli/` に出力し、検証結果とあわせてユーザーに提示
-- 実装時は swarm を活用し、実装→レビュー→修正のサイクルを改善点がなくなるまで繰り返す
+- 実装時は sub agents を活用し、実装→レビュー→修正のサイクルを改善点がなくなるまで繰り返す
 - 実装完了時は必ず lint を実行し、結果を確認する
 
 ## Constraints
