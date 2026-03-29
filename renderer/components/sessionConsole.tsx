@@ -113,6 +113,12 @@ function upsertSession(sessions: AppSession[], nextSession: AppSession) {
   ]);
 }
 
+function upsertActiveSessionIds(activeSessionIds: string[], appSessionId: string) {
+  return activeSessionIds.includes(appSessionId)
+    ? activeSessionIds
+    : [...activeSessionIds, appSessionId];
+}
+
 function normalizeTurn(turn: ConversationTurn): ConversationTurn {
   return {
     ...turn,
@@ -167,8 +173,20 @@ function mergeSessionSnapshot(existingSession: AppSession | undefined, nextSessi
   };
 }
 
-function canSendPrompt(status: AgentStatus) {
-  return status === 'idle' || status === 'completed' || status === 'failed';
+function isBusyStatus(status: AgentStatus) {
+  return status === 'starting' || status === 'running' || status === 'waiting_permission';
+}
+
+function isSessionActive(activeSessionIds: string[], appSessionId: string) {
+  return activeSessionIds.includes(appSessionId);
+}
+
+function canSendPrompt(status: AgentStatus, sessionIsActive: boolean) {
+  return sessionIsActive && !isBusyStatus(status);
+}
+
+function isSessionResumable(session: AppSession, activeSessionIds: string[]) {
+  return session.status === 'completed' && !activeSessionIds.includes(session.appSessionId);
 }
 
 function getLatestMode(session: AppSession) {
@@ -216,7 +234,13 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
         capabilities: [...event.capabilities],
         updatedAt: new Date().toISOString(),
       };
-    case 'status.changed':
+    case 'status.changed': {
+      const latestTurn = session.turns.at(-1);
+      const shouldFinalizeLatestTurn =
+        (event.status === 'completed' || event.status === 'failed') && latestTurn
+          ? isBusyStatus(latestTurn.status)
+          : false;
+
       return {
         ...session,
         status: event.status,
@@ -228,17 +252,17 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
           event.status === 'completed' || event.status === 'failed'
             ? { content: '', messageId: null }
             : session.streamBuffer,
-        turns:
-          (event.status === 'completed' || event.status === 'failed') && session.turns.length > 0
-            ? patchLatestTurn(session.turns, (turn) => ({
-                ...turn,
-                completedAt: new Date().toISOString(),
-                progressHint: undefined,
-                status: event.status,
-              }))
-            : session.turns,
+        turns: shouldFinalizeLatestTurn
+          ? patchLatestTurn(session.turns, (turn) => ({
+              ...turn,
+              completedAt: new Date().toISOString(),
+              progressHint: undefined,
+              status: event.status,
+            }))
+          : session.turns,
         updatedAt: new Date().toISOString(),
       };
+    }
     case 'progress.updated':
       return {
         ...session,
@@ -626,9 +650,11 @@ export function SessionConsole() {
   const [followUpStructuredOutputMode, setFollowUpStructuredOutputMode] =
     useState<StructuredOutputMode>('normal');
   const [sessions, setSessions] = useState<AppSession[]>([]);
+  const [activeSessionIds, setActiveSessionIds] = useState<string[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -663,6 +689,11 @@ export function SessionConsole() {
         );
         if (!isCancelled) {
           setSessions(nextSessions);
+          setActiveSessionIds(
+            nextSessions
+              .filter((session) => isBusyStatus(session.status))
+              .map((session) => session.appSessionId),
+          );
           setSelectedSessionId(nextSessions[0]?.appSessionId ?? null);
           if (nextSessions[0]) {
             setFollowUpMode(getLatestMode(nextSessions[0]));
@@ -681,6 +712,9 @@ export function SessionConsole() {
     void loadSessions();
 
     const unsubscribe = window.agentApi.onAgentEvent((event) => {
+      if (event.type === 'session.started') {
+        setActiveSessionIds((current) => upsertActiveSessionIds(current, event.appSessionId));
+      }
       if (event.type === 'error') {
         setErrorMessage(event.error.message);
       }
@@ -701,6 +735,9 @@ export function SessionConsole() {
 
   const selectedSession =
     sessions.find((session) => session.appSessionId === selectedSessionId) ?? null;
+  const selectedSessionIsActive = selectedSession
+    ? isSessionActive(activeSessionIds, selectedSession.appSessionId)
+    : false;
 
   const handleStartSession = async () => {
     setErrorMessage(null);
@@ -723,6 +760,7 @@ export function SessionConsole() {
         return upsertSession(current, mergedSession);
       });
       setSelectedSessionId(session.appSessionId);
+      setActiveSessionIds((current) => upsertActiveSessionIds(current, session.appSessionId));
       setFollowUpMode(getLatestMode(session));
       setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
     } catch (error) {
@@ -736,6 +774,10 @@ export function SessionConsole() {
 
   const handleSendFollowUp = async () => {
     if (!selectedSession) {
+      return;
+    }
+    if (!selectedSessionIsActive) {
+      setErrorMessage('follow-up を送信するには、先にセッションを再開してください。');
       return;
     }
 
@@ -763,6 +805,32 @@ export function SessionConsole() {
       setErrorMessage(error instanceof Error ? error.message : 'follow-up の送信に失敗しました。');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleContinueConversation = async (sessionToResume: AppSession) => {
+    setErrorMessage(null);
+    setResumingSessionId(sessionToResume.appSessionId);
+
+    try {
+      const session = await window.agentApi.continueConversation({
+        appSessionId: sessionToResume.appSessionId,
+      });
+      setSessions((current) => {
+        const mergedSession = mergeSessionSnapshot(
+          current.find((item) => item.appSessionId === session.appSessionId),
+          session,
+        );
+        return upsertSession(current, mergedSession);
+      });
+      setSelectedSessionId(session.appSessionId);
+      setActiveSessionIds((current) => upsertActiveSessionIds(current, session.appSessionId));
+      setFollowUpMode(getLatestMode(session));
+      setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'セッションの再開に失敗しました。');
+    } finally {
+      setResumingSessionId(null);
     }
   };
 
@@ -914,44 +982,67 @@ export function SessionConsole() {
                   </div>
                 ) : null}
 
-                {sessions.map((session) => (
-                  <button
-                    key={session.appSessionId}
-                    type="button"
-                    onClick={() => {
-                      setSelectedSessionId(session.appSessionId);
-                      setFollowUpMode(getLatestMode(session));
-                      setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
-                    }}
-                    className={`w-full rounded-[1.5rem] border px-4 py-4 text-left transition ${
-                      selectedSessionId === session.appSessionId
-                        ? 'border-cyan-200/40 bg-cyan-300/10'
-                        : 'border-white/10 bg-slate-950/55 hover:border-white/20 hover:bg-white/5'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-100/80">
-                          {session.agent}
-                        </p>
-                        <p className="text-sm text-white">{session.cwd}</p>
-                        <span
-                          className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-medium ${MODE_STYLES[getLatestMode(session)]}`}
-                        >
-                          {MODE_LABELS[getLatestMode(session)]}
-                        </span>
-                      </div>
-                      <span
-                        className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[session.status]}`}
+                {sessions.map((session) => {
+                  const isResuming = resumingSessionId === session.appSessionId;
+                  const resumable = isSessionResumable(session, activeSessionIds);
+
+                  return (
+                    <div
+                      key={session.appSessionId}
+                      className={`w-full rounded-[1.5rem] border px-4 py-4 transition ${
+                        selectedSessionId === session.appSessionId
+                          ? 'border-cyan-200/40 bg-cyan-300/10'
+                          : 'border-white/10 bg-slate-950/55 hover:border-white/20 hover:bg-white/5'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSessionId(session.appSessionId);
+                          setFollowUpMode(getLatestMode(session));
+                          setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
+                        }}
+                        className="w-full text-left"
                       >
-                        {STATUS_LABELS[session.status]}
-                      </span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-100/80">
+                              {session.agent}
+                            </p>
+                            <p className="text-sm text-white">{session.cwd}</p>
+                            <span
+                              className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-medium ${MODE_STYLES[getLatestMode(session)]}`}
+                            >
+                              {MODE_LABELS[getLatestMode(session)]}
+                            </span>
+                          </div>
+                          <span
+                            className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[session.status]}`}
+                          >
+                            {STATUS_LABELS[session.status]}
+                          </span>
+                        </div>
+                        <p className="mt-4 text-xs text-slate-500">
+                          最終更新: {new Date(session.updatedAt).toLocaleString('ja-JP')}
+                        </p>
+                      </button>
+                      {resumable ? (
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleContinueConversation(session);
+                            }}
+                            disabled={resumingSessionId !== null || isSubmitting}
+                            className="rounded-full border border-cyan-200/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-100/40 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                          >
+                            {isResuming ? '再開中...' : 'セッションを再開'}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
-                    <p className="mt-4 text-xs text-slate-500">
-                      最終更新: {new Date(session.updatedAt).toLocaleString('ja-JP')}
-                    </p>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1088,17 +1179,29 @@ export function SessionConsole() {
                           Markdown 箇条書きを返す検証指示を送ります。
                         </div>
                       ) : null}
+                      {!selectedSessionIsActive ? (
+                        <div className="mt-4 rounded-[1.2rem] border border-cyan-200/20 bg-cyan-300/10 px-4 py-3 text-sm leading-7 text-cyan-50">
+                          follow-up
+                          を送信するには、左のセッション一覧から「セッションを再開」を押してください。
+                        </div>
+                      ) : null}
                       <textarea
                         value={followUpPrompt}
                         onChange={(event) => setFollowUpPrompt(event.target.value)}
                         rows={6}
-                        disabled={!canSendPrompt(selectedSession.status) || isSubmitting}
+                        disabled={
+                          !canSendPrompt(selectedSession.status, selectedSessionIsActive) ||
+                          isSubmitting
+                        }
                         className="mt-4 w-full rounded-[1.45rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-cyan-200/50 disabled:cursor-not-allowed disabled:bg-slate-900/60 disabled:text-slate-500"
                       />
                       <button
                         type="button"
                         onClick={handleSendFollowUp}
-                        disabled={!canSendPrompt(selectedSession.status) || isSubmitting}
+                        disabled={
+                          !canSendPrompt(selectedSession.status, selectedSessionIsActive) ||
+                          isSubmitting
+                        }
                         className="mt-4 w-full rounded-full border border-cyan-200/30 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-50 transition hover:border-cyan-100/40 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
                       >
                         follow-up を送信

@@ -11,12 +11,13 @@ import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
   CreateRuntimeSessionInput,
+  ResumeRuntimeSessionInput,
   RuntimeSessionEvent,
   RuntimeSessionHandle,
   SendPromptInput,
 } from '../shared/runtime-contracts';
 
-const CODEX_CAPABILITIES: AgentCapability[] = ['structuredOutput'];
+const CODEX_CAPABILITIES: AgentCapability[] = ['nativeResumeSession', 'structuredOutput'];
 
 interface CodexThreadStartResult {
   thread: {
@@ -45,36 +46,77 @@ export class CodexRuntime implements AgentRuntime {
   readonly agent = 'codex' as const;
 
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionHandle> {
+    return this.startSession(input, (client) =>
+      client.request<CodexThreadStartResult>('thread/start', {
+        approvalPolicy: 'never',
+        cwd: input.cwd,
+        sandbox: 'read-only',
+      }),
+    );
+  }
+
+  async resumeSession(input: ResumeRuntimeSessionInput): Promise<RuntimeSessionHandle> {
+    return this.startSession(input, (client) =>
+      client.request<CodexThreadStartResult>('thread/resume', {
+        approvalPolicy: 'never',
+        cwd: input.cwd,
+        sandbox: 'read-only',
+        threadId: input.providerSessionId,
+      }),
+    );
+  }
+
+  private async startSession(
+    input: CreateRuntimeSessionInput | ResumeRuntimeSessionInput,
+    openThread: (client: JsonRpcProcess) => Promise<CodexThreadStartResult>,
+  ): Promise<RuntimeSessionHandle> {
+    const { client, setNotificationHandler } = await this.createInitializedClient(input.cwd);
+
+    try {
+      const thread = await openThread(client);
+
+      const session = new CodexRuntimeSession(
+        client,
+        thread.thread.id,
+        input.cwd,
+        input.emit,
+        CODEX_CAPABILITIES,
+      );
+      setNotificationHandler((method, params) => session.handleNotification(method, params));
+
+      return session;
+    } catch (error) {
+      await client.dispose();
+      throw error;
+    }
+  }
+
+  private async createInitializedClient(cwd: string) {
     let notificationHandler = (_method: string, _params: unknown) => {};
-    const client = new JsonRpcProcess('codex.cmd', ['app-server'], input.cwd, (message) =>
+    const client = new JsonRpcProcess('codex.cmd', ['app-server'], cwd, (message) =>
       notificationHandler(message.method, message.params),
     );
 
-    await client.request('initialize', {
-      clientInfo: {
-        name: 'coding-agent-thread-app',
-        title: 'Coding Agent Thread App',
-        version: '1.0.0',
-      },
-    });
-    client.notify('initialized', {});
+    try {
+      await client.request('initialize', {
+        clientInfo: {
+          name: 'coding-agent-thread-app',
+          title: 'Coding Agent Thread App',
+          version: '1.0.0',
+        },
+      });
+      client.notify('initialized', {});
+    } catch (error) {
+      await client.dispose();
+      throw error;
+    }
 
-    const threadStart = await client.request<CodexThreadStartResult>('thread/start', {
-      approvalPolicy: 'never',
-      cwd: input.cwd,
-      sandbox: 'read-only',
-    });
-
-    const session = new CodexRuntimeSession(
+    return {
       client,
-      threadStart.thread.id,
-      input.cwd,
-      input.emit,
-      CODEX_CAPABILITIES,
-    );
-    notificationHandler = (method, params) => session.handleNotification(method, params);
-
-    return session;
+      setNotificationHandler(handler: typeof notificationHandler) {
+        notificationHandler = handler;
+      },
+    };
   }
 }
 

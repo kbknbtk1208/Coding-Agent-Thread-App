@@ -3,6 +3,7 @@ import {
   AGENT_IPC_CHANNELS,
   type AgentEventPayload,
   type AgentSessionSnapshot,
+  type ContinueConversationInput,
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
@@ -36,6 +37,9 @@ const agentApi = {
   },
   listSessions(): Promise<AgentSessionSnapshot[]> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.listSessions);
+  },
+  continueConversation(input: ContinueConversationInput): Promise<AgentSessionSnapshot> {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.continueConversation, input);
   },
   onAgentEvent(callback: (event: AgentEventPayload) => void) {
     const subscription = (_event: IpcRendererEvent, payload: AgentEventPayload) =>

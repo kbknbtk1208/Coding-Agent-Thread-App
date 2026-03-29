@@ -3,6 +3,7 @@ import { BrowserWindow, app, ipcMain } from 'electron';
 import serve from 'electron-serve';
 import {
   AGENT_IPC_CHANNELS,
+  type ContinueConversationInput,
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
@@ -74,6 +75,13 @@ if (isProd) {
   ipcMain.handle(AGENT_IPC_CHANNELS.getDefaultCwd, () => {
     return process.cwd();
   });
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.continueConversation,
+    (_event, input: ContinueConversationInput) => {
+      return gateway.continueConversation(input);
+    },
+  );
 
   ipcMain.handle(AGENT_IPC_CHANNELS.startSession, (_event, input: StartSessionInput) => {
     return gateway.startSession(input);

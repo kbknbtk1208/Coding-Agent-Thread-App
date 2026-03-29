@@ -14,6 +14,7 @@ import {
 } from '../../shared/domain/intermediate-segments';
 import type {
   AgentSessionSnapshot,
+  ContinueConversationInput,
   SendFollowUpInput,
   StartSessionInput,
 } from '../../shared/contracts/agent-ipc';
@@ -24,11 +25,15 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionHandle,
 } from '../agent-runtime/shared/runtime-contracts';
-import type { PersistedSession, SessionStore } from './session-store';
+import type { PersistedConversationTurn, PersistedSession, SessionStore } from './session-store';
 
 type EmitAgentEvent = (event: AgentEvent) => void;
 
 const BUSY_STATUSES = ['starting', 'running', 'waiting_permission'] as const;
+
+function isBusyStatus(status: AppSession['status']) {
+  return BUSY_STATUSES.includes(status as (typeof BUSY_STATUSES)[number]);
+}
 
 export class AgentGateway {
   private readonly sessions = new Map<string, AppSession>();
@@ -93,31 +98,10 @@ export class AgentGateway {
         emit: (event) => this.handleRuntimeEvent(appSessionId, event),
       });
 
-      this.runtimeSessions.set(appSessionId, runtimeSession);
-      session.capabilities = [...runtimeSession.capabilities];
-      session.modelSelection = runtimeSession.modelSelection
-        ? { ...runtimeSession.modelSelection }
-        : undefined;
-      session.providerSessionId = runtimeSession.providerSessionId;
-      session.updatedAt = this.now();
+      this.attachRuntimeSession(session, runtimeSession);
 
       this.persistSession(session);
-
-      this.emit({
-        agent: session.agent,
-        appSessionId: session.appSessionId,
-        type: 'session.started',
-      });
-      this.emit({
-        appSessionId: session.appSessionId,
-        capabilities: [...session.capabilities],
-        type: 'session.capabilities',
-      });
-      this.emit({
-        appSessionId: session.appSessionId,
-        status: 'starting',
-        type: 'status.changed',
-      });
+      this.emitSessionBootstrapEvents(session, 'starting');
 
       void runtimeSession
         .sendPrompt({
@@ -142,6 +126,52 @@ export class AgentGateway {
     return this.cloneSession(session);
   }
 
+  async continueConversation(input: ContinueConversationInput): Promise<AgentSessionSnapshot> {
+    this.assertText(input.appSessionId, '再開するセッションを選択してください。');
+
+    const existingSession = this.sessions.get(input.appSessionId);
+    const existingRuntimeSession = this.runtimeSessions.get(input.appSessionId);
+    if (existingSession && existingRuntimeSession) {
+      return this.cloneSession(existingSession);
+    }
+
+    if (existingRuntimeSession) {
+      await existingRuntimeSession.dispose();
+      this.runtimeSessions.delete(input.appSessionId);
+    }
+
+    if (!this.sessionStore) {
+      throw new Error('セッションストアが初期化されていません。');
+    }
+
+    const persisted = this.sessionStore.load(input.appSessionId);
+    if (!persisted) {
+      throw new Error('指定されたセッションが見つかりません。');
+    }
+
+    const session = this.rehydrateFullSession(persisted);
+
+    try {
+      const runtimeSession = await this.restoreRuntimeSession(session, persisted);
+      this.attachRuntimeSession(session, runtimeSession);
+      session.status = this.getRestoredSessionStatus(persisted);
+      session.updatedAt = this.now();
+      this.sessions.set(session.appSessionId, session);
+      this.persistSession(session);
+      this.emitSessionBootstrapEvents(session);
+
+      return this.cloneSession(session);
+    } catch (error) {
+      this.sessions.delete(input.appSessionId);
+      const runtimeSession = this.runtimeSessions.get(input.appSessionId);
+      if (runtimeSession) {
+        this.runtimeSessions.delete(input.appSessionId);
+        await runtimeSession.dispose();
+      }
+      throw new Error(error instanceof Error ? error.message : 'セッションの再開に失敗しました。');
+    }
+  }
+
   async sendFollowUp(input: SendFollowUpInput): Promise<AgentSessionSnapshot> {
     this.assertText(input.prompt, 'follow-up プロンプトを入力してください。');
 
@@ -149,7 +179,7 @@ export class AgentGateway {
     if (!session) {
       throw new Error('指定されたセッションが見つかりません。');
     }
-    if (BUSY_STATUSES.includes(session.status as (typeof BUSY_STATUSES)[number])) {
+    if (isBusyStatus(session.status)) {
       throw new Error('セッション実行中は follow-up を送信できません。');
     }
 
@@ -220,23 +250,24 @@ export class AgentGateway {
 
     switch (event.type) {
       case 'status.changed': {
-        const terminalAt =
-          event.status === 'completed' || event.status === 'failed' ? this.now() : undefined;
+        const updatedAt = this.now();
+        const isTerminalStatus = event.status === 'completed' || event.status === 'failed';
+        const latestTurn = session.turns.at(-1);
+        const shouldFinalizeLatestTurn =
+          isTerminalStatus && latestTurn ? isBusyStatus(latestTurn.status) : false;
+
         session.status = event.status;
-        session.updatedAt = this.now();
-        if (terminalAt) {
+        session.updatedAt = updatedAt;
+        if (isTerminalStatus) {
           session.progressHint = undefined;
           session.streamBuffer = { content: '', messageId: null };
         }
-        if (terminalAt && session.turns.length > 0) {
-          const latestTurn = session.turns.at(-1);
-          if (latestTurn) {
-            latestTurn.completedAt = terminalAt;
-            latestTurn.status = event.status;
-            latestTurn.progressHint = undefined;
-          }
+        if (shouldFinalizeLatestTurn && latestTurn) {
+          latestTurn.completedAt = updatedAt;
+          latestTurn.status = event.status;
+          latestTurn.progressHint = undefined;
         }
-        if (terminalAt) {
+        if (isTerminalStatus) {
           this.persistSession(session);
         }
         break;
@@ -412,6 +443,61 @@ export class AgentGateway {
     };
   }
 
+  private attachRuntimeSession(session: AppSession, runtimeSession: RuntimeSessionHandle) {
+    this.runtimeSessions.set(session.appSessionId, runtimeSession);
+    session.capabilities = [...runtimeSession.capabilities];
+    session.modelSelection = runtimeSession.modelSelection
+      ? { ...runtimeSession.modelSelection }
+      : session.modelSelection
+        ? { ...session.modelSelection }
+        : undefined;
+    session.providerSessionId = runtimeSession.providerSessionId;
+    session.updatedAt = this.now();
+  }
+
+  private emitSessionBootstrapEvents(
+    session: AppSession,
+    status: AppSession['status'] = session.status,
+  ) {
+    this.emit({
+      agent: session.agent,
+      appSessionId: session.appSessionId,
+      type: 'session.started',
+    });
+    this.emit({
+      appSessionId: session.appSessionId,
+      capabilities: [...session.capabilities],
+      type: 'session.capabilities',
+    });
+    this.emit({
+      appSessionId: session.appSessionId,
+      status,
+      type: 'status.changed',
+    });
+  }
+
+  private restoreRuntimeSession(session: AppSession, persisted: PersistedSession) {
+    const runtime = this.runtimes[persisted.agent];
+    if (runtime.resumeSession) {
+      return runtime.resumeSession({
+        appSessionId: session.appSessionId,
+        providerSessionId: persisted.providerSessionId,
+        cwd: session.cwd,
+        emit: (event) => this.handleRuntimeEvent(session.appSessionId, event),
+      });
+    }
+
+    return runtime.createSession({
+      appSessionId: session.appSessionId,
+      cwd: session.cwd,
+      emit: (event) => this.handleRuntimeEvent(session.appSessionId, event),
+    });
+  }
+
+  private getRestoredSessionStatus(persisted: PersistedSession): AppSession['status'] {
+    return persisted.turns.at(-1)?.status ?? 'idle';
+  }
+
   private cloneSession(session: AppSession): AgentSessionSnapshot {
     return {
       ...session,
@@ -514,29 +600,55 @@ export class AgentGateway {
       appSessionId: persisted.appSessionId,
       agent: persisted.agent,
       cwd: persisted.cwd,
-      status: 'completed',
+      status: this.getRestoredSessionStatus(persisted),
       capabilities: [...persisted.capabilities],
       createdAt: persisted.createdAt,
       updatedAt: persisted.updatedAt,
-      turns: persisted.turns.map((t) => ({
-        turnId: t.turnId,
-        messageId: t.messageId,
-        prompt: t.prompt,
-        response: t.response,
-        intermediateSegments: [],
-        responseMode: t.responseMode,
-        structuredOutputMode: t.structuredOutputMode,
-        status: t.status,
-        startedAt: t.startedAt,
-        completedAt: t.completedAt,
-        progressHint: undefined,
-        result: t.result,
-      })),
+      turns: persisted.turns.map((turn) => this.rehydrateTurn(turn)),
       streamBuffer: { content: '', messageId: null },
-      finalResult: persisted.finalResult,
+      finalResult: persisted.finalResult
+        ? this.cloneResultEnvelope(persisted.finalResult)
+        : undefined,
       progressHint: undefined,
-      modelSelection: persisted.modelSelection,
+      modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
       providerSessionId: persisted.providerSessionId,
+    };
+  }
+
+  private rehydrateFullSession(persisted: PersistedSession): AppSession {
+    return {
+      appSessionId: persisted.appSessionId,
+      agent: persisted.agent,
+      cwd: persisted.cwd,
+      status: 'starting',
+      capabilities: [...persisted.capabilities],
+      createdAt: persisted.createdAt,
+      updatedAt: this.now(),
+      turns: persisted.turns.map((turn) => this.rehydrateTurn(turn)),
+      streamBuffer: { content: '', messageId: null },
+      finalResult: persisted.finalResult
+        ? this.cloneResultEnvelope(persisted.finalResult)
+        : undefined,
+      progressHint: undefined,
+      modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
+      providerSessionId: persisted.providerSessionId,
+    };
+  }
+
+  private rehydrateTurn(turn: PersistedConversationTurn): ConversationTurn {
+    return {
+      turnId: turn.turnId,
+      messageId: turn.messageId,
+      prompt: turn.prompt,
+      response: turn.response,
+      intermediateSegments: [],
+      responseMode: turn.responseMode,
+      structuredOutputMode: turn.structuredOutputMode,
+      status: turn.status,
+      startedAt: turn.startedAt,
+      completedAt: turn.completedAt,
+      progressHint: undefined,
+      result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
     };
   }
 

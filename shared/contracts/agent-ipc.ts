@@ -7,6 +7,7 @@ import type {
 } from '../domain/agent';
 
 export const AGENT_IPC_CHANNELS = {
+  continueConversation: 'agent:continue-conversation',
   event: 'agent:event',
   getDefaultCwd: 'agent:get-default-cwd',
   listSessions: 'agent:list-sessions',
@@ -20,6 +21,10 @@ export interface StartSessionInput {
   prompt: string;
   responseMode?: ConversationResponseMode;
   structuredOutputMode?: StructuredOutputMode;
+}
+
+export interface ContinueConversationInput {
+  appSessionId: string;
 }
 
 export interface SendFollowUpInput {

@@ -70,7 +70,15 @@ export interface CreateRuntimeSessionInput {
   emit: (event: RuntimeSessionEvent) => void;
 }
 
+export interface ResumeRuntimeSessionInput {
+  appSessionId: string;
+  providerSessionId: string;
+  cwd: string;
+  emit: (event: RuntimeSessionEvent) => void;
+}
+
 export interface AgentRuntime {
   agent: AgentKind;
   createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionHandle>;
+  resumeSession?(input: ResumeRuntimeSessionInput): Promise<RuntimeSessionHandle>;
 }
