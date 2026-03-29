@@ -8,8 +8,7 @@
 
 - `npm run dev` で Next.js が `http://localhost:8888`、Electron の CDP が `http://127.0.0.1:5858` で待ち受ける
 - `http://127.0.0.1:5858/json/version` から `webSocketDebuggerUrl` を取得できる
-- `playwright-cli` が [playwright-electron-cdp.json](C:\Users\nkubo\Dev\Coding-Agent-Thread-App\playwright-electron-cdp.json) を通じて Electron へ attach できる
-- ホーム画面を snapshot し、リンククリックで `/next/` へ遷移できる
+- `playwright-cli` が [playwright-electron-cdp.json](playwright-electron-cdp.json) を通じて Electron へ attach できる
 
 ## 前提
 
@@ -18,6 +17,8 @@
 - PowerShell でコマンドを実行すること
 
 ## 1. アプリを開発モードで起動する
+
+**すでに起動済みの可能性があるため、先に確認すること**
 
 ```powershell
 npm run dev
@@ -46,14 +47,14 @@ curl.exe http://127.0.0.1:5858/json/list
 - 0 つはアプリ本体 (`http://localhost:8888/home/`)
 - もう 1 つは DevTools タブ
 
-DevTools タブが出るのは、[background.ts](C:\Users\nkubo\Dev\Coding-Agent-Thread-App\main\background.ts) で開発時に `mainWindow.webContents.openDevTools()` を呼んでいるためです。
+DevTools タブが出るのは、[background.ts](main\background.ts) で開発時に `mainWindow.webContents.openDevTools()` を呼んでいるためです。
 
 ## 3. `playwright-cli` の CDP 設定を読み込む
 
-このリポジトリでは、CDP 接続用の設定を [playwright-electron-cdp.json](C:\Users\nkubo\Dev\Coding-Agent-Thread-App\docs\playwright-electron-cdp.json) に置いています。
+このリポジトリでは、CDP 接続用の設定を [playwright-electron-cdp.json](playwright-electron-cdp.json) に置いています。
 
 ```powershell
-playwright-cli --session=electron-cdp config --config=docs/playwright-electron-cdp.json
+playwright-cli --session=electron-cdp config --config=playwright-electron-cdp.json
 ```
 
 設定ファイルの中身は以下です。
@@ -125,8 +126,6 @@ Playwright セッションを止める場合:
 ```powershell
 playwright-cli session-stop electron-cdp
 ```
-
-アプリ自体を止める場合は、`npm run dev` を実行したターミナルで `Ctrl+C` を使います。
 
 ## 注意点
 
