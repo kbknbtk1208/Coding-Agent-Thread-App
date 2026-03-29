@@ -101,25 +101,9 @@ playwright-cli tab-select 0
 playwright-cli snapshot
 ```
 
-検証時は `.playwright-cli/page-*.yml` が生成され、ホーム画面のリンクは `e15` として取得できました。
+検証時は `.playwright-cli/page-*.yml` が生成されました。
 
-## 6. 実際にクリックして遷移確認する
-
-```powershell
-playwright-cli click e15
-playwright-cli eval "window.location.pathname"
-playwright-cli eval "document.body.innerText"
-```
-
-実測結果:
-
-- `click e15` で「サンプルページを開く」を押せた
-- `window.location.pathname` は `/next/` を返した
-- `document.body.innerText` には `Nextron のページ遷移は動作しています` が含まれた
-
-これで、Electron の中で表示されているアプリに対して `playwright-cli` が CDP 経由で接続し、要素取得と操作まで通ることを確認できています。
-
-## 7. 終了
+## 6. 終了
 
 Playwright セッションを止める場合:
 
