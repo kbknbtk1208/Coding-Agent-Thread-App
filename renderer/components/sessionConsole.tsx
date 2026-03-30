@@ -34,6 +34,7 @@ const DEFAULT_STRUCTURED_FALLBACK_PROMPT = [
   'これは fallback 表示の検証なので、通常の Markdown 箇条書きだけで答えて。',
 ].join('\n');
 const DEFAULT_FOLLOW_UP = '今の要約を前提に、このリポジトリで最初に実装すべきものを 3 つに絞って';
+const DEFAULT_STEER_PROMPT = '要点だけに絞って。箇条書き 5 項目以内にして';
 const DEFAULT_STRUCTURED_FOLLOW_UP =
   '今の会話を前提に、次の実装フェーズへ進む前のチェックリストを JSON で返して。各項目は id, title, reason, priority を含めて。priority は high / medium / low のいずれかにして。';
 const DEFAULT_STRUCTURED_FALLBACK_FOLLOW_UP = [
@@ -653,6 +654,7 @@ export function SessionConsole() {
   const [followUpMode, setFollowUpMode] = useState<ConversationResponseMode>('richText');
   const [followUpStructuredOutputMode, setFollowUpStructuredOutputMode] =
     useState<StructuredOutputMode>('normal');
+  const [steerPrompt, setSteerPrompt] = useState(DEFAULT_STEER_PROMPT);
   const [sessions, setSessions] = useState<AppSession[]>([]);
   const [activeSessionIds, setActiveSessionIds] = useState<string[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -744,6 +746,12 @@ export function SessionConsole() {
     ? isSessionActive(activeSessionIds, selectedSession.appSessionId)
     : false;
 
+  const canSteerActiveTurn =
+    selectedSession !== null &&
+    selectedSessionIsActive &&
+    selectedSession.status === 'running' &&
+    selectedSession.capabilities.includes('nativeSteerActiveTurn');
+
   const handleStartSession = async () => {
     setErrorMessage(null);
     setIsSubmitting(true);
@@ -808,6 +816,25 @@ export function SessionConsole() {
       setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(session));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'follow-up の送信に失敗しました。');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSteerActiveTurn = async () => {
+    if (!selectedSession || !canSteerActiveTurn) {
+      return;
+    }
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      await window.agentApi.steerActiveTurn({
+        appSessionId: selectedSession.appSessionId,
+        prompt: steerPrompt,
+      });
+      setSteerPrompt('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'steer の送信に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -1205,6 +1232,36 @@ export function SessionConsole() {
                       <h4 className="text-lg font-semibold text-white">Final Result</h4>
                       <div className="mt-4">{renderResult(selectedSession.finalResult)}</div>
                     </div>
+
+                    {canSteerActiveTurn ? (
+                      <div className="rounded-[1.6rem] border border-violet-200/20 bg-violet-300/10 p-5">
+                        <h4 className="text-lg font-semibold text-violet-50">Steer Active Turn</h4>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSteerPrompt(DEFAULT_STEER_PROMPT)}
+                            className="rounded-full border border-violet-200/20 bg-violet-300/10 px-3 py-2 text-xs text-violet-50 transition hover:bg-violet-300/16"
+                          >
+                            S5 サンプル
+                          </button>
+                        </div>
+                        <textarea
+                          value={steerPrompt}
+                          onChange={(event) => setSteerPrompt(event.target.value)}
+                          rows={3}
+                          disabled={isSubmitting}
+                          className="mt-4 w-full rounded-[1.45rem] border border-violet-200/20 bg-slate-950/75 px-4 py-3 text-sm leading-7 text-white outline-none transition focus:border-violet-200/50 disabled:cursor-not-allowed disabled:bg-slate-900/60 disabled:text-slate-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSteerActiveTurn}
+                          disabled={isSubmitting}
+                          className="mt-4 w-full rounded-full border border-violet-200/30 bg-violet-300/10 px-5 py-3 text-sm font-semibold text-violet-50 transition hover:border-violet-100/40 hover:bg-violet-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                        >
+                          steer を送信
+                        </button>
+                      </div>
+                    ) : null}
 
                     <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
                       <h4 className="text-lg font-semibold text-white">Follow-up</h4>

@@ -14,6 +14,7 @@ export const AGENT_IPC_CHANNELS = {
   listSessions: 'agent:list-sessions',
   sendFollowUp: 'agent:send-follow-up',
   startSession: 'agent:start-session',
+  steerActiveTurn: 'agent:steer-active-turn',
 } as const;
 
 export interface StartSessionInput {
@@ -37,6 +38,11 @@ export interface SendFollowUpInput {
 
 export interface ForkSessionInput {
   appSessionId: string;
+}
+
+export interface SteerActiveTurnInput {
+  appSessionId: string;
+  prompt: string;
 }
 
 export type AgentSessionSnapshot = AppSession;

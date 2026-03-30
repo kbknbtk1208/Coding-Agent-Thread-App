@@ -16,11 +16,13 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionHandle,
   SendPromptInput,
+  SteerInput,
 } from '../shared/runtime-contracts';
 
 const CODEX_CAPABILITIES: AgentCapability[] = [
   'nativeResumeSession',
   'nativeForkSession',
+  'nativeSteerActiveTurn',
   'structuredOutput',
 ];
 
@@ -191,6 +193,21 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
 
   async dispose(): Promise<void> {
     await this.client.dispose();
+  }
+
+  async steer(input: SteerInput): Promise<void> {
+    if (!this.activeTurn) {
+      throw new Error('アクティブなターンがありません。');
+    }
+    if (!this.activeTurn.providerTurnId) {
+      throw new Error('ターンがまだ初期化されていません。');
+    }
+
+    await this.client.request('turn/steer', {
+      threadId: this.providerSessionId,
+      input: [{ type: 'text', text: input.steerText }],
+      expectedTurnId: this.activeTurn.providerTurnId,
+    });
   }
 
   handleNotification(method: string, params: unknown) {

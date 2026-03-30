@@ -7,6 +7,7 @@ import {
   type ForkSessionInput,
   type SendFollowUpInput,
   type StartSessionInput,
+  type SteerActiveTurnInput,
 } from '../shared/contracts/agent-ipc';
 import {
   REVIEW_IPC_CHANNELS,
@@ -59,6 +60,9 @@ const agentApi = {
   },
   forkSession(input: ForkSessionInput): Promise<AgentSessionSnapshot> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.forkSession, input);
+  },
+  steerActiveTurn(input: SteerActiveTurnInput): Promise<void> {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.steerActiveTurn, input);
   },
 };
 

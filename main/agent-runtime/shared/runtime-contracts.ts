@@ -56,12 +56,17 @@ export interface SendPromptInput {
   structuredOutputMode?: StructuredOutputMode;
 }
 
+export interface SteerInput {
+  steerText: string;
+}
+
 export interface RuntimeSessionHandle {
   agent: AgentKind;
   capabilities: AgentCapability[];
   modelSelection?: SessionModelSelection;
   providerSessionId: string;
   sendPrompt(input: SendPromptInput): Promise<void>;
+  steer?(input: SteerInput): Promise<void>;
   dispose(): Promise<void>;
 }
 

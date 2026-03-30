@@ -7,6 +7,7 @@ import {
   type ForkSessionInput,
   type SendFollowUpInput,
   type StartSessionInput,
+  type SteerActiveTurnInput,
 } from '../shared/contracts/agent-ipc';
 import {
   REVIEW_IPC_CHANNELS,
@@ -94,6 +95,10 @@ if (isProd) {
 
   ipcMain.handle(AGENT_IPC_CHANNELS.forkSession, (_event, input: ForkSessionInput) => {
     return gateway.forkSession(input);
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.steerActiveTurn, (_event, input: SteerActiveTurnInput) => {
+    return gateway.steerActiveTurn(input);
   });
 
   const reviewGateway = new ReviewGateway();

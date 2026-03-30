@@ -19,6 +19,7 @@ import type {
   ForkSessionInput,
   SendFollowUpInput,
   StartSessionInput,
+  SteerActiveTurnInput,
 } from '../../shared/contracts/agent-ipc';
 import { CodexRuntime } from '../agent-runtime/codex/codex-runtime';
 import { CopilotRuntime } from '../agent-runtime/copilot/copilot-runtime';
@@ -339,6 +340,28 @@ export class AgentGateway {
     }
 
     return this.cloneSession(session);
+  }
+
+  async steerActiveTurn(input: SteerActiveTurnInput): Promise<void> {
+    this.assertText(input.prompt, 'steer プロンプトを入力してください。');
+
+    const session = this.sessions.get(input.appSessionId);
+    if (!session) {
+      throw new Error('指定されたセッションが見つかりません。');
+    }
+    if (session.status !== 'running') {
+      throw new Error('実行中のセッションのみ steer できます。');
+    }
+
+    const runtimeSession = this.runtimeSessions.get(input.appSessionId);
+    if (!runtimeSession) {
+      throw new Error('provider session が初期化されていません。');
+    }
+    if (!runtimeSession.steer) {
+      throw new Error('このプロバイダーは steer をサポートしていません。');
+    }
+
+    await runtimeSession.steer({ steerText: input.prompt });
   }
 
   async dispose() {
