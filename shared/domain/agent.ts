@@ -113,6 +113,7 @@ export interface AppSession {
   progressHint?: ProgressHint;
   modelSelection?: SessionModelSelection;
   providerSessionId?: string;
+  parentAppSessionId?: string;
 }
 
 export type AgentEvent =

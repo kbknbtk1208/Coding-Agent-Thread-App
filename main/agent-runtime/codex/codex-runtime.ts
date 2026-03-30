@@ -11,13 +11,18 @@ import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
   CreateRuntimeSessionInput,
+  ForkRuntimeSessionInput,
   ResumeRuntimeSessionInput,
   RuntimeSessionEvent,
   RuntimeSessionHandle,
   SendPromptInput,
 } from '../shared/runtime-contracts';
 
-const CODEX_CAPABILITIES: AgentCapability[] = ['nativeResumeSession', 'structuredOutput'];
+const CODEX_CAPABILITIES: AgentCapability[] = [
+  'nativeResumeSession',
+  'nativeForkSession',
+  'structuredOutput',
+];
 
 interface CodexThreadStartResult {
   thread: {
@@ -66,8 +71,19 @@ export class CodexRuntime implements AgentRuntime {
     );
   }
 
+  async forkSession(input: ForkRuntimeSessionInput): Promise<RuntimeSessionHandle> {
+    return this.startSession(input, (client) =>
+      client.request<CodexThreadStartResult>('thread/fork', {
+        approvalPolicy: 'never',
+        cwd: input.cwd,
+        sandbox: 'read-only',
+        threadId: input.providerSessionId,
+      }),
+    );
+  }
+
   private async startSession(
-    input: CreateRuntimeSessionInput | ResumeRuntimeSessionInput,
+    input: CreateRuntimeSessionInput | ResumeRuntimeSessionInput | ForkRuntimeSessionInput,
     openThread: (client: JsonRpcProcess) => Promise<CodexThreadStartResult>,
   ): Promise<RuntimeSessionHandle> {
     const { client, setNotificationHandler } = await this.createInitializedClient(input.cwd);

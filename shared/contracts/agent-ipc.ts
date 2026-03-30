@@ -9,6 +9,7 @@ import type {
 export const AGENT_IPC_CHANNELS = {
   continueConversation: 'agent:continue-conversation',
   event: 'agent:event',
+  forkSession: 'agent:fork-session',
   getDefaultCwd: 'agent:get-default-cwd',
   listSessions: 'agent:list-sessions',
   sendFollowUp: 'agent:send-follow-up',
@@ -32,6 +33,10 @@ export interface SendFollowUpInput {
   prompt: string;
   responseMode?: ConversationResponseMode;
   structuredOutputMode?: StructuredOutputMode;
+}
+
+export interface ForkSessionInput {
+  appSessionId: string;
 }
 
 export type AgentSessionSnapshot = AppSession;

@@ -16,6 +16,7 @@ import type { ResumeContext, ResumeContextTurn } from '../../shared/domain/resum
 import type {
   AgentSessionSnapshot,
   ContinueConversationInput,
+  ForkSessionInput,
   SendFollowUpInput,
   StartSessionInput,
 } from '../../shared/contracts/agent-ipc';
@@ -23,6 +24,7 @@ import { CodexRuntime } from '../agent-runtime/codex/codex-runtime';
 import { CopilotRuntime } from '../agent-runtime/copilot/copilot-runtime';
 import type {
   AgentRuntime,
+  ForkRuntimeSessionInput,
   RuntimeSessionEvent,
   RuntimeSessionHandle,
 } from '../agent-runtime/shared/runtime-contracts';
@@ -170,6 +172,116 @@ export class AgentGateway {
         await runtimeSession.dispose();
       }
       throw new Error(error instanceof Error ? error.message : 'セッションの再開に失敗しました。');
+    }
+  }
+
+  async forkSession(input: ForkSessionInput): Promise<AgentSessionSnapshot> {
+    this.assertText(input.appSessionId, 'フォーク元のセッションを選択してください。');
+
+    const parentSession = this.sessions.get(input.appSessionId);
+    let parentPersisted: PersistedSession | null = null;
+
+    if (!parentSession) {
+      if (!this.sessionStore) {
+        throw new Error('セッションストアが初期化されていません。');
+      }
+      parentPersisted = this.sessionStore.load(input.appSessionId);
+      if (!parentPersisted) {
+        throw new Error('指定されたセッションが見つかりません。');
+      }
+    }
+
+    const parentStatus = parentSession?.status ?? this.getRestoredSessionStatus(parentPersisted!);
+    if (isBusyStatus(parentStatus)) {
+      throw new Error('実行中のセッションはフォークできません。');
+    }
+    if (parentStatus !== 'completed') {
+      throw new Error('完了済みセッションのみフォークできます。');
+    }
+
+    const runtime = this.runtimes[parentSession?.agent ?? parentPersisted!.agent];
+    if (!runtime.forkSession) {
+      throw new Error('このプロバイダーはフォークをサポートしていません。');
+    }
+
+    const providerSessionId =
+      parentSession?.providerSessionId ??
+      parentPersisted?.providerSessionId ??
+      this.runtimeSessions.get(input.appSessionId)?.providerSessionId;
+
+    if (!providerSessionId) {
+      throw new Error('フォーク元のプロバイダーセッションが見つかりません。');
+    }
+
+    const now = this.now();
+    const newAppSessionId = randomUUID();
+    const sourceTurns =
+      parentSession?.turns ??
+      (parentPersisted ? parentPersisted.turns.map((t) => this.rehydrateTurn(t)) : []);
+
+    const newSession: AppSession = {
+      agent: parentSession?.agent ?? parentPersisted!.agent,
+      appSessionId: newAppSessionId,
+      capabilities: [...(parentSession?.capabilities ?? parentPersisted!.capabilities)],
+      createdAt: now,
+      cwd: parentSession?.cwd ?? parentPersisted!.cwd,
+      finalResult: undefined,
+      modelSelection: parentSession?.modelSelection
+        ? { ...parentSession.modelSelection }
+        : parentPersisted?.modelSelection
+          ? { ...parentPersisted.modelSelection }
+          : undefined,
+      parentAppSessionId: input.appSessionId,
+      progressHint: undefined,
+      providerSessionId: undefined,
+      status: 'starting',
+      streamBuffer: { content: '', messageId: null },
+      turns: sourceTurns.map((turn) => ({
+        ...turn,
+        intermediateSegments: cloneIntermediateSegments(turn.intermediateSegments ?? []),
+        progressHint: undefined,
+        result: turn.result ? this.cloneResultEnvelope(turn.result) : undefined,
+      })),
+      updatedAt: now,
+    };
+
+    if (parentSession?.finalResult) {
+      newSession.finalResult = this.cloneResultEnvelope(parentSession.finalResult);
+    } else if (parentPersisted?.finalResult) {
+      newSession.finalResult = this.cloneResultEnvelope(parentPersisted.finalResult);
+    }
+
+    this.sessions.set(newAppSessionId, newSession);
+
+    let runtimeHandle: RuntimeSessionHandle | undefined;
+
+    try {
+      const forkInput: ForkRuntimeSessionInput = {
+        appSessionId: newAppSessionId,
+        providerSessionId,
+        cwd: newSession.cwd,
+        emit: (event) => this.handleRuntimeEvent(newAppSessionId, event),
+      };
+
+      runtimeHandle = await runtime.forkSession(forkInput);
+      this.attachRuntimeSession(newSession, runtimeHandle);
+
+      newSession.status = 'completed';
+      newSession.updatedAt = this.now();
+      this.persistSession(newSession);
+      this.emitSessionBootstrapEvents(newSession, 'completed');
+
+      return this.cloneSession(newSession);
+    } catch (error) {
+      this.sessions.delete(newAppSessionId);
+      const handle = this.runtimeSessions.get(newAppSessionId) ?? runtimeHandle;
+      if (handle) {
+        this.runtimeSessions.delete(newAppSessionId);
+        await handle.dispose();
+      }
+      throw new Error(
+        error instanceof Error ? error.message : 'セッションのフォークに失敗しました。',
+      );
     }
   }
 
@@ -586,6 +698,7 @@ export class AgentGateway {
       finalResult: session.finalResult,
       modelSelection: session.modelSelection,
       resumeSummary: this.buildResumeSummary(session),
+      parentAppSessionId: session.parentAppSessionId,
     };
   }
 
@@ -626,6 +739,7 @@ export class AgentGateway {
       progressHint: undefined,
       modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
       providerSessionId: persisted.providerSessionId,
+      parentAppSessionId: persisted.parentAppSessionId,
     };
   }
 
@@ -646,6 +760,7 @@ export class AgentGateway {
       progressHint: undefined,
       modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
       providerSessionId: persisted.providerSessionId,
+      parentAppSessionId: persisted.parentAppSessionId,
     };
   }
 

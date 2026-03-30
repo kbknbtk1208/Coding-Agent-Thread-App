@@ -4,6 +4,7 @@ import serve from 'electron-serve';
 import {
   AGENT_IPC_CHANNELS,
   type ContinueConversationInput,
+  type ForkSessionInput,
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
@@ -89,6 +90,10 @@ if (isProd) {
 
   ipcMain.handle(AGENT_IPC_CHANNELS.sendFollowUp, (_event, input: SendFollowUpInput) => {
     return gateway.sendFollowUp(input);
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.forkSession, (_event, input: ForkSessionInput) => {
+    return gateway.forkSession(input);
   });
 
   const reviewGateway = new ReviewGateway();

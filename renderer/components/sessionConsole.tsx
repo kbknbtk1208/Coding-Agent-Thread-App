@@ -189,6 +189,10 @@ function isSessionResumable(session: AppSession, activeSessionIds: string[]) {
   return session.status === 'completed' && !activeSessionIds.includes(session.appSessionId);
 }
 
+function isSessionForkable(session: AppSession) {
+  return session.status === 'completed' && session.capabilities.includes('nativeForkSession');
+}
+
 function getLatestMode(session: AppSession) {
   return session.turns.at(-1)?.responseMode ?? 'richText';
 }
@@ -655,6 +659,7 @@ export function SessionConsole() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
+  const [forkingSessionId, setForkingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -834,6 +839,37 @@ export function SessionConsole() {
     }
   };
 
+  const handleForkSession = async (sessionToFork: AppSession) => {
+    setErrorMessage(null);
+    setForkingSessionId(sessionToFork.appSessionId);
+
+    try {
+      const session = await window.agentApi.forkSession({
+        appSessionId: sessionToFork.appSessionId,
+      });
+      const normalizedSession = normalizeSession(session);
+      setSessions((current) => {
+        const mergedSession = mergeSessionSnapshot(
+          current.find((item) => item.appSessionId === normalizedSession.appSessionId),
+          normalizedSession,
+        );
+        return upsertSession(current, mergedSession);
+      });
+      setSelectedSessionId(normalizedSession.appSessionId);
+      setActiveSessionIds((current) =>
+        upsertActiveSessionIds(current, normalizedSession.appSessionId),
+      );
+      setFollowUpMode(getLatestMode(normalizedSession));
+      setFollowUpStructuredOutputMode(getLatestStructuredOutputMode(normalizedSession));
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'セッションのフォークに失敗しました。',
+      );
+    } finally {
+      setForkingSessionId(null);
+    }
+  };
+
   return (
     <section className="mt-10">
       <div className="glass-panel rounded-[2rem] p-6 sm:p-8">
@@ -985,6 +1021,8 @@ export function SessionConsole() {
                 {sessions.map((session) => {
                   const isResuming = resumingSessionId === session.appSessionId;
                   const resumable = isSessionResumable(session, activeSessionIds);
+                  const forkable = isSessionForkable(session);
+                  const isForking = forkingSessionId === session.appSessionId;
 
                   return (
                     <div
@@ -1016,28 +1054,57 @@ export function SessionConsole() {
                               {MODE_LABELS[getLatestMode(session)]}
                             </span>
                           </div>
-                          <span
-                            className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[session.status]}`}
-                          >
-                            {STATUS_LABELS[session.status]}
-                          </span>
+                          <div className="flex flex-col items-end gap-2">
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[session.status]}`}
+                            >
+                              {STATUS_LABELS[session.status]}
+                            </span>
+                            {session.parentAppSessionId ? (
+                              <span className="inline-flex rounded-full border border-violet-200/30 bg-violet-300/10 px-2 py-0.5 text-[10px] font-medium text-violet-200">
+                                Forked
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                         <p className="mt-4 text-xs text-slate-500">
                           最終更新: {new Date(session.updatedAt).toLocaleString('ja-JP')}
                         </p>
                       </button>
-                      {resumable ? (
-                        <div className="mt-4 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void handleContinueConversation(session);
-                            }}
-                            disabled={resumingSessionId !== null || isSubmitting}
-                            className="rounded-full border border-cyan-200/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-100/40 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
-                          >
-                            {isResuming ? '再開中...' : 'セッションを再開'}
-                          </button>
+                      {resumable || forkable ? (
+                        <div className="mt-4 flex justify-end gap-2">
+                          {resumable ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleContinueConversation(session);
+                              }}
+                              disabled={
+                                resumingSessionId !== null ||
+                                forkingSessionId !== null ||
+                                isSubmitting
+                              }
+                              className="rounded-full border border-cyan-200/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-100/40 hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                            >
+                              {isResuming ? '再開中...' : 'セッションを再開'}
+                            </button>
+                          ) : null}
+                          {forkable ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleForkSession(session);
+                              }}
+                              disabled={
+                                resumingSessionId !== null ||
+                                forkingSessionId !== null ||
+                                isSubmitting
+                              }
+                              className="rounded-full border border-violet-200/30 bg-violet-300/10 px-4 py-2 text-xs font-semibold text-violet-50 transition hover:border-violet-100/40 hover:bg-violet-300/18 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                            >
+                              {isForking ? 'フォーク中...' : 'フォーク'}
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -1058,15 +1125,27 @@ export function SessionConsole() {
                 </h3>
               </div>
               {selectedSession ? (
-                <div className="flex flex-wrap gap-2 text-xs text-slate-300">
-                  {selectedSession.capabilities.map((capability) => (
-                    <span
-                      key={capability}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1"
-                    >
-                      {capability}
-                    </span>
-                  ))}
+                <div className="text-xs text-slate-300">
+                  <div className="flex flex-wrap gap-2">
+                    {selectedSession.capabilities.map((capability) => (
+                      <span
+                        key={capability}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1"
+                      >
+                        {capability}
+                      </span>
+                    ))}
+                  </div>
+                  {selectedSession.parentAppSessionId ? (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-violet-300">
+                      <span className="rounded-full border border-violet-200/30 bg-violet-300/10 px-2 py-0.5 font-medium">
+                        Forked
+                      </span>
+                      <span className="text-slate-400">
+                        Fork 元: {selectedSession.parentAppSessionId}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

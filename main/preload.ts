@@ -4,6 +4,7 @@ import {
   type AgentEventPayload,
   type AgentSessionSnapshot,
   type ContinueConversationInput,
+  type ForkSessionInput,
   type SendFollowUpInput,
   type StartSessionInput,
 } from '../shared/contracts/agent-ipc';
@@ -55,6 +56,9 @@ const agentApi = {
   },
   startSession(input: StartSessionInput): Promise<AgentSessionSnapshot> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.startSession, input);
+  },
+  forkSession(input: ForkSessionInput): Promise<AgentSessionSnapshot> {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.forkSession, input);
   },
 };
 

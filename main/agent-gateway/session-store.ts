@@ -42,6 +42,7 @@ export interface PersistedSession {
   finalResult?: ResultEnvelope;
   modelSelection?: SessionModelSelection;
   resumeSummary: string;
+  parentAppSessionId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ interface SessionRow {
   final_result: string | null;
   model_selection: string | null;
   resume_summary: string;
+  parent_app_session_id: string | null;
 }
 
 export class SqliteSessionStore implements SessionStore {
@@ -90,11 +92,13 @@ export class SqliteSessionStore implements SessionStore {
       INSERT OR REPLACE INTO sessions (
         app_session_id, agent, provider_session_id, cwd,
         capabilities, created_at, updated_at, turns,
-        final_result, model_selection, resume_summary
+        final_result, model_selection, resume_summary,
+        parent_app_session_id
       ) VALUES (
         @app_session_id, @agent, @provider_session_id, @cwd,
         @capabilities, @created_at, @updated_at, @turns,
-        @final_result, @model_selection, @resume_summary
+        @final_result, @model_selection, @resume_summary,
+        @parent_app_session_id
       )
     `);
 
@@ -110,6 +114,7 @@ export class SqliteSessionStore implements SessionStore {
       final_result: session.finalResult ? JSON.stringify(session.finalResult) : null,
       model_selection: session.modelSelection ? JSON.stringify(session.modelSelection) : null,
       resume_summary: session.resumeSummary,
+      parent_app_session_id: session.parentAppSessionId ?? null,
     });
 
     this.prune();
@@ -154,6 +159,11 @@ export class SqliteSessionStore implements SessionStore {
         resume_summary      TEXT NOT NULL
       )
     `);
+    try {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN parent_app_session_id TEXT');
+    } catch {
+      /* Column already exists in existing DBs — ignore */
+    }
   }
 
   private prune(): void {
@@ -206,6 +216,7 @@ export class SqliteSessionStore implements SessionStore {
         finalResult: finalResult ?? undefined,
         modelSelection: modelSelection ?? undefined,
         resumeSummary: row.resume_summary,
+        parentAppSessionId: row.parent_app_session_id ?? undefined,
       };
     } catch {
       return null;
