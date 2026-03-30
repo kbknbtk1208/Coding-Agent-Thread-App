@@ -1,4 +1,9 @@
-import type { AgentCapability, SessionModelSelection } from '../../../shared/domain/agent';
+import type {
+  AgentCapability,
+  PendingPermission,
+  PermissionAction,
+  SessionModelSelection,
+} from '../../../shared/domain/agent';
 import {
   STRUCTURED_FALLBACK_VERIFICATION_REASON,
   buildStructuredFallbackVerificationPrompt,
@@ -42,6 +47,12 @@ interface CopilotTurnContext {
   structuredOutputMode?: SendPromptInput['structuredOutputMode'];
   finalText: string;
   isRunning: boolean;
+}
+
+interface PendingPermissionState {
+  id: number;
+  permission: PendingPermission;
+  responseByActionId: Map<string, unknown>;
 }
 
 export class CopilotRuntime implements AgentRuntime {
@@ -163,6 +174,7 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
   readonly agent = 'copilot' as const;
 
   private activeTurn: CopilotTurnContext | null = null;
+  private readonly pendingPermissions = new Map<string, PendingPermissionState>();
   private resumeContext: ResumeContext | null;
 
   constructor(
@@ -225,7 +237,18 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
   }
 
   async dispose(): Promise<void> {
+    for (const requestId of Array.from(this.pendingPermissions.keys())) {
+      this.clearPendingPermission(requestId);
+    }
     await this.client.dispose();
+  }
+
+  respondPermission(requestId: string, actionId: string): void {
+    if (!this.pendingPermissions.has(requestId)) {
+      throw new Error('指定された permission request が見つかりません。');
+    }
+
+    this.respondToPendingPermission(requestId, actionId);
   }
 
   handleNotification(method: string, params: unknown) {
@@ -265,16 +288,31 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
 
   handleRequest(id: number, method: string, params: unknown) {
     if (method !== 'session/request_permission') {
+      this.client.respondError(id, {
+        code: -32601,
+        message: `Method not found: ${method}`,
+      });
       return;
     }
 
-    this.emit({
-      payload: params,
-      requestId: String(id),
-      type: 'permission.requested',
+    if (!this.isRecord(params)) {
+      this.client.respondError(id, {
+        code: -32602,
+        message: `Invalid params for ${method}.`,
+      });
+      return;
+    }
+
+    const requestId = String(id);
+    const { permission, responseByActionId } = this.createPermission(requestId, method, params);
+    this.pendingPermissions.set(requestId, {
+      id,
+      permission,
+      responseByActionId,
     });
-    this.client.respond(id, {
-      outcome: { outcome: 'cancelled' },
+    this.emit({
+      permission,
+      type: 'permission.requested',
     });
   }
 
@@ -383,6 +421,66 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       status: 'running',
       type: 'status.changed',
     });
+  }
+
+  private respondToPendingPermission(requestId: string, actionId: string) {
+    const pending = this.pendingPermissions.get(requestId);
+    if (!pending) {
+      return;
+    }
+
+    const response = pending.responseByActionId.get(actionId);
+    if (response === undefined) {
+      throw new Error('指定された permission actionId が見つかりません。');
+    }
+
+    this.pendingPermissions.delete(requestId);
+    this.client.respond(pending.id, response);
+    this.emit({
+      requestId,
+      type: 'permission.resolved',
+    });
+  }
+
+  private clearPendingPermission(requestId: string) {
+    if (!this.pendingPermissions.has(requestId)) {
+      return;
+    }
+
+    this.pendingPermissions.delete(requestId);
+    this.emit({
+      requestId,
+      type: 'permission.resolved',
+    });
+  }
+
+  private createPermission(
+    requestId: string,
+    method: string,
+    params: unknown,
+  ): { permission: PendingPermission; responseByActionId: Map<string, unknown> } {
+    const actions = this.buildActions();
+    const responseByActionId = new Map<string, unknown>([
+      ['allow', { outcome: { outcome: 'allowed' } }],
+      ['deny', { outcome: { outcome: 'denied' } }],
+    ]);
+
+    return {
+      permission: {
+        actions,
+        method,
+        payload: params,
+        requestId,
+      },
+      responseByActionId,
+    };
+  }
+
+  private buildActions(): PermissionAction[] {
+    return [
+      { actionId: 'allow', kind: 'approve', label: 'Allow' },
+      { actionId: 'deny', kind: 'reject', label: 'Deny' },
+    ];
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

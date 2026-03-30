@@ -5,6 +5,7 @@ import {
   AGENT_IPC_CHANNELS,
   type ContinueConversationInput,
   type ForkSessionInput,
+  type RespondPermissionInput,
   type SendFollowUpInput,
   type StartSessionInput,
   type SteerActiveTurnInput,
@@ -99,6 +100,10 @@ if (isProd) {
 
   ipcMain.handle(AGENT_IPC_CHANNELS.steerActiveTurn, (_event, input: SteerActiveTurnInput) => {
     return gateway.steerActiveTurn(input);
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.respondPermission, (_event, input: RespondPermissionInput) => {
+    return gateway.respondPermission(input);
   });
 
   const reviewGateway = new ReviewGateway();

@@ -5,6 +5,7 @@ import {
   type AgentSessionSnapshot,
   type ContinueConversationInput,
   type ForkSessionInput,
+  type RespondPermissionInput,
   type SendFollowUpInput,
   type StartSessionInput,
   type SteerActiveTurnInput,
@@ -63,6 +64,9 @@ const agentApi = {
   },
   steerActiveTurn(input: SteerActiveTurnInput): Promise<void> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.steerActiveTurn, input);
+  },
+  respondPermission(input: RespondPermissionInput): Promise<void> {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.respondPermission, input);
   },
 };
 

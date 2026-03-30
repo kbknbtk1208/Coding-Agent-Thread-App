@@ -123,6 +123,10 @@ export class JsonRpcProcess {
     this.write({ id, result });
   }
 
+  respondError(id: number, error: JsonRpcError) {
+    this.write({ id, error });
+  }
+
   async dispose() {
     if (this.isDisposed) {
       return;

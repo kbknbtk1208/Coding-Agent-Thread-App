@@ -9,6 +9,8 @@ import type {
   ConversationIntermediateSegment,
   ConversationResponseMode,
   ConversationTurn,
+  PendingPermission,
+  PermissionAction,
   RichTextResultSource,
   ResultEnvelope,
   StructuredOutputMode,
@@ -91,6 +93,53 @@ const PRIORITY_STYLES = {
   medium: 'border-amber-200/30 bg-amber-300/12 text-amber-50',
 } as const;
 
+const PERMISSION_ACTION_STYLES: Record<
+  PermissionAction['kind'],
+  { border: string; text: string; hover: string }
+> = {
+  approve: {
+    border: 'border-emerald-200/30',
+    text: 'text-emerald-50',
+    hover: 'hover:border-emerald-100/40 hover:bg-emerald-300/18',
+  },
+  cancel: {
+    border: 'border-slate-200/20',
+    text: 'text-slate-100',
+    hover: 'hover:border-white/20 hover:bg-white/10',
+  },
+  other: {
+    border: 'border-fuchsia-200/25',
+    text: 'text-fuchsia-50',
+    hover: 'hover:border-fuchsia-100/40 hover:bg-fuchsia-300/18',
+  },
+  reject: {
+    border: 'border-rose-200/30',
+    text: 'text-rose-50',
+    hover: 'hover:border-rose-100/40 hover:bg-rose-300/18',
+  },
+};
+
+function clonePendingPermission(permission: PendingPermission): PendingPermission {
+  return {
+    ...permission,
+    actions: permission.actions.map((action) => ({ ...action })),
+    payload:
+      permission.payload && typeof permission.payload === 'object'
+        ? Array.isArray(permission.payload)
+          ? [...permission.payload]
+          : { ...permission.payload }
+        : permission.payload,
+  };
+}
+
+function clonePendingPermissions(pendingPermissions: PendingPermission[]) {
+  return pendingPermissions.map((permission) => clonePendingPermission(permission));
+}
+
+function getPendingPermissionsNewestFirst(pendingPermissions: PendingPermission[]) {
+  return [...pendingPermissions].reverse();
+}
+
 function sortSessions(sessions: AppSession[]) {
   return [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
@@ -130,6 +179,7 @@ function normalizeTurn(turn: ConversationTurn): ConversationTurn {
 function normalizeSession(session: AppSession): AppSession {
   return {
     ...session,
+    pendingPermissions: clonePendingPermissions(session.pendingPermissions ?? []),
     turns: session.turns.map(normalizeTurn),
   };
 }
@@ -165,6 +215,7 @@ function mergeSessionSnapshot(existingSession: AppSession | undefined, nextSessi
   return {
     ...existingSession,
     ...nextSession,
+    pendingPermissions: clonePendingPermissions(nextSession.pendingPermissions ?? []),
     turns: nextSession.turns.map((turn, index) =>
       mergeTurnSnapshots(
         turnsById.get(turn.turnId) ?? turnsById.get(turn.messageId) ?? existingSession.turns[index],
@@ -241,20 +292,28 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
       };
     case 'status.changed': {
       const latestTurn = session.turns.at(-1);
+      const nextStatus =
+        session.pendingPermissions.length > 0 && event.status === 'running'
+          ? 'waiting_permission'
+          : event.status;
       const shouldFinalizeLatestTurn =
-        (event.status === 'completed' || event.status === 'failed') && latestTurn
+        (nextStatus === 'completed' || nextStatus === 'failed') && latestTurn
           ? isBusyStatus(latestTurn.status)
           : false;
+      const shouldSyncLatestTurnStatus =
+        !shouldFinalizeLatestTurn &&
+        latestTurn?.status === 'waiting_permission' &&
+        nextStatus !== 'waiting_permission';
+      const shouldClearPendingPermissions = nextStatus === 'completed' || nextStatus === 'failed';
 
       return {
         ...session,
-        status: event.status,
+        pendingPermissions: shouldClearPendingPermissions ? [] : session.pendingPermissions,
+        status: nextStatus,
         progressHint:
-          event.status === 'completed' || event.status === 'failed'
-            ? undefined
-            : session.progressHint,
+          nextStatus === 'completed' || nextStatus === 'failed' ? undefined : session.progressHint,
         streamBuffer:
-          event.status === 'completed' || event.status === 'failed'
+          nextStatus === 'completed' || nextStatus === 'failed'
             ? { content: '', messageId: null }
             : session.streamBuffer,
         turns: shouldFinalizeLatestTurn
@@ -262,32 +321,41 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
               ...turn,
               completedAt: new Date().toISOString(),
               progressHint: undefined,
-              status: event.status,
+              status: nextStatus,
             }))
-          : session.turns,
+          : shouldSyncLatestTurnStatus
+            ? patchLatestTurn(session.turns, (turn) => ({
+                ...turn,
+                progressHint: undefined,
+                status: nextStatus,
+              }))
+            : session.turns,
         updatedAt: new Date().toISOString(),
       };
     }
-    case 'progress.updated':
+    case 'progress.updated': {
+      const nextStatus = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
       return {
         ...session,
         progressHint: { ...event.progressHint },
-        status: 'running',
+        status: nextStatus,
         turns: patchLatestTurn(session.turns, (turn) =>
           turn.messageId === event.messageId
             ? {
                 ...applyProgressHintToTurn(turn, event.progressHint, event.progressHint.updatedAt),
-                status: 'running',
+                status: nextStatus,
               }
             : turn,
         ),
         updatedAt: new Date().toISOString(),
       };
-    case 'message.delta':
+    }
+    case 'message.delta': {
+      const nextStatus = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
       return {
         ...session,
         progressHint: undefined,
-        status: 'running',
+        status: nextStatus,
         streamBuffer: {
           content: session.streamBuffer.content + event.text,
           messageId: event.messageId,
@@ -296,12 +364,13 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
           turn.messageId === event.messageId
             ? {
                 ...applyMessageDeltaToTurn(turn, session.agent, event.text, event.updatedAt),
-                status: 'running',
+                status: nextStatus,
               }
             : turn,
         ),
         updatedAt: new Date().toISOString(),
       };
+    }
     case 'message.completed':
       return {
         ...session,
@@ -318,6 +387,7 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
       return {
         ...session,
         finalResult: result,
+        pendingPermissions: [],
         progressHint: undefined,
         turns: patchLatestTurn(session.turns, (turn) => ({
           ...turn,
@@ -330,18 +400,62 @@ function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
     case 'permission.requested':
       return {
         ...session,
+        pendingPermissions: [
+          ...session.pendingPermissions.filter(
+            (permission) => permission.requestId !== event.permission.requestId,
+          ),
+          clonePendingPermission(event.permission),
+        ],
         progressHint: undefined,
         status: 'waiting_permission',
-        turns: patchLatestTurn(session.turns, (turn) => ({
-          ...turn,
-          progressHint: undefined,
-          status: 'waiting_permission',
-        })),
+        turns: session.turns.map((turn) =>
+          turn.turnId === event.permission.turnId ||
+          (!event.permission.turnId && turn === session.turns.at(-1))
+            ? {
+                ...turn,
+                progressHint: undefined,
+                status: 'waiting_permission',
+              }
+            : turn,
+        ),
         updatedAt: new Date().toISOString(),
       };
+    case 'permission.resolved': {
+      const resolvedPermission = session.pendingPermissions.find(
+        (permission) => permission.requestId === event.requestId,
+      );
+      const nextPendingPermissions = session.pendingPermissions.filter(
+        (permission) => permission.requestId !== event.requestId,
+      );
+      const turnId = resolvedPermission?.turnId;
+      const stillPendingForTurn = turnId
+        ? nextPendingPermissions.some((permission) => permission.turnId === turnId)
+        : false;
+
+      return {
+        ...session,
+        pendingPermissions: nextPendingPermissions,
+        progressHint: undefined,
+        status: nextPendingPermissions.length > 0 ? 'waiting_permission' : 'running',
+        turns: session.turns.map((turn) =>
+          turn.turnId === turnId || (!turnId && turn === session.turns.at(-1))
+            ? {
+                ...turn,
+                progressHint: undefined,
+                status:
+                  nextPendingPermissions.length > 0 || stillPendingForTurn
+                    ? 'waiting_permission'
+                    : 'running',
+              }
+            : turn,
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+    }
     case 'error':
       return {
         ...session,
+        pendingPermissions: [],
         progressHint: undefined,
         status: 'failed',
         streamBuffer: { content: '', messageId: null },
@@ -595,6 +709,94 @@ function renderWaitingResponse(text = '応答を待っています...') {
   );
 }
 
+function serializePermissionPayload(payload: unknown) {
+  if (payload === undefined) {
+    return 'undefined';
+  }
+
+  return JSON.stringify(payload, null, 2) ?? 'null';
+}
+
+function getPendingPermissionsForTurn(session: AppSession, turnId: string) {
+  return getPendingPermissionsNewestFirst(
+    session.pendingPermissions.filter((permission) => permission.turnId === turnId),
+  );
+}
+
+function getSessionLevelPendingPermissions(session: AppSession) {
+  return getPendingPermissionsNewestFirst(
+    session.pendingPermissions.filter((permission) => permission.turnId === undefined),
+  );
+}
+
+function PermissionRequestCard(props: {
+  description: string;
+  isSubmitting: boolean;
+  onRespond: (requestId: string, actionId: string) => void;
+  permission: PendingPermission;
+  title: string;
+}) {
+  const { permission } = props;
+
+  return (
+    <div className="space-y-4 rounded-[1.4rem] border border-fuchsia-200/25 bg-fuchsia-300/12 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-fuchsia-100/80">
+            {props.title}
+          </p>
+          <p className="text-sm text-fuchsia-50/90">{props.description}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-fuchsia-100/20 bg-fuchsia-200/10 px-3 py-1 text-[11px] font-medium text-fuchsia-50">
+            requestId: {permission.requestId}
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-slate-200">
+            {permission.method}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-2 text-xs text-fuchsia-50/75 sm:grid-cols-2">
+        {permission.turnId ? (
+          <p className="rounded-[1rem] border border-white/10 bg-black/20 px-3 py-2">
+            turnId: {permission.turnId}
+          </p>
+        ) : null}
+        {permission.itemId ? (
+          <p className="rounded-[1rem] border border-white/10 bg-black/20 px-3 py-2">
+            itemId: {permission.itemId}
+          </p>
+        ) : null}
+      </div>
+
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-[1.2rem] border border-white/10 bg-black/40 p-4 text-sm leading-7 text-slate-100">
+        {serializePermissionPayload(permission.payload)}
+      </pre>
+
+      <div className="flex flex-wrap gap-3">
+        {permission.actions.map((action) => {
+          const actionStyle =
+            PERMISSION_ACTION_STYLES[action.kind] ?? PERMISSION_ACTION_STYLES.other;
+          return (
+            <button
+              key={action.actionId}
+              type="button"
+              onClick={() => {
+                props.onRespond(permission.requestId, action.actionId);
+              }}
+              disabled={props.isSubmitting}
+              className={`rounded-full border px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500 ${actionStyle.border} ${actionStyle.text} ${actionStyle.hover}`}
+            >
+              {action.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function renderIntermediateSegments(
   segments: ConversationIntermediateSegment[],
   options: { isLatestTurn: boolean; turn: ConversationTurn },
@@ -722,6 +924,12 @@ export function SessionConsole() {
       if (event.type === 'session.started') {
         setActiveSessionIds((current) => upsertActiveSessionIds(current, event.appSessionId));
       }
+      if (
+        event.type === 'status.changed' &&
+        (event.status === 'completed' || event.status === 'failed')
+      ) {
+        setActiveSessionIds((current) => current.filter((id) => id !== event.appSessionId));
+      }
       if (event.type === 'error') {
         setErrorMessage(event.error.message);
       }
@@ -745,6 +953,9 @@ export function SessionConsole() {
   const selectedSessionIsActive = selectedSession
     ? isSessionActive(activeSessionIds, selectedSession.appSessionId)
     : false;
+  const sessionLevelPendingPermissions = selectedSession
+    ? getSessionLevelPendingPermissions(selectedSession)
+    : [];
 
   const canSteerActiveTurn =
     selectedSession !== null &&
@@ -835,6 +1046,28 @@ export function SessionConsole() {
       setSteerPrompt('');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'steer の送信に失敗しました。');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRespondPermission = async (requestId: string, actionId: string) => {
+    if (!selectedSession) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      await window.agentApi.respondPermission({
+        appSessionId: selectedSession.appSessionId,
+        requestId,
+        actionId,
+      });
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'permission 応答の送信に失敗しました。',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -1228,6 +1461,31 @@ export function SessionConsole() {
                   <div className="space-y-4">
                     {renderModelSelection(selectedSession)}
 
+                    {sessionLevelPendingPermissions.length > 0 ? (
+                      <div className="rounded-[1.6rem] border border-fuchsia-200/20 bg-fuchsia-300/10 p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <h4 className="text-lg font-semibold text-fuchsia-50">
+                            Pending approvals
+                          </h4>
+                          <span className="rounded-full border border-fuchsia-100/20 bg-fuchsia-200/10 px-3 py-1 text-xs font-medium text-fuchsia-50">
+                            {sessionLevelPendingPermissions.length}
+                          </span>
+                        </div>
+                        <div className="mt-4 space-y-4">
+                          {sessionLevelPendingPermissions.map((permission) => (
+                            <PermissionRequestCard
+                              key={permission.requestId}
+                              permission={permission}
+                              onRespond={handleRespondPermission}
+                              isSubmitting={isSubmitting}
+                              title="Session-level permission"
+                              description="turnId がない permission request はここに集約されます。"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-5">
                       <h4 className="text-lg font-semibold text-white">Final Result</h4>
                       <div className="mt-4">{renderResult(selectedSession.finalResult)}</div>
@@ -1384,6 +1642,9 @@ export function SessionConsole() {
                             {(() => {
                               const isLatestTurn = index === selectedSession.turns.length - 1;
                               const intermediateSegments = turn.intermediateSegments ?? [];
+                              const turnPendingPermissions = isLatestTurn
+                                ? getPendingPermissionsForTurn(selectedSession, turn.turnId)
+                                : [];
                               const isActiveTurn =
                                 isLatestTurn &&
                                 !turn.result &&
@@ -1398,42 +1659,73 @@ export function SessionConsole() {
                                   'running')
                                 : undefined;
 
-                              if (hasVisibleIntermediateContent || turn.result) {
-                                return (
-                                  <div className="space-y-5">
-                                    {hasVisibleIntermediateContent
-                                      ? renderIntermediateSegments(intermediateSegments, {
-                                          isLatestTurn,
-                                          turn,
-                                        })
-                                      : null}
-                                    {turn.result ? (
-                                      hasVisibleIntermediateContent ? (
-                                        <div className="space-y-4 border-t border-white/10 pt-4">
-                                          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                                            Final Output
+                              return (
+                                <div className="space-y-5">
+                                  {turnPendingPermissions.length > 0 ? (
+                                    <div className="space-y-4 rounded-[1.4rem] border border-fuchsia-200/25 bg-fuchsia-300/12 p-4">
+                                      <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-fuchsia-100/80">
+                                            Permission Request
                                           </p>
-                                          {renderResult(turn.result)}
+                                          <p className="mt-2 text-sm text-fuchsia-50/90">
+                                            provider からの権限要求に応答してください。
+                                          </p>
                                         </div>
-                                      ) : (
-                                        renderResult(turn.result)
-                                      )
-                                    ) : null}
-                                  </div>
-                                );
-                              }
+                                        <span className="rounded-full border border-fuchsia-100/20 bg-fuchsia-200/10 px-3 py-1 text-[11px] font-medium text-fuchsia-50">
+                                          {turnPendingPermissions.length} pending
+                                        </span>
+                                      </div>
+                                      <div className="space-y-4">
+                                        {turnPendingPermissions.map((permission) => (
+                                          <PermissionRequestCard
+                                            key={permission.requestId}
+                                            permission={permission}
+                                            onRespond={handleRespondPermission}
+                                            isSubmitting={isSubmitting}
+                                            title="Turn-level permission"
+                                            description="この turn に紐づく permission request です。newest-first で表示しています。"
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
 
-                              return turn.responseMode === 'richText' && turn.response ? (
-                                renderStreamingRichText(
-                                  turn.response,
-                                  'text-sm leading-7 text-slate-200',
-                                )
-                              ) : !turn.response ? (
-                                renderWaitingResponse(waitingText)
-                              ) : (
-                                <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
-                                  {turn.response}
-                                </pre>
+                                  {hasVisibleIntermediateContent
+                                    ? renderIntermediateSegments(intermediateSegments, {
+                                        isLatestTurn,
+                                        turn,
+                                      })
+                                    : null}
+                                  {turn.result ? (
+                                    hasVisibleIntermediateContent ? (
+                                      <div className="space-y-4 border-t border-white/10 pt-4">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                                          Final Output
+                                        </p>
+                                        {renderResult(turn.result)}
+                                      </div>
+                                    ) : (
+                                      renderResult(turn.result)
+                                    )
+                                  ) : null}
+                                  {!turnPendingPermissions.length &&
+                                  !hasVisibleIntermediateContent &&
+                                  !turn.result ? (
+                                    turn.responseMode === 'richText' && turn.response ? (
+                                      renderStreamingRichText(
+                                        turn.response,
+                                        'text-sm leading-7 text-slate-200',
+                                      )
+                                    ) : !turn.response ? (
+                                      renderWaitingResponse(waitingText)
+                                    ) : (
+                                      <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">
+                                        {turn.response}
+                                      </pre>
+                                    )
+                                  ) : null}
+                                </div>
                               );
                             })()}
                           </div>

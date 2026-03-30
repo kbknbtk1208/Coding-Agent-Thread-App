@@ -1,6 +1,7 @@
 import type {
   AgentCapability,
   AgentKind,
+  PendingPermission,
   AgentStatus,
   ConversationResponseMode,
   RichTextResultSource,
@@ -41,8 +42,11 @@ export type RuntimeSessionEvent =
     }
   | {
       type: 'permission.requested';
+      permission: PendingPermission;
+    }
+  | {
+      type: 'permission.resolved';
       requestId: string;
-      payload: unknown;
     }
   | {
       type: 'error';
@@ -66,6 +70,7 @@ export interface RuntimeSessionHandle {
   modelSelection?: SessionModelSelection;
   providerSessionId: string;
   sendPrompt(input: SendPromptInput): Promise<void>;
+  respondPermission?(requestId: string, actionId: string): Promise<void> | void;
   steer?(input: SteerInput): Promise<void>;
   dispose(): Promise<void>;
 }

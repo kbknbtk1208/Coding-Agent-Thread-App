@@ -84,6 +84,24 @@ export interface SessionModelSelection {
   warning?: string;
 }
 
+export type PermissionActionKind = 'approve' | 'reject' | 'cancel' | 'other';
+
+export interface PermissionAction {
+  actionId: string;
+  kind: PermissionActionKind;
+  label: string;
+}
+
+export interface PendingPermission {
+  requestId: string;
+  method: string;
+  payload: unknown;
+  actions: PermissionAction[];
+  itemId?: string;
+  threadId?: string;
+  turnId?: string;
+}
+
 export interface ConversationTurn {
   turnId: string;
   messageId: string;
@@ -114,6 +132,7 @@ export interface AppSession {
   modelSelection?: SessionModelSelection;
   providerSessionId?: string;
   parentAppSessionId?: string;
+  pendingPermissions: PendingPermission[];
 }
 
 export type AgentEvent =
@@ -158,8 +177,12 @@ export type AgentEvent =
   | {
       type: 'permission.requested';
       appSessionId: string;
+      permission: PendingPermission;
+    }
+  | {
+      type: 'permission.resolved';
+      appSessionId: string;
       requestId: string;
-      payload: unknown;
     }
   | {
       type: 'error';

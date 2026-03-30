@@ -5,6 +5,7 @@ import type {
   AppSession,
   ConversationResponseMode,
   ConversationTurn,
+  PendingPermission,
   ResultEnvelope,
 } from '../../shared/domain/agent';
 import {
@@ -17,6 +18,7 @@ import type {
   AgentSessionSnapshot,
   ContinueConversationInput,
   ForkSessionInput,
+  RespondPermissionInput,
   SendFollowUpInput,
   StartSessionInput,
   SteerActiveTurnInput,
@@ -34,6 +36,26 @@ import type { PersistedConversationTurn, PersistedSession, SessionStore } from '
 type EmitAgentEvent = (event: AgentEvent) => void;
 
 const BUSY_STATUSES = ['starting', 'running', 'waiting_permission'] as const;
+
+function clonePendingPermission(permission: PendingPermission): PendingPermission {
+  return {
+    ...permission,
+    actions: permission.actions.map((action) => ({ ...action })),
+    payload:
+      permission.payload && typeof permission.payload === 'object'
+        ? Array.isArray(permission.payload)
+          ? [...permission.payload]
+          : { ...permission.payload }
+        : permission.payload,
+  };
+}
+
+function removePendingPermission(
+  pendingPermissions: PendingPermission[],
+  requestId: string,
+): PendingPermission[] {
+  return pendingPermissions.filter((permission) => permission.requestId !== requestId);
+}
 
 function isBusyStatus(status: AppSession['status']) {
   return BUSY_STATUSES.includes(status as (typeof BUSY_STATUSES)[number]);
@@ -87,6 +109,7 @@ export class AgentGateway {
       createdAt: now,
       cwd: input.cwd.trim(),
       status: 'starting',
+      pendingPermissions: [],
       progressHint: undefined,
       streamBuffer: { content: '', messageId: turn.messageId },
       turns: [turn],
@@ -233,6 +256,7 @@ export class AgentGateway {
           ? { ...parentPersisted.modelSelection }
           : undefined,
       parentAppSessionId: input.appSessionId,
+      pendingPermissions: [],
       progressHint: undefined,
       providerSessionId: undefined,
       status: 'starting',
@@ -364,6 +388,63 @@ export class AgentGateway {
     await runtimeSession.steer({ steerText: input.prompt });
   }
 
+  async respondPermission(input: RespondPermissionInput): Promise<void> {
+    this.assertText(input.appSessionId, 'permission 応答対象のセッションを選択してください。');
+    this.assertText(input.requestId, 'permission requestId が必要です。');
+    this.assertText(input.actionId, 'permission actionId が必要です。');
+
+    const session = this.sessions.get(input.appSessionId);
+    if (!session) {
+      throw new Error('指定されたセッションが見つかりません。');
+    }
+    const pendingPermission = session.pendingPermissions.find(
+      (permission) => permission.requestId === input.requestId,
+    );
+    if (!pendingPermission) {
+      throw new Error('pending permission request が見つかりません。');
+    }
+    if (!pendingPermission.actions.some((action) => action.actionId === input.actionId)) {
+      throw new Error('permission actionId が一致しません。');
+    }
+
+    const runtimeSession = this.runtimeSessions.get(input.appSessionId);
+    if (!runtimeSession) {
+      throw new Error('provider session が初期化されていません。');
+    }
+    if (!runtimeSession.respondPermission) {
+      throw new Error('このプロバイダーは permission 応答をサポートしていません。');
+    }
+
+    await runtimeSession.respondPermission(input.requestId, input.actionId);
+
+    const updatedAt = this.now();
+    session.pendingPermissions = removePendingPermission(
+      session.pendingPermissions,
+      input.requestId,
+    );
+    session.progressHint = undefined;
+    session.status = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
+    session.updatedAt = updatedAt;
+
+    const latestTurn = session.turns.at(-1);
+    if (latestTurn) {
+      latestTurn.progressHint = undefined;
+      latestTurn.status = session.status;
+    }
+
+    this.persistSession(session);
+    this.emit({
+      appSessionId: input.appSessionId,
+      requestId: input.requestId,
+      type: 'permission.resolved',
+    });
+    this.emit({
+      appSessionId: input.appSessionId,
+      status: session.status,
+      type: 'status.changed',
+    });
+  }
+
   async dispose() {
     const activeSessions = Array.from(this.sessions.values());
     for (const session of activeSessions) {
@@ -384,6 +465,11 @@ export class AgentGateway {
       return;
     }
 
+    let emittedEvent: AgentEvent = {
+      ...event,
+      appSessionId,
+    } as AgentEvent;
+
     switch (event.type) {
       case 'status.changed': {
         const updatedAt = this.now();
@@ -391,26 +477,43 @@ export class AgentGateway {
         const latestTurn = session.turns.at(-1);
         const shouldFinalizeLatestTurn =
           isTerminalStatus && latestTurn ? isBusyStatus(latestTurn.status) : false;
+        const shouldSyncLatestTurnStatus =
+          !shouldFinalizeLatestTurn &&
+          latestTurn?.status === 'waiting_permission' &&
+          event.status !== 'waiting_permission';
+        const nextStatus =
+          session.pendingPermissions.length > 0 && event.status === 'running'
+            ? 'waiting_permission'
+            : event.status;
 
-        session.status = event.status;
+        session.status = nextStatus;
         session.updatedAt = updatedAt;
         if (isTerminalStatus) {
+          session.pendingPermissions = [];
           session.progressHint = undefined;
           session.streamBuffer = { content: '', messageId: null };
         }
         if (shouldFinalizeLatestTurn && latestTurn) {
           latestTurn.completedAt = updatedAt;
-          latestTurn.status = event.status;
+          latestTurn.status = nextStatus;
+          latestTurn.progressHint = undefined;
+        } else if (shouldSyncLatestTurnStatus && latestTurn) {
+          latestTurn.status = nextStatus;
           latestTurn.progressHint = undefined;
         }
         if (isTerminalStatus) {
           this.persistSession(session);
         }
+        emittedEvent = {
+          appSessionId,
+          status: nextStatus,
+          type: 'status.changed',
+        };
         break;
       }
       case 'progress.updated': {
         const latestTurn = session.turns.at(-1);
-        session.status = 'running';
+        session.status = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
         session.progressHint = { ...event.progressHint };
         if (latestTurn && latestTurn.messageId === event.messageId) {
           const nextTurn = applyProgressHintToTurn(
@@ -418,7 +521,7 @@ export class AgentGateway {
             event.progressHint,
             event.progressHint.updatedAt,
           );
-          nextTurn.status = 'running';
+          nextTurn.status = session.status;
           session.turns[session.turns.length - 1] = nextTurn;
         }
         session.updatedAt = this.now();
@@ -433,10 +536,11 @@ export class AgentGateway {
             event.text,
             event.updatedAt,
           );
-          nextTurn.status = 'running';
+          nextTurn.status =
+            session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
           session.turns[session.turns.length - 1] = nextTurn;
         }
-        session.status = 'running';
+        session.status = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
         session.progressHint = undefined;
         session.streamBuffer = {
           content: session.streamBuffer.content + event.text,
@@ -469,6 +573,7 @@ export class AgentGateway {
           latestTurn.progressHint = undefined;
         }
         session.finalResult = result;
+        session.pendingPermissions = [];
         session.progressHint = undefined;
         session.updatedAt = this.now();
         this.persistSession(session);
@@ -488,24 +593,67 @@ export class AgentGateway {
           latestTurn.progressHint = undefined;
         }
         session.finalResult = result;
+        session.pendingPermissions = [];
         session.progressHint = undefined;
         session.updatedAt = this.now();
         this.persistSession(session);
         break;
       }
       case 'permission.requested': {
+        const pendingPermission = clonePendingPermission(event.permission);
+        const latestTurn = session.turns.at(-1);
+        if (
+          pendingPermission.turnId &&
+          !session.turns.some((turn) => turn.turnId === pendingPermission.turnId) &&
+          latestTurn
+        ) {
+          pendingPermission.turnId = latestTurn.turnId;
+        }
+        const targetTurnIndex = pendingPermission.turnId
+          ? session.turns.findIndex((turn) => turn.turnId === pendingPermission.turnId)
+          : session.turns.length - 1;
         session.status = 'waiting_permission';
+        session.pendingPermissions = [
+          ...session.pendingPermissions.filter(
+            (permission) => permission.requestId !== pendingPermission.requestId,
+          ),
+          pendingPermission,
+        ];
         session.progressHint = undefined;
         session.updatedAt = this.now();
+        if (targetTurnIndex >= 0) {
+          const targetTurn = session.turns[targetTurnIndex];
+          session.turns[targetTurnIndex] = {
+            ...targetTurn,
+            progressHint: undefined,
+            status: 'waiting_permission',
+          };
+        }
+        emittedEvent = {
+          appSessionId,
+          permission: clonePendingPermission(pendingPermission),
+          type: 'permission.requested',
+        };
+        break;
+      }
+      case 'permission.resolved': {
+        session.pendingPermissions = removePendingPermission(
+          session.pendingPermissions,
+          event.requestId,
+        );
+        session.progressHint = undefined;
+        session.status = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
+        session.updatedAt = this.now();
         const latestTurn = session.turns.at(-1);
-        if (latestTurn) {
+        if (latestTurn && latestTurn.status === 'waiting_permission') {
           latestTurn.progressHint = undefined;
-          latestTurn.status = 'waiting_permission';
+          latestTurn.status = session.status;
         }
         break;
       }
       case 'error': {
         session.status = 'failed';
+        session.pendingPermissions = [];
         session.progressHint = undefined;
         session.streamBuffer = { content: '', messageId: null };
         session.updatedAt = this.now();
@@ -521,10 +669,7 @@ export class AgentGateway {
         break;
     }
 
-    this.emit({
-      ...event,
-      appSessionId,
-    });
+    this.emit(emittedEvent);
   }
 
   private applyError(appSessionId: string, message: string) {
@@ -534,6 +679,7 @@ export class AgentGateway {
     }
 
     session.status = 'failed';
+    session.pendingPermissions = [];
     session.progressHint = undefined;
     session.streamBuffer = { content: '', messageId: null };
     session.updatedAt = this.now();
@@ -653,6 +799,9 @@ export class AgentGateway {
       capabilities: [...session.capabilities],
       finalResult: session.finalResult ? this.cloneResultEnvelope(session.finalResult) : undefined,
       modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
+      pendingPermissions: session.pendingPermissions.map((permission) =>
+        clonePendingPermission(permission),
+      ),
       progressHint: session.progressHint ? { ...session.progressHint } : undefined,
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
@@ -761,6 +910,7 @@ export class AgentGateway {
         : undefined,
       progressHint: undefined,
       modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
+      pendingPermissions: [],
       providerSessionId: persisted.providerSessionId,
       parentAppSessionId: persisted.parentAppSessionId,
     };
@@ -782,6 +932,7 @@ export class AgentGateway {
         : undefined,
       progressHint: undefined,
       modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
+      pendingPermissions: [],
       providerSessionId: persisted.providerSessionId,
       parentAppSessionId: persisted.parentAppSessionId,
     };

@@ -57,6 +57,7 @@ export class MockAgentGateway {
       capabilities: this.getCapabilities(input.agent),
       createdAt: now,
       cwd: input.cwd.trim(),
+      pendingPermissions: [],
       status: 'starting',
       streamBuffer: { content: '', messageId: turn.messageId },
       turns: [turn],
@@ -368,6 +369,10 @@ export class MockAgentGateway {
       capabilities: [...session.capabilities],
       finalResult: session.finalResult ? this.cloneResultEnvelope(session.finalResult) : undefined,
       modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
+      pendingPermissions: session.pendingPermissions.map((permission) => ({
+        ...permission,
+        actions: permission.actions.map((action) => ({ ...action })),
+      })),
       streamBuffer: { ...session.streamBuffer },
       turns: session.turns.map((turn) => ({
         ...turn,
