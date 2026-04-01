@@ -12,6 +12,8 @@
 
 - このリポジトリで実現すべきPoCシナリオ:`docs\001_core-documents\001_PoC-scenario.md`
 - リポジトリの基本アーキテクチャ方針:`docs\001_core-documents\002_architecture.md`
+- PoC第二弾のレビュー支援シナリオ:`docs\001_core-documents\003_PoC-scenario-review-assistant.md`
+- PoC第二弾のレビュー支援アーキテクチャ:`docs\001_core-documents\004_architecture-review-assistant.md`
 - playwrightによる動作確認時のアプリアクセス方法:`docs\002_quality\playwright-electron-cdp.md`
 - `codex app-server`/`GitHub copilot acp mode`の公式Reference:`docs\003_references\`
 
