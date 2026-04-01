@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { expect, test } from 'vitest';
 import type { AgentKind, ConversationTurn, ProgressHint } from './agent.ts';
 import { applyMessageDeltaToTurn, applyProgressHintToTurn } from './intermediate-segments.ts';
 
@@ -45,17 +44,16 @@ test('progress -> delta -> progress -> delta で message segment が段分けさ
   );
   turn = applyDelta(turn, 'codex', '途中レスポンス2', '2026-03-27T00:00:00.300Z');
 
-  assert.equal(turn.intermediateSegments.length, 2);
-  assert.deepEqual(
+  expect(turn.intermediateSegments).toHaveLength(2);
+  expect(
     turn.intermediateSegments.map((segment) => ({
       kind: segment.kind,
       text: segment.text,
     })),
-    [
-      { kind: 'message', text: '途中レスポンス1' },
-      { kind: 'message', text: '途中レスポンス2' },
-    ],
-  );
+  ).toEqual([
+    { kind: 'message', text: '途中レスポンス1' },
+    { kind: 'message', text: '途中レスポンス2' },
+  ]);
 });
 
 test('progress -> progress -> delta で progress segment は増えず最後の hint が置き換わる', () => {
@@ -73,8 +71,8 @@ test('progress -> progress -> delta で progress segment は増えず最後の h
   );
   turn = applyDelta(turn, 'codex', '途中レスポンス', '2026-03-27T00:00:00.200Z');
 
-  assert.equal(turn.intermediateSegments.length, 1);
-  assert.deepEqual(turn.intermediateSegments[0], {
+  expect(turn.intermediateSegments).toHaveLength(1);
+  expect(turn.intermediateSegments[0]).toEqual({
     kind: 'message',
     progressKind: undefined,
     segmentId: 'turn-1:segment:1',
@@ -89,8 +87,8 @@ test('Copilot は 500ms 以内なら同じ message segment に追記する', () 
   turn = applyDelta(turn, 'copilot', 'A', '2026-03-27T00:00:00.000Z');
   turn = applyDelta(turn, 'copilot', 'B', '2026-03-27T00:00:00.400Z');
 
-  assert.equal(turn.intermediateSegments.length, 1);
-  assert.equal(turn.intermediateSegments[0].text, 'AB');
+  expect(turn.intermediateSegments).toHaveLength(1);
+  expect(turn.intermediateSegments[0].text).toBe('AB');
 });
 
 test('Copilot は 500ms を超える無通信で新しい message segment を作る', () => {
@@ -99,11 +97,8 @@ test('Copilot は 500ms を超える無通信で新しい message segment を作
   turn = applyDelta(turn, 'copilot', 'A', '2026-03-27T00:00:00.000Z');
   turn = applyDelta(turn, 'copilot', 'B', '2026-03-27T00:00:00.700Z');
 
-  assert.equal(turn.intermediateSegments.length, 2);
-  assert.deepEqual(
-    turn.intermediateSegments.map((segment) => segment.text),
-    ['A', 'B'],
-  );
+  expect(turn.intermediateSegments).toHaveLength(2);
+  expect(turn.intermediateSegments.map((segment) => segment.text)).toEqual(['A', 'B']);
 });
 
 test('Codex は hint が無い限り長い間隔でも同じ message segment に追記する', () => {
@@ -112,6 +107,6 @@ test('Codex は hint が無い限り長い間隔でも同じ message segment に
   turn = applyDelta(turn, 'codex', 'A', '2026-03-27T00:00:00.000Z');
   turn = applyDelta(turn, 'codex', 'B', '2026-03-27T00:00:02.000Z');
 
-  assert.equal(turn.intermediateSegments.length, 1);
-  assert.equal(turn.intermediateSegments[0].text, 'AB');
+  expect(turn.intermediateSegments).toHaveLength(1);
+  expect(turn.intermediateSegments[0].text).toBe('AB');
 });

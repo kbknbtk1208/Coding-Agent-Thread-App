@@ -82,6 +82,15 @@ npm run dev
 
 `npm run dev` で Next.js の開発サーバと Electron アプリが同時に起動します。
 
+## テスト
+
+```powershell
+npm run test
+npm run test:watch
+```
+
+`vitest` を最小構成で導入しており、現時点では `shared/` 配下の Node 環境向け単体テストを想定しています。`renderer/` 向けの `jsdom` 設定や Testing Library 導入は将来拡張の扱いです。
+
 ## Copilot のモデル固定
 
 - この PoC では、アプリが起動する Copilot ACP プロセスに対して repo 実装で `--model gpt-5-mini` を付与します
