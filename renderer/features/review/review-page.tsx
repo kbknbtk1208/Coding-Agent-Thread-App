@@ -1,62 +1,228 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
 import { SplitSide } from '@git-diff-view/react';
+import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
 import { DiffFilePane } from './diff-file-pane';
+import { OverviewDiscussionPanel } from './overview-discussion-panel';
+import {
+  getDefaultReviewHost,
+  inferProviderFromReviewUrl,
+  isReviewProvider,
+  serializeReviewSource,
+} from './review-source';
+import { ReviewSourceSelector } from './review-source-selector';
 import { useReviewData } from './use-review-data';
 import { useReviewState } from './use-review-state';
+
+function getQueryValue(value: string | string[] | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function getFileStatusLabel(contentStatus: string, isBinary: boolean): string {
+  if (isBinary) {
+    return 'binary';
+  }
+
+  switch (contentStatus) {
+    case 'loaded':
+      return 'ready';
+    case 'loading':
+      return 'loading';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'lazy';
+  }
+}
 
 export function ReviewPage() {
   const router = useRouter();
   const [provider, setProvider] = useState<ReviewProvider>('github');
-  const [selectedFileIndex, setSelectedFileIndex] = useState<number | null>(null);
-  const reviewSource = useMemo<ReviewSourceDraft | null>(() => {
-    const reviewUrl =
-      typeof router.query.reviewUrl === 'string'
-        ? decodeURIComponent(router.query.reviewUrl)
-        : null;
-    if (!reviewUrl) {
+  const [host, setHost] = useState(getDefaultReviewHost('github'));
+  const [reviewUrl, setReviewUrl] = useState('');
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const { data, loading, error, initialSelectedFileId, loadSource } = useReviewData();
+  const reviewState = useReviewState();
+  const lastLoadedSourceKeyRef = useRef<string | null>(null);
+  const activeSnapshotIdRef = useRef('');
+  const hydratingFileKeysRef = useRef(new Set<string>());
+
+  const querySource = useMemo<ReviewSourceDraft | null>(() => {
+    if (!router.isReady) {
       return null;
     }
 
-    const hostQuery =
-      typeof router.query.host === 'string' ? decodeURIComponent(router.query.host) : null;
+    const nextReviewUrl = getQueryValue(router.query.reviewUrl).trim();
+    if (!nextReviewUrl) {
+      return null;
+    }
+
+    const queryProvider = getQueryValue(router.query.provider).trim();
+    const nextProvider =
+      (isReviewProvider(queryProvider)
+        ? queryProvider
+        : inferProviderFromReviewUrl(nextReviewUrl)) ?? 'github';
+    const nextHost = getQueryValue(router.query.host).trim() || getDefaultReviewHost(nextProvider);
 
     return {
-      provider,
-      host: hostQuery ?? (provider === 'github' ? 'https://api.github.com' : 'https://gitlab.com'),
-      reviewUrl,
+      provider: nextProvider,
+      host: nextHost,
+      reviewUrl: nextReviewUrl,
     };
-  }, [provider, router.query.host, router.query.reviewUrl]);
-  const { data, loading, error, initialSelectedFileId } = useReviewData(reviewSource);
-  const reviewState = useReviewState();
+  }, [router.isReady, router.query.host, router.query.provider, router.query.reviewUrl]);
+
+  useEffect(() => {
+    if (!router.isReady) {
+      return;
+    }
+
+    if (querySource) {
+      setProvider(querySource.provider);
+      setHost(querySource.host);
+      setReviewUrl(querySource.reviewUrl);
+      return;
+    }
+
+    setProvider('github');
+    setHost(getDefaultReviewHost('github'));
+    setReviewUrl('');
+  }, [router.isReady, querySource]);
+
+  useEffect(() => {
+    if (!querySource) {
+      return;
+    }
+
+    const sourceKey = serializeReviewSource(querySource);
+    if (sourceKey === lastLoadedSourceKeyRef.current) {
+      return;
+    }
+
+    lastLoadedSourceKeyRef.current = sourceKey;
+    void loadSource(querySource);
+  }, [querySource, loadSource]);
 
   useEffect(() => {
     if (data) {
       reviewState.reset(data);
     }
-    // Only reset when data reference changes (after fetch)
   }, [data, reviewState.reset]);
 
   useEffect(() => {
-    if (!data) {
-      setSelectedFileIndex(null);
+    activeSnapshotIdRef.current = reviewState.data.snapshotId;
+  }, [reviewState.data.snapshotId]);
+
+  useEffect(() => {
+    if (!reviewState.data.snapshotId) {
+      setSelectedFileId(null);
       return;
     }
 
-    if (!initialSelectedFileId) {
-      setSelectedFileIndex(data.files.length > 0 ? 0 : null);
+    const nextSelectedFileId = initialSelectedFileId ?? reviewState.data.files[0]?.fileId ?? null;
+    setSelectedFileId(nextSelectedFileId);
+  }, [initialSelectedFileId, reviewState.data.snapshotId, reviewState.data.files[0]?.fileId]);
+
+  const selectedFile = useMemo(
+    () =>
+      selectedFileId
+        ? (reviewState.data.files.find((file) => file.fileId === selectedFileId) ?? null)
+        : null,
+    [reviewState.data.files, selectedFileId],
+  );
+
+  useEffect(() => {
+    if (!selectedFile || selectedFile.contentStatus !== 'idle') {
       return;
     }
 
-    const fileIndex = data.files.findIndex((file) => file.fileId === initialSelectedFileId);
-    setSelectedFileIndex(fileIndex >= 0 ? fileIndex : data.files.length > 0 ? 0 : null);
-  }, [data, initialSelectedFileId]);
+    const snapshotId = reviewState.data.snapshotId;
+    if (!snapshotId) {
+      return;
+    }
 
-  const handleProviderSwitch = (next: ReviewProvider) => {
-    setProvider(next);
-    setSelectedFileIndex(null);
-  };
+    const hydrationKey = `${snapshotId}:${selectedFile.fileId}`;
+    if (hydratingFileKeysRef.current.has(hydrationKey)) {
+      return;
+    }
+
+    hydratingFileKeysRef.current.add(hydrationKey);
+    reviewState.setFileContentStatus(selectedFile.fileId, 'loading');
+
+    window.reviewApi
+      .hydrateReviewFile({
+        snapshotId,
+        fileId: selectedFile.fileId,
+      })
+      .then((result) => {
+        if (activeSnapshotIdRef.current === snapshotId) {
+          reviewState.replaceFile(result.file);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('[hydrateReviewFile] Failed to hydrate review file:', err);
+        if (activeSnapshotIdRef.current === snapshotId) {
+          reviewState.setFileContentStatus(selectedFile.fileId, 'failed');
+        }
+      })
+      .finally(() => {
+        hydratingFileKeysRef.current.delete(hydrationKey);
+      });
+  }, [
+    selectedFile,
+    reviewState.data.snapshotId,
+    reviewState.replaceFile,
+    reviewState.setFileContentStatus,
+  ]);
+
+  const overviewThreads = useMemo(
+    () => reviewState.data.discussions.filter((thread) => thread.location.kind === 'overview'),
+    [reviewState.data.discussions],
+  );
+
+  const handleProviderSwitch = useCallback((nextProvider: ReviewProvider) => {
+    setProvider(nextProvider);
+    setHost(getDefaultReviewHost(nextProvider));
+    setValidationError(null);
+  }, []);
+
+  const handleLoad = useCallback(() => {
+    const nextReviewUrl = reviewUrl.trim();
+    if (!nextReviewUrl) {
+      setValidationError('Review URL を入力してください。');
+      return;
+    }
+
+    const nextHost = host.trim() || getDefaultReviewHost(provider);
+    if (!nextHost) {
+      setValidationError('Host を入力してください。');
+      return;
+    }
+
+    const nextSource: ReviewSourceDraft = {
+      provider,
+      host: nextHost,
+      reviewUrl: nextReviewUrl,
+    };
+
+    setValidationError(null);
+    lastLoadedSourceKeyRef.current = serializeReviewSource(nextSource);
+
+    void router.replace(
+      {
+        pathname: '/mr',
+        query: {
+          provider: nextSource.provider,
+          host: nextSource.host,
+          reviewUrl: nextSource.reviewUrl,
+        },
+      },
+      undefined,
+      { shallow: true },
+    );
+
+    void loadSource(nextSource);
+  }, [host, loadSource, provider, reviewUrl, router]);
 
   const handleAddComment = useCallback(
     (fileId: string, startLine: number | null, endLine: number, side: SplitSide, body: string) => {
@@ -72,134 +238,163 @@ export function ReviewPage() {
     [reviewState.replyThreadOptimistic],
   );
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-sm text-slate-400">Loading review data...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-sm text-red-400">Error: {error}</div>
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const currentFiles = reviewState.data.files;
-  const visibleFiles =
-    selectedFileIndex !== null && selectedFileIndex < currentFiles.length
-      ? [currentFiles[selectedFileIndex]]
-      : currentFiles.filter((file) => file.contentStatus === 'loaded');
+  const reviewTitle = reviewState.data.title || 'Review Snapshot';
+  const reviewDescription =
+    reviewState.data.description ||
+    '説明はまだありません。overview discussion を右側に表示します。';
+  const hasLoadedReview = Boolean(reviewState.data.snapshotId);
 
   return (
-    <div className="flex h-screen flex-col text-white">
-      {/* Top bar */}
-      <header className="flex items-center gap-4 border-b border-white/10 bg-white/[0.02] px-5 py-3">
-        <button
-          onClick={() => {
-            void router.push('/home');
-          }}
-          className="text-sm text-slate-400 hover:text-white"
-        >
-          ← Home
-        </button>
-        <div className="h-4 w-px bg-white/10" />
-        <h1 className="text-sm font-semibold">{reviewState.data.title}</h1>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-500">Provider:</span>
-          <button
-            onClick={() => handleProviderSwitch('github')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              provider === 'github'
-                ? 'bg-cyan-400/20 text-cyan-300'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            GitHub
-          </button>
-          <button
-            onClick={() => handleProviderSwitch('gitlab')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              provider === 'gitlab'
-                ? 'bg-cyan-400/20 text-cyan-300'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            GitLab
-          </button>
+    <div className="flex h-screen flex-col bg-slate-950 text-white">
+      <header className="border-b border-white/10 bg-slate-950/90 backdrop-blur">
+        <div className="flex flex-col gap-4 px-5 py-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => {
+                void router.push('/home');
+              }}
+              className="text-sm text-slate-400 transition hover:text-white"
+            >
+              ← Home
+            </button>
+            <div className="h-4 w-px bg-white/10" />
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold">{reviewTitle}</h1>
+              <p className="mt-1 text-xs text-slate-500">
+                {hasLoadedReview
+                  ? `${reviewState.data.files.length} files / ${overviewThreads.length} overview threads`
+                  : 'GitHub / GitLab の PR・MR URL を入力して読み込みます。'}
+              </p>
+            </div>
+            {hasLoadedReview ? (
+              <a
+                href={reviewState.data.providerContext.reviewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
+              >
+                Open source
+              </a>
+            ) : null}
+          </div>
+
+          <ReviewSourceSelector
+            provider={provider}
+            host={host}
+            reviewUrl={reviewUrl}
+            loading={loading}
+            error={validationError ?? error}
+            onProviderChange={handleProviderSwitch}
+            onHostChange={(value) => {
+              setHost(value);
+              setValidationError(null);
+            }}
+            onReviewUrlChange={(value) => {
+              setReviewUrl(value);
+              setValidationError(null);
+            }}
+            onSubmit={handleLoad}
+          />
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* File list sidebar */}
-        <aside className="w-[280px] flex-shrink-0 overflow-y-auto border-r border-white/10 bg-white/[0.01]">
-          <div className="p-3">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              Files ({currentFiles.length})
-            </div>
-            <button
-              onClick={() => setSelectedFileIndex(null)}
-              className={`mb-1 w-full rounded px-2 py-1.5 text-left text-xs transition ${
-                selectedFileIndex === null
-                  ? 'bg-cyan-400/10 text-cyan-300'
-                  : 'text-slate-400 hover:bg-white/5 hover:text-white'
-              }`}
-            >
-              All files
-            </button>
-            {currentFiles.map((file, i) => (
-              <button
-                key={file.fileId}
-                onClick={() => setSelectedFileIndex(i)}
-                disabled={file.contentStatus !== 'loaded'}
-                className={`mb-0.5 flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition ${
-                  selectedFileIndex === i
-                    ? 'bg-cyan-400/10 text-cyan-300'
-                    : file.contentStatus === 'loaded'
-                      ? 'text-slate-400 hover:bg-white/5 hover:text-white'
-                      : 'cursor-not-allowed text-slate-600'
-                }`}
-              >
-                <span className="flex-1 truncate">{file.filePath.split('/').pop()}</span>
-                <span className="flex items-center gap-1 text-[10px]">
-                  <span className="text-green-400">+{file.additions}</span>
-                  <span className="text-red-400">-{file.deletions}</span>
+      {hasLoadedReview ? (
+        <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+          <aside className="w-full shrink-0 border-b border-white/10 bg-white/[0.02] xl:w-[300px] xl:border-b-0 xl:border-r">
+            <div className="max-h-[240px] overflow-y-auto p-3 xl:max-h-none xl:h-full">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                  Files
                 </span>
-              </button>
-            ))}
-          </div>
-        </aside>
+                <span className="text-xs text-slate-500">{reviewState.data.files.length}</span>
+              </div>
 
-        {/* Main content — §4.8 scroll-jitter prevention:
-            overflow-anchor: auto enables browser-native scroll anchoring so
-            that DOM mutations (new thread rows, hunk expansion) below or above
-            the viewport do not shift the visible content.
-            scroll-behavior: auto prevents smooth scrolling which would fight
-            the anchor restoration logic. */}
-        <main
-          className="flex-1 overflow-y-auto p-4"
-          style={{ overflowAnchor: 'auto', scrollBehavior: 'auto' }}
-        >
-          <div className="mb-4">
-            <p className="text-sm text-slate-400">{reviewState.data.description}</p>
-          </div>
-          {visibleFiles.map((file) =>
-            file ? (
+              <div className="space-y-1.5">
+                {reviewState.data.files.map((file) => {
+                  const isActive = file.fileId === selectedFileId;
+
+                  return (
+                    <button
+                      key={file.fileId}
+                      onClick={() => setSelectedFileId(file.fileId)}
+                      className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
+                        isActive
+                          ? 'border-cyan-400/30 bg-cyan-400/10 text-white'
+                          : 'border-transparent bg-white/[0.03] text-slate-300 hover:border-white/10 hover:bg-white/[0.05]'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">
+                          {file.oldFilePath && file.changeType === 'renamed'
+                            ? `${file.oldFilePath} → ${file.filePath}`
+                            : file.filePath}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                          <span>{file.changeType}</span>
+                          <span>{getFileStatusLabel(file.contentStatus, file.isBinary)}</span>
+                          {file.threads.length > 0 ? (
+                            <span>{file.threads.length} threads</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right text-[11px]">
+                        <div className="text-green-400">+{file.additions}</div>
+                        <div className="text-red-400">-{file.deletions}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </aside>
+
+          <main
+            className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5"
+            style={{ overflowAnchor: 'auto', scrollBehavior: 'auto' }}
+          >
+            <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                Description
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                {reviewDescription}
+              </p>
+            </div>
+
+            {selectedFile ? (
               <DiffFilePane
-                key={file.fileId}
-                file={file}
+                key={selectedFile.fileId}
+                file={selectedFile}
                 onAddComment={handleAddComment}
                 onReply={handleReply}
               />
-            ) : null,
-          )}
+            ) : (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-slate-500">
+                表示するファイルがありません。
+              </div>
+            )}
+          </main>
+
+          <aside className="w-full shrink-0 border-t border-white/10 bg-white/[0.02] xl:w-[360px] xl:border-t-0 xl:border-l">
+            <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
+          </aside>
+        </div>
+      ) : (
+        <main className="flex flex-1 items-center justify-center p-6">
+          <div className="max-w-xl rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
+              Real Review Snapshot
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">
+              Review URL を入力して diff を読み込みます
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-400">
+              左側の file list にはメタデータだけを先に出し、本文は選択ファイルごとに lazy hydrate
+              します。overview discussion は右側パネルに分離して表示します。
+            </p>
+          </div>
         </main>
-      </div>
+      )}
     </div>
   );
 }

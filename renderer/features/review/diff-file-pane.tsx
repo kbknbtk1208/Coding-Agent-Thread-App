@@ -597,7 +597,7 @@ export function DiffFilePane({ file, onAddComment, onReply }: DiffFilePaneProps)
    * language + paths). Only a genuine content change triggers regeneration.
    */
   const diffFileInstance = useMemo(() => {
-    if (!expanded) return null;
+    if (!expanded || file.contentStatus !== 'loaded' || file.isBinary) return null;
     try {
       const oldName = file.oldFilePath ?? file.filePath;
       const instance = generateDiffFile(
@@ -619,7 +619,16 @@ export function DiffFilePane({ file, onAddComment, onReply }: DiffFilePaneProps)
       console.error('[DiffFilePane] Failed to generate diff:', err);
       return null;
     }
-  }, [expanded, file.filePath, file.oldFilePath, file.language, file.oldContent, file.newContent]);
+  }, [
+    expanded,
+    file.contentStatus,
+    file.isBinary,
+    file.filePath,
+    file.oldFilePath,
+    file.language,
+    file.oldContent,
+    file.newContent,
+  ]);
 
   /* ------ Track collapsed state via useSyncExternalStore ------ */
 
@@ -739,6 +748,51 @@ export function DiffFilePane({ file, onAddComment, onReply }: DiffFilePaneProps)
 
   /* ------ Render ------ */
 
+  const renderPlaceholder = () => {
+    if (file.contentStatus === 'loading') {
+      return (
+        <div className="px-4 py-8">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-5">
+            <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
+            <div className="mt-3 h-3 w-full animate-pulse rounded bg-white/5" />
+            <div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-white/5" />
+            <p className="mt-4 text-sm text-slate-500">差分本文を取得しています...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (file.contentStatus === 'idle') {
+      return (
+        <div className="px-4 py-8">
+          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-slate-500">
+            ファイルを選択すると差分本文を取得します。
+          </div>
+        </div>
+      );
+    }
+
+    if (file.isBinary) {
+      return (
+        <div className="px-4 py-8">
+          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-5 text-sm text-amber-100">
+            Binary file のため、本文プレビューは表示できません。
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="px-4 py-8">
+        <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-5 text-sm text-red-100">
+          {file.isLargeDiff
+            ? 'Large diff のため本文取得に失敗したか、provider 側で差分展開が制限されています。'
+            : '差分本文の取得に失敗しました。'}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="mb-4 overflow-hidden rounded-lg border border-white/10">
       {/* File header */}
@@ -775,7 +829,14 @@ export function DiffFilePane({ file, onAddComment, onReply }: DiffFilePaneProps)
       </div>
 
       {/* Diff content */}
-      {file.isLargeDiff && !expanded ? (
+      {file.contentStatus !== 'loaded' || file.isBinary ? (
+        <div>
+          {renderPlaceholder()}
+          {file.threads.length > 0 ? (
+            <ThreadLayer threads={file.threads} onReply={onReply} />
+          ) : null}
+        </div>
+      ) : file.isLargeDiff && !expanded ? (
         <div className="flex items-center justify-center px-4 py-8">
           <div className="text-center">
             <p className="mb-2 text-sm text-slate-400">

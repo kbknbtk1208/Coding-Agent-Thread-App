@@ -17,3 +17,5 @@ dist
 
 # claude
 .claude/settings.local.json
+
+.env

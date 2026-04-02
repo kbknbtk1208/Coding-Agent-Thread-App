@@ -6,41 +6,37 @@ import type {
   NormalizedReviewData,
   ReviewAnchor,
   ReviewComment,
+  ReviewContentStatus,
+  ReviewSnapshotFile,
   ReviewSnapshotThread,
   ReviewThread,
 } from '../../../shared/domain/review';
-
-/* ------------------------------------------------------------------ */
-/*  Stable optimistic ID generation (HMR-safe)                         */
-/* ------------------------------------------------------------------ */
 
 function nextOptimisticId(prefix: string): string {
   return `${prefix}-optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/* ------------------------------------------------------------------ */
-/*  State & Actions                                                    */
-/* ------------------------------------------------------------------ */
-
 interface ReviewState {
   data: NormalizedReviewData;
-  /** Maps optimistic threadId -> pending status */
   pendingThreads: Record<string, boolean>;
-  /** Maps optimistic threadId -> pending reply status */
   pendingReplies: Record<string, boolean>;
 }
 
 type ReviewAction =
   | { type: 'RESET'; data: NormalizedReviewData }
+  | { type: 'SET_FILE_CONTENT_STATUS'; fileId: string; contentStatus: ReviewContentStatus }
+  | { type: 'REPLACE_FILE'; file: ReviewSnapshotFile }
   | {
       type: 'CREATE_THREAD_OPTIMISTIC';
       fileId: string;
       thread: ReviewThread;
+      snapshotThread: ReviewSnapshotThread;
     }
   | {
       type: 'CREATE_THREAD_CONFIRMED';
       optimisticThreadId: string;
       confirmedThread: ReviewThread;
+      confirmedSnapshotThread: ReviewSnapshotThread;
       fileId: string;
     }
   | {
@@ -57,7 +53,8 @@ type ReviewAction =
       type: 'REPLY_THREAD_CONFIRMED';
       threadId: string;
       optimisticCommentId: string;
-      confirmedThread: ReviewThread;
+      confirmedThread: ReviewThread | null;
+      confirmedSnapshotThread: ReviewSnapshotThread;
     }
   | {
       type: 'REPLY_THREAD_ROLLBACK';
@@ -65,18 +62,20 @@ type ReviewAction =
       optimisticCommentId: string;
     };
 
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
 function replaceFileThreads(
   files: NormalizedDiffFile[],
   fileId: string,
   updater: (threads: ReviewThread[]) => ReviewThread[],
 ): NormalizedDiffFile[] {
-  return files.map((f) => {
-    if (f.fileId !== fileId) return f;
-    return { ...f, threads: updater(f.threads) };
+  return files.map((file) => {
+    if (file.fileId !== fileId) {
+      return file;
+    }
+
+    return {
+      ...file,
+      threads: updater(file.threads),
+    };
   });
 }
 
@@ -85,19 +84,76 @@ function updateThreadInFiles(
   threadId: string,
   updater: (thread: ReviewThread) => ReviewThread | null,
 ): NormalizedDiffFile[] {
-  return files.map((f) => {
-    const idx = f.threads.findIndex((t) => t.threadId === threadId);
-    if (idx === -1) return f;
-    const updated = updater(f.threads[idx]);
-    if (updated === null) {
-      const next = [...f.threads];
-      next.splice(idx, 1);
-      return { ...f, threads: next };
+  return files.map((file) => {
+    const threadIndex = file.threads.findIndex((thread) => thread.threadId === threadId);
+    if (threadIndex === -1) {
+      return file;
     }
-    const next = [...f.threads];
-    next[idx] = updated;
-    return { ...f, threads: next };
+
+    const updatedThread = updater(file.threads[threadIndex]);
+    if (updatedThread === null) {
+      return {
+        ...file,
+        threads: file.threads.filter((thread) => thread.threadId !== threadId),
+      };
+    }
+
+    const nextThreads = [...file.threads];
+    nextThreads[threadIndex] = updatedThread;
+    return {
+      ...file,
+      threads: nextThreads,
+    };
   });
+}
+
+function updateThreadInDiscussions(
+  discussions: ReviewSnapshotThread[],
+  threadId: string,
+  updater: (thread: ReviewSnapshotThread) => ReviewSnapshotThread | null,
+): ReviewSnapshotThread[] {
+  return discussions.flatMap((thread) => {
+    if (thread.threadId !== threadId) {
+      return [thread];
+    }
+
+    const updatedThread = updater(thread);
+    return updatedThread ? [updatedThread] : [];
+  });
+}
+
+function replaceFileData(
+  files: NormalizedDiffFile[],
+  file: ReviewSnapshotFile,
+): NormalizedDiffFile[] {
+  return files.map((currentFile) => {
+    if (currentFile.fileId !== file.fileId) {
+      return currentFile;
+    }
+
+    return {
+      ...file,
+      threads: currentFile.threads,
+    };
+  });
+}
+
+function toSnapshotThread(thread: ReviewThread): ReviewSnapshotThread {
+  return {
+    threadId: thread.threadId,
+    location: {
+      kind: 'diff',
+      fileId: thread.anchor.fileId,
+      filePath: thread.anchor.filePath,
+      startLine: thread.anchor.startLine,
+      endLine: thread.anchor.endLine,
+      side: thread.anchor.side,
+    },
+    comments: thread.comments,
+    isResolved: thread.isResolved,
+    isOutdated: thread.isOutdated,
+    providerContext: thread.providerContext,
+  };
 }
 
 function toLegacyThread(thread: ReviewSnapshotThread): ReviewThread | null {
@@ -116,14 +172,47 @@ function toLegacyThread(thread: ReviewSnapshotThread): ReviewThread | null {
   };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Reducer                                                            */
-/* ------------------------------------------------------------------ */
+function toReplyPosition(thread: ReviewSnapshotThread): ReviewComment['position'] {
+  if (thread.location.kind !== 'diff') {
+    return null;
+  }
+
+  return {
+    filePath: thread.location.filePath,
+    startLine: thread.location.startLine,
+    endLine: thread.location.endLine,
+    side: thread.location.side,
+  };
+}
 
 function reviewReducer(state: ReviewState, action: ReviewAction): ReviewState {
   switch (action.type) {
     case 'RESET':
-      return { data: action.data, pendingThreads: {}, pendingReplies: {} };
+      return {
+        data: action.data,
+        pendingThreads: {},
+        pendingReplies: {},
+      };
+
+    case 'SET_FILE_CONTENT_STATUS':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files: state.data.files.map((file) =>
+            file.fileId === action.fileId ? { ...file, contentStatus: action.contentStatus } : file,
+          ),
+        },
+      };
+
+    case 'REPLACE_FILE':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files: replaceFileData(state.data.files, action.file),
+        },
+      };
 
     case 'CREATE_THREAD_OPTIMISTIC': {
       const files = replaceFileThreads(state.data.files, action.fileId, (threads) => [
@@ -132,27 +221,62 @@ function reviewReducer(state: ReviewState, action: ReviewAction): ReviewState {
       ]);
       return {
         ...state,
-        data: { ...state.data, files },
-        pendingThreads: { ...state.pendingThreads, [action.thread.threadId]: true },
+        data: {
+          ...state.data,
+          files,
+          discussions: [...state.data.discussions, action.snapshotThread],
+        },
+        pendingThreads: {
+          ...state.pendingThreads,
+          [action.thread.threadId]: true,
+        },
       };
     }
 
     case 'CREATE_THREAD_CONFIRMED': {
       const files = replaceFileThreads(state.data.files, action.fileId, (threads) =>
-        threads.map((t) => (t.threadId === action.optimisticThreadId ? action.confirmedThread : t)),
+        threads.map((thread) =>
+          thread.threadId === action.optimisticThreadId ? action.confirmedThread : thread,
+        ),
       );
-      const pending = { ...state.pendingThreads };
-      delete pending[action.optimisticThreadId];
-      return { ...state, data: { ...state.data, files }, pendingThreads: pending };
+      const pendingThreads = { ...state.pendingThreads };
+      delete pendingThreads[action.optimisticThreadId];
+
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files,
+          discussions: updateThreadInDiscussions(
+            state.data.discussions,
+            action.optimisticThreadId,
+            () => action.confirmedSnapshotThread,
+          ),
+        },
+        pendingThreads,
+      };
     }
 
     case 'CREATE_THREAD_ROLLBACK': {
       const files = replaceFileThreads(state.data.files, action.fileId, (threads) =>
-        threads.filter((t) => t.threadId !== action.optimisticThreadId),
+        threads.filter((thread) => thread.threadId !== action.optimisticThreadId),
       );
-      const pending = { ...state.pendingThreads };
-      delete pending[action.optimisticThreadId];
-      return { ...state, data: { ...state.data, files }, pendingThreads: pending };
+      const pendingThreads = { ...state.pendingThreads };
+      delete pendingThreads[action.optimisticThreadId];
+
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files,
+          discussions: updateThreadInDiscussions(
+            state.data.discussions,
+            action.optimisticThreadId,
+            () => null,
+          ),
+        },
+        pendingThreads,
+      };
     }
 
     case 'REPLY_THREAD_OPTIMISTIC': {
@@ -160,49 +284,92 @@ function reviewReducer(state: ReviewState, action: ReviewAction): ReviewState {
         ...thread,
         comments: [...thread.comments, action.comment],
       }));
+
       return {
         ...state,
-        data: { ...state.data, files },
-        pendingReplies: { ...state.pendingReplies, [action.comment.commentId]: true },
+        data: {
+          ...state.data,
+          files,
+          discussions: updateThreadInDiscussions(
+            state.data.discussions,
+            action.threadId,
+            (thread) => ({
+              ...thread,
+              comments: [...thread.comments, action.comment],
+            }),
+          ),
+        },
+        pendingReplies: {
+          ...state.pendingReplies,
+          [action.comment.commentId]: true,
+        },
       };
     }
 
     case 'REPLY_THREAD_CONFIRMED': {
-      const files = updateThreadInFiles(
-        state.data.files,
-        action.threadId,
-        (_thread) => action.confirmedThread,
-      );
-      const pending = { ...state.pendingReplies };
-      delete pending[action.optimisticCommentId];
-      return { ...state, data: { ...state.data, files }, pendingReplies: pending };
+      const files = action.confirmedThread
+        ? updateThreadInFiles(state.data.files, action.threadId, () => action.confirmedThread)
+        : state.data.files;
+      const pendingReplies = { ...state.pendingReplies };
+      delete pendingReplies[action.optimisticCommentId];
+
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files,
+          discussions: updateThreadInDiscussions(
+            state.data.discussions,
+            action.threadId,
+            () => action.confirmedSnapshotThread,
+          ),
+        },
+        pendingReplies,
+      };
     }
 
     case 'REPLY_THREAD_ROLLBACK': {
       const files = updateThreadInFiles(state.data.files, action.threadId, (thread) => ({
         ...thread,
-        comments: thread.comments.filter((c) => c.commentId !== action.optimisticCommentId),
+        comments: thread.comments.filter(
+          (comment) => comment.commentId !== action.optimisticCommentId,
+        ),
       }));
-      const pending = { ...state.pendingReplies };
-      delete pending[action.optimisticCommentId];
-      return { ...state, data: { ...state.data, files }, pendingReplies: pending };
+      const pendingReplies = { ...state.pendingReplies };
+      delete pendingReplies[action.optimisticCommentId];
+
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files,
+          discussions: updateThreadInDiscussions(
+            state.data.discussions,
+            action.threadId,
+            (thread) => ({
+              ...thread,
+              comments: thread.comments.filter(
+                (comment) => comment.commentId !== action.optimisticCommentId,
+              ),
+            }),
+          ),
+        },
+        pendingReplies,
+      };
     }
 
     default: {
-      // Fix #9: throw instead of returning undefined for unknown action types
-      const _exhaustive: never = action;
-      throw new Error(`Unknown action type: ${(_exhaustive as { type: string }).type}`);
+      const exhaustive: never = action;
+      throw new Error(`Unknown action type: ${(exhaustive as { type: string }).type}`);
     }
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Hook                                                               */
-/* ------------------------------------------------------------------ */
-
 export interface UseReviewStateReturn {
   data: NormalizedReviewData;
   reset: (data: NormalizedReviewData) => void;
+  setFileContentStatus: (fileId: string, contentStatus: ReviewContentStatus) => void;
+  replaceFile: (file: ReviewSnapshotFile) => void;
   createThreadOptimistic: (
     fileId: string,
     startLine: number | null,
@@ -235,7 +402,6 @@ export function useReviewState(): UseReviewStateReturn {
     pendingReplies: {},
   });
 
-  /* Fix #3: keep a ref to the latest state so callbacks never capture stale data */
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -243,18 +409,21 @@ export function useReviewState(): UseReviewStateReturn {
     dispatch({ type: 'RESET', data });
   }, []);
 
-  /**
-   * Fix #3: `endLine` is typed as `number` (not `number | null`) intentionally.
-   * This function only creates line-level or range-level threads — file-level
-   * threads (where endLine would be null) are not supported in the current UI.
-   * The ReviewAnchor.endLine type is `number | null`, but here we enforce
-   * that the caller must always provide a concrete line number.
-   */
+  const setFileContentStatus = useCallback((fileId: string, contentStatus: ReviewContentStatus) => {
+    dispatch({ type: 'SET_FILE_CONTENT_STATUS', fileId, contentStatus });
+  }, []);
+
+  const replaceFile = useCallback((file: ReviewSnapshotFile) => {
+    dispatch({ type: 'REPLACE_FILE', file });
+  }, []);
+
   const createThreadOptimistic = useCallback(
     (fileId: string, startLine: number | null, endLine: number, side: SplitSide, body: string) => {
       const current = stateRef.current;
-      const file = current.data.files.find((f) => f.fileId === fileId);
-      if (!file) return;
+      const file = current.data.files.find((candidate) => candidate.fileId === fileId);
+      if (!file) {
+        return;
+      }
 
       const anchorSide: 'old' | 'new' = side === SplitSide.old ? 'old' : 'new';
       const anchor: ReviewAnchor = {
@@ -297,7 +466,12 @@ export function useReviewState(): UseReviewStateReturn {
         },
       };
 
-      dispatch({ type: 'CREATE_THREAD_OPTIMISTIC', fileId, thread });
+      dispatch({
+        type: 'CREATE_THREAD_OPTIMISTIC',
+        fileId,
+        thread,
+        snapshotThread: toSnapshotThread(thread),
+      });
 
       window.reviewApi
         .createThread({
@@ -317,11 +491,11 @@ export function useReviewState(): UseReviewStateReturn {
             type: 'CREATE_THREAD_CONFIRMED',
             optimisticThreadId,
             confirmedThread,
+            confirmedSnapshotThread: result.thread,
             fileId,
           });
         })
         .catch((err: unknown) => {
-          // Fix #6: log the error before rolling back
           console.error('[createThread] Failed to create thread:', err);
           dispatch({ type: 'CREATE_THREAD_ROLLBACK', optimisticThreadId, fileId });
         });
@@ -331,36 +505,18 @@ export function useReviewState(): UseReviewStateReturn {
 
   const replyThreadOptimistic = useCallback((threadId: string, body: string) => {
     const current = stateRef.current;
-
-    /* Fix #6: derive position from the target thread's anchor */
-    let anchorPosition: ReviewComment['position'] = {
-      filePath: '',
-      startLine: null,
-      endLine: null,
-      side: 'new',
-    };
-    for (const file of current.data.files) {
-      const found = file.threads.find((t) => t.threadId === threadId);
-      if (found) {
-        anchorPosition = {
-          filePath: found.anchor.filePath,
-          startLine: found.anchor.startLine,
-          endLine: found.anchor.endLine,
-          side: found.anchor.side,
-        };
-        break;
-      }
+    const thread = current.data.discussions.find((candidate) => candidate.threadId === threadId);
+    if (!thread) {
+      return;
     }
 
     const optimisticCommentId = nextOptimisticId('comment');
-    const now = new Date().toISOString();
-
     const comment: ReviewComment = {
       commentId: optimisticCommentId,
       author: 'You',
       body,
-      position: anchorPosition,
-      createdAt: now,
+      position: toReplyPosition(thread),
+      createdAt: new Date().toISOString(),
     };
 
     dispatch({ type: 'REPLY_THREAD_OPTIMISTIC', threadId, comment });
@@ -372,29 +528,36 @@ export function useReviewState(): UseReviewStateReturn {
         body,
       })
       .then((result) => {
-        const confirmedThread = toLegacyThread(result.thread);
-        if (!confirmedThread) {
-          dispatch({ type: 'REPLY_THREAD_ROLLBACK', threadId, optimisticCommentId });
-          return;
-        }
-
         dispatch({
           type: 'REPLY_THREAD_CONFIRMED',
           threadId,
           optimisticCommentId,
-          confirmedThread,
+          confirmedThread: toLegacyThread(result.thread),
+          confirmedSnapshotThread: result.thread,
         });
       })
       .catch((err: unknown) => {
-        // Fix #6: log the error before rolling back
         console.error('[replyThread] Failed to reply to thread:', err);
         dispatch({ type: 'REPLY_THREAD_ROLLBACK', threadId, optimisticCommentId });
       });
   }, []);
 
-  /* Fix #4: stabilize the return object so consumers get a stable reference */
   return useMemo(
-    () => ({ data: state.data, reset, createThreadOptimistic, replyThreadOptimistic }),
-    [state.data, reset, createThreadOptimistic, replyThreadOptimistic],
+    () => ({
+      data: state.data,
+      reset,
+      setFileContentStatus,
+      replaceFile,
+      createThreadOptimistic,
+      replyThreadOptimistic,
+    }),
+    [
+      state.data,
+      reset,
+      setFileContentStatus,
+      replaceFile,
+      createThreadOptimistic,
+      replyThreadOptimistic,
+    ],
   );
 }

@@ -20,7 +20,10 @@ import {
 import { AgentGateway } from './agent-gateway/agent-gateway';
 import { SqliteSessionStore } from './agent-gateway/session-store';
 import { createWindow } from './helpers';
+import { loadMainEnvironment } from './load-main-environment';
 import { ReviewGateway } from './review-gateway/review-gateway';
+
+loadMainEnvironment();
 
 const isProd = process.env.NODE_ENV === 'production';
 const devServerPort = process.argv[2];
