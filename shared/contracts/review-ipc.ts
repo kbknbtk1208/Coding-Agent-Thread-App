@@ -1,42 +1,53 @@
 import type {
-  NormalizedReviewData,
   ReviewAnchor,
-  ReviewProvider,
-  ReviewThread,
+  ReviewSnapshot,
+  ReviewSnapshotFile,
+  ReviewSnapshotThread,
+  ReviewSourceDraft,
 } from '../domain/review';
 
 export const REVIEW_IPC_CHANNELS = {
-  getReviewData: 'review:get-review-data',
+  loadReviewSource: 'review:load-review-source',
+  hydrateReviewFile: 'review:hydrate-review-file',
   createThread: 'review:create-thread',
   replyThread: 'review:reply-thread',
 } as const;
 
-export interface GetReviewDataInput {
-  reviewId: string;
-  provider: ReviewProvider;
+export interface LoadReviewSourceInput {
+  source: ReviewSourceDraft;
 }
 
-export type GetReviewDataResult = NormalizedReviewData;
+export interface LoadReviewSourceResult {
+  snapshot: ReviewSnapshot;
+  initialSelectedFileId: string | null;
+}
+
+export interface HydrateReviewFileInput {
+  snapshotId: string;
+  fileId: string;
+}
+
+export interface HydrateReviewFileResult {
+  file: ReviewSnapshotFile;
+}
 
 export interface CreateReviewThreadInput {
-  reviewId: string;
-  provider: ReviewProvider;
+  snapshotId: string;
   fileId: string;
   anchor: ReviewAnchor;
   body: string;
 }
 
 export interface CreateReviewThreadResult {
-  thread: ReviewThread;
+  thread: ReviewSnapshotThread;
 }
 
 export interface ReplyReviewThreadInput {
-  reviewId: string;
-  provider: ReviewProvider;
+  snapshotId: string;
   threadId: string;
   body: string;
 }
 
 export interface ReplyReviewThreadResult {
-  thread: ReviewThread;
+  thread: ReviewSnapshotThread;
 }

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
-import type { ReviewProvider } from '../../../shared/domain/review';
+import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
 import { SplitSide } from '@git-diff-view/react';
 import { DiffFilePane } from './diff-file-pane';
 import { useReviewData } from './use-review-data';
@@ -10,7 +10,25 @@ export function ReviewPage() {
   const router = useRouter();
   const [provider, setProvider] = useState<ReviewProvider>('github');
   const [selectedFileIndex, setSelectedFileIndex] = useState<number | null>(null);
-  const { data, loading, error } = useReviewData(provider);
+  const reviewSource = useMemo<ReviewSourceDraft | null>(() => {
+    const reviewUrl =
+      typeof router.query.reviewUrl === 'string'
+        ? decodeURIComponent(router.query.reviewUrl)
+        : null;
+    if (!reviewUrl) {
+      return null;
+    }
+
+    const hostQuery =
+      typeof router.query.host === 'string' ? decodeURIComponent(router.query.host) : null;
+
+    return {
+      provider,
+      host: hostQuery ?? (provider === 'github' ? 'https://api.github.com' : 'https://gitlab.com'),
+      reviewUrl,
+    };
+  }, [provider, router.query.host, router.query.reviewUrl]);
+  const { data, loading, error, initialSelectedFileId } = useReviewData(reviewSource);
   const reviewState = useReviewState();
 
   useEffect(() => {
@@ -19,6 +37,21 @@ export function ReviewPage() {
     }
     // Only reset when data reference changes (after fetch)
   }, [data, reviewState.reset]);
+
+  useEffect(() => {
+    if (!data) {
+      setSelectedFileIndex(null);
+      return;
+    }
+
+    if (!initialSelectedFileId) {
+      setSelectedFileIndex(data.files.length > 0 ? 0 : null);
+      return;
+    }
+
+    const fileIndex = data.files.findIndex((file) => file.fileId === initialSelectedFileId);
+    setSelectedFileIndex(fileIndex >= 0 ? fileIndex : data.files.length > 0 ? 0 : null);
+  }, [data, initialSelectedFileId]);
 
   const handleProviderSwitch = (next: ReviewProvider) => {
     setProvider(next);
@@ -61,7 +94,7 @@ export function ReviewPage() {
   const visibleFiles =
     selectedFileIndex !== null && selectedFileIndex < currentFiles.length
       ? [currentFiles[selectedFileIndex]]
-      : currentFiles;
+      : currentFiles.filter((file) => file.contentStatus === 'loaded');
 
   return (
     <div className="flex h-screen flex-col text-white">
@@ -123,10 +156,13 @@ export function ReviewPage() {
               <button
                 key={file.fileId}
                 onClick={() => setSelectedFileIndex(i)}
+                disabled={file.contentStatus !== 'loaded'}
                 className={`mb-0.5 flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition ${
                   selectedFileIndex === i
                     ? 'bg-cyan-400/10 text-cyan-300'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    : file.contentStatus === 'loaded'
+                      ? 'text-slate-400 hover:bg-white/5 hover:text-white'
+                      : 'cursor-not-allowed text-slate-600'
                 }`}
               >
                 <span className="flex-1 truncate">{file.filePath.split('/').pop()}</span>

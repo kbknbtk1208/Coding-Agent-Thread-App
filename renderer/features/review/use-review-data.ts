@@ -1,26 +1,48 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { NormalizedReviewData, ReviewProvider } from '../../../shared/domain/review';
+import type {
+  NormalizedReviewData,
+  ReviewProvider,
+  ReviewSourceDraft,
+} from '../../../shared/domain/review';
+import { toNormalizedReviewData } from '../../../shared/domain/review';
 
 interface UseReviewDataReturn {
   data: NormalizedReviewData | null;
   loading: boolean;
   error: string | null;
-  refetch: (provider: ReviewProvider) => void;
+  initialSelectedFileId: string | null;
+  refetch: (source: ReviewSourceDraft | null) => void;
 }
 
-export function useReviewData(initialProvider: ReviewProvider): UseReviewDataReturn {
-  const [data, setData] = useState<NormalizedReviewData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function getMissingSourceMessage(provider: ReviewProvider): string {
+  return `${provider} の review source が未指定です。/mr?reviewUrl=...&host=... を指定してください。`;
+}
 
-  const fetchData = useCallback((provider: ReviewProvider) => {
+export function useReviewData(initialSource: ReviewSourceDraft | null): UseReviewDataReturn {
+  const [data, setData] = useState<NormalizedReviewData | null>(null);
+  const [loading, setLoading] = useState(Boolean(initialSource));
+  const [error, setError] = useState<string | null>(
+    initialSource ? null : getMissingSourceMessage('github'),
+  );
+  const [initialSelectedFileId, setInitialSelectedFileId] = useState<string | null>(null);
+
+  const fetchData = useCallback((source: ReviewSourceDraft | null) => {
+    if (!source) {
+      setData(null);
+      setInitialSelectedFileId(null);
+      setLoading(false);
+      setError(getMissingSourceMessage('github'));
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     window.reviewApi
-      .getReviewData({ reviewId: 'mock-review-1', provider })
+      .loadReviewSource({ source })
       .then((result) => {
-        setData(result);
+        setData(toNormalizedReviewData(result.snapshot));
+        setInitialSelectedFileId(result.initialSelectedFileId);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -31,8 +53,8 @@ export function useReviewData(initialProvider: ReviewProvider): UseReviewDataRet
   }, []);
 
   useEffect(() => {
-    fetchData(initialProvider);
-  }, [initialProvider, fetchData]);
+    fetchData(initialSource);
+  }, [initialSource, fetchData]);
 
-  return { data, loading, error, refetch: fetchData };
+  return { data, loading, error, initialSelectedFileId, refetch: fetchData };
 }

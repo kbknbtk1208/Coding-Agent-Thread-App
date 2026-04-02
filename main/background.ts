@@ -13,7 +13,8 @@ import {
 import {
   REVIEW_IPC_CHANNELS,
   type CreateReviewThreadInput,
-  type GetReviewDataInput,
+  type HydrateReviewFileInput,
+  type LoadReviewSourceInput,
   type ReplyReviewThreadInput,
 } from '../shared/contracts/review-ipc';
 import { AgentGateway } from './agent-gateway/agent-gateway';
@@ -108,14 +109,17 @@ if (isProd) {
 
   const reviewGateway = new ReviewGateway();
 
-  ipcMain.handle(REVIEW_IPC_CHANNELS.getReviewData, (_event, input: GetReviewDataInput) => {
-    return reviewGateway.getReviewData(input.reviewId, input.provider);
+  ipcMain.handle(REVIEW_IPC_CHANNELS.loadReviewSource, (_event, input: LoadReviewSourceInput) => {
+    return reviewGateway.loadReviewSource(input.source);
+  });
+
+  ipcMain.handle(REVIEW_IPC_CHANNELS.hydrateReviewFile, (_event, input: HydrateReviewFileInput) => {
+    return reviewGateway.hydrateReviewFile(input.snapshotId, input.fileId);
   });
 
   ipcMain.handle(REVIEW_IPC_CHANNELS.createThread, (_event, input: CreateReviewThreadInput) => {
     const thread = reviewGateway.createThread(
-      input.reviewId,
-      input.provider,
+      input.snapshotId,
       input.fileId,
       input.anchor,
       input.body,
@@ -124,12 +128,7 @@ if (isProd) {
   });
 
   ipcMain.handle(REVIEW_IPC_CHANNELS.replyThread, (_event, input: ReplyReviewThreadInput) => {
-    const thread = reviewGateway.replyThread(
-      input.reviewId,
-      input.provider,
-      input.threadId,
-      input.body,
-    );
+    const thread = reviewGateway.replyThread(input.snapshotId, input.threadId, input.body);
     return { thread };
   });
 

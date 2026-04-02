@@ -14,8 +14,10 @@ import {
   REVIEW_IPC_CHANNELS,
   type CreateReviewThreadInput,
   type CreateReviewThreadResult,
-  type GetReviewDataInput,
-  type GetReviewDataResult,
+  type HydrateReviewFileInput,
+  type HydrateReviewFileResult,
+  type LoadReviewSourceInput,
+  type LoadReviewSourceResult,
   type ReplyReviewThreadInput,
   type ReplyReviewThreadResult,
 } from '../shared/contracts/review-ipc';
@@ -71,8 +73,11 @@ const agentApi = {
 };
 
 const reviewApi = {
-  getReviewData(input: GetReviewDataInput): Promise<GetReviewDataResult> {
-    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.getReviewData, input);
+  loadReviewSource(input: LoadReviewSourceInput): Promise<LoadReviewSourceResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.loadReviewSource, input);
+  },
+  hydrateReviewFile(input: HydrateReviewFileInput): Promise<HydrateReviewFileResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.hydrateReviewFile, input);
   },
   createThread(input: CreateReviewThreadInput): Promise<CreateReviewThreadResult> {
     return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.createThread, input);

@@ -23,6 +23,9 @@ export interface GitHubPRReviewComment {
   side: 'LEFT' | 'RIGHT';
   start_line: number | null;
   start_side: 'LEFT' | 'RIGHT' | null;
+  commit_id?: string;
+  original_commit_id?: string;
+  diff_hunk?: string;
   in_reply_to_id?: number;
   user: GitHubUser;
   created_at: string;

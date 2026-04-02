@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useReducer, useRef } from 'react';
 import { SplitSide } from '@git-diff-view/react';
-import { deriveAnchorKind } from '../../../shared/domain/review';
+import { deriveAnchorKind, reviewAnchorFromLocation } from '../../../shared/domain/review';
 import type {
   NormalizedDiffFile,
   NormalizedReviewData,
   ReviewAnchor,
   ReviewComment,
+  ReviewSnapshotThread,
   ReviewThread,
 } from '../../../shared/domain/review';
 
@@ -97,6 +98,22 @@ function updateThreadInFiles(
     next[idx] = updated;
     return { ...f, threads: next };
   });
+}
+
+function toLegacyThread(thread: ReviewSnapshotThread): ReviewThread | null {
+  const anchor = reviewAnchorFromLocation(thread.location);
+  if (!anchor) {
+    return null;
+  }
+
+  return {
+    threadId: thread.threadId,
+    anchor,
+    comments: thread.comments,
+    isResolved: thread.isResolved,
+    isOutdated: thread.isOutdated,
+    providerContext: thread.providerContext,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -199,11 +216,20 @@ export interface UseReviewStateReturn {
 export function useReviewState(): UseReviewStateReturn {
   const [state, dispatch] = useReducer(reviewReducer, {
     data: {
+      snapshotId: '',
       reviewId: '',
       provider: 'github',
       title: '',
       description: '',
+      baseSha: '',
+      headSha: '',
       files: [],
+      discussions: [],
+      providerContext: {
+        host: '',
+        reviewUrl: '',
+        anchorRefs: {},
+      },
     },
     pendingThreads: {},
     pendingReplies: {},
@@ -262,23 +288,35 @@ export function useReviewState(): UseReviewStateReturn {
         anchor,
         comments: [comment],
         isResolved: false,
+        isOutdated: false,
+        providerContext: {
+          remoteCommentIds: [],
+          anchorRefs: {
+            localOnly: true,
+          },
+        },
       };
 
       dispatch({ type: 'CREATE_THREAD_OPTIMISTIC', fileId, thread });
 
       window.reviewApi
         .createThread({
-          reviewId: current.data.reviewId,
-          provider: current.data.provider,
+          snapshotId: current.data.snapshotId,
           fileId,
           anchor,
           body,
         })
         .then((result) => {
+          const confirmedThread = toLegacyThread(result.thread);
+          if (!confirmedThread) {
+            dispatch({ type: 'CREATE_THREAD_ROLLBACK', optimisticThreadId, fileId });
+            return;
+          }
+
           dispatch({
             type: 'CREATE_THREAD_CONFIRMED',
             optimisticThreadId,
-            confirmedThread: result.thread,
+            confirmedThread,
             fileId,
           });
         })
@@ -329,17 +367,22 @@ export function useReviewState(): UseReviewStateReturn {
 
     window.reviewApi
       .replyThread({
-        reviewId: current.data.reviewId,
-        provider: current.data.provider,
+        snapshotId: current.data.snapshotId,
         threadId,
         body,
       })
       .then((result) => {
+        const confirmedThread = toLegacyThread(result.thread);
+        if (!confirmedThread) {
+          dispatch({ type: 'REPLY_THREAD_ROLLBACK', threadId, optimisticCommentId });
+          return;
+        }
+
         dispatch({
           type: 'REPLY_THREAD_CONFIRMED',
           threadId,
           optimisticCommentId,
-          confirmedThread: result.thread,
+          confirmedThread,
         });
       })
       .catch((err: unknown) => {
