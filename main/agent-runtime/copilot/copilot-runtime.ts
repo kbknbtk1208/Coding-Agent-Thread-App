@@ -4,12 +4,8 @@ import type {
   PermissionAction,
   SessionModelSelection,
 } from '../../../shared/domain/agent';
-import {
-  STRUCTURED_FALLBACK_VERIFICATION_REASON,
-  buildStructuredFallbackVerificationPrompt,
-  buildImplementationChecklistPrompt,
-  parseImplementationChecklistResponse,
-} from '../../../shared/domain/implementation-checklist';
+import { STRUCTURED_FALLBACK_VERIFICATION_REASON } from '../../../shared/domain/implementation-checklist';
+import { getStructuredSchemaDescriptor } from '../../../shared/domain/structured-schemas';
 import type { ResumeContext } from '../../../shared/domain/resume-context';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
@@ -44,6 +40,7 @@ interface CopilotBootstrapResult {
 interface CopilotTurnContext {
   messageId: string;
   responseMode: SendPromptInput['responseMode'];
+  structuredSchemaName?: SendPromptInput['structuredSchemaName'];
   structuredOutputMode?: SendPromptInput['structuredOutputMode'];
   finalText: string;
   isRunning: boolean;
@@ -194,11 +191,16 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       isRunning: false,
       messageId: input.messageId,
       responseMode: input.responseMode,
+      structuredSchemaName: input.structuredSchemaName,
       structuredOutputMode: input.structuredOutputMode,
     };
 
+    if (input.responseMode === 'structured' && !input.structuredSchemaName) {
+      throw new Error('structured response では structuredSchemaName が必要です。');
+    }
+
     const basePromptText =
-      input.responseMode === 'implementationChecklist' ? this.buildPromptText(input) : input.prompt;
+      input.responseMode === 'structured' ? this.buildPromptText(input) : input.prompt;
 
     const promptText = this.consumeResumeContext(basePromptText);
 
@@ -217,7 +219,12 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       messageId: input.messageId,
       type: 'message.completed',
     });
-    this.emitResult(input.responseMode, input.structuredOutputMode, finalText);
+    this.emitResult(
+      input.responseMode,
+      input.structuredSchemaName,
+      input.structuredOutputMode,
+      finalText,
+    );
     if (response.stopReason === 'end_turn') {
       this.emit({
         status: 'completed',
@@ -303,6 +310,11 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       return;
     }
 
+    if (this.shouldAutoApprovePermission(params)) {
+      this.client.respond(id, { outcome: { outcome: 'allowed' } });
+      return;
+    }
+
     const requestId = String(id);
     const { permission, responseByActionId } = this.createPermission(requestId, method, params);
     this.pendingPermissions.set(requestId, {
@@ -318,28 +330,30 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
 
   private emitResult(
     responseMode: SendPromptInput['responseMode'],
+    structuredSchemaName: SendPromptInput['structuredSchemaName'],
     structuredOutputMode: SendPromptInput['structuredOutputMode'],
     finalText: string,
   ) {
-    if (responseMode === 'implementationChecklist') {
+    if (responseMode === 'structured' && structuredSchemaName) {
+      const descriptor = getStructuredSchemaDescriptor(structuredSchemaName);
       if (structuredOutputMode === 'forceFallback') {
         this.emit({
           content: finalText,
           format: 'markdown',
           source: 'structuredParseFallback',
           structuredParseError: STRUCTURED_FALLBACK_VERIFICATION_REASON,
-          structuredSchemaName: 'implementation-checklist',
+          structuredSchemaName,
           type: 'result.richText',
         });
         return;
       }
 
-      const parsed = parseImplementationChecklistResponse(finalText);
+      const parsed = descriptor.parseText(finalText);
       if (parsed.ok) {
         this.emit({
           fallbackRichText: finalText,
           data: parsed.value,
-          schemaName: 'implementation-checklist',
+          schemaName: structuredSchemaName,
           source: 'promptedJson',
           type: 'result.structured',
         });
@@ -350,8 +364,9 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
         content: finalText,
         format: 'markdown',
         source: 'structuredParseFallback',
-        structuredParseError: this.describeChecklistParseFailure(parsed.reason),
-        structuredSchemaName: 'implementation-checklist',
+        structuredParseError: descriptor.describeParseFailure(parsed.reason),
+        structuredParseFailureReason: parsed.reason,
+        structuredSchemaName,
         type: 'result.richText',
       });
       return;
@@ -366,13 +381,14 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
   }
 
   private buildPromptText(input: SendPromptInput) {
-    if (input.responseMode !== 'implementationChecklist') {
+    if (input.responseMode !== 'structured' || !input.structuredSchemaName) {
       return input.prompt;
     }
 
+    const descriptor = getStructuredSchemaDescriptor(input.structuredSchemaName);
     return input.structuredOutputMode === 'forceFallback'
-      ? buildStructuredFallbackVerificationPrompt(input.prompt)
-      : buildImplementationChecklistPrompt(input.prompt);
+      ? descriptor.buildForcedFallbackPrompt(input.prompt)
+      : descriptor.buildPrompt(input.prompt);
   }
 
   private consumeResumeContext(promptText: string): string {
@@ -398,19 +414,6 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       userPrompt,
     ].join('\n');
   }
-
-  private describeChecklistParseFailure(reason: string) {
-    switch (reason) {
-      case 'emptyResponse':
-        return 'structured checklist の応答が空でした。';
-      case 'schemaValidationFailed':
-        return 'JSON は取得できましたが checklist schema に合致しませんでした。';
-      case 'jsonParseFailed':
-      default:
-        return 'structured checklist を JSON として解釈できませんでした。';
-    }
-  }
-
   private markRunning() {
     if (!this.activeTurn || this.activeTurn.isRunning) {
       return;
@@ -481,6 +484,38 @@ class CopilotRuntimeSession implements RuntimeSessionHandle {
       { actionId: 'allow', kind: 'approve', label: 'Allow' },
       { actionId: 'deny', kind: 'reject', label: 'Deny' },
     ];
+  }
+
+  private shouldAutoApprovePermission(params: unknown): boolean {
+    if (!this.isRecord(params)) {
+      return false;
+    }
+
+    const toolCall = this.getRecordValue(params, 'toolCall');
+    if (!this.isRecord(toolCall)) {
+      return false;
+    }
+
+    if (this.getStringValue(toolCall, 'title') !== 'Read PR file diffs') {
+      return false;
+    }
+
+    const rawInput = this.getRecordValue(toolCall, 'rawInput');
+    if (!this.isRecord(rawInput)) {
+      return false;
+    }
+
+    const commands = this.getRecordValue(rawInput, 'commands');
+    if (!Array.isArray(commands) || commands.length === 0) {
+      return false;
+    }
+
+    return commands.every(
+      (command) =>
+        typeof command === 'string' &&
+        command.startsWith('Get-Content "') &&
+        command.includes('ConvertFrom-Json'),
+    );
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

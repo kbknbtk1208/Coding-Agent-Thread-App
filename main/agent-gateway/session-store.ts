@@ -2,6 +2,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import type {
   AgentCapability,
+  AgentError,
   AgentKind,
   ConversationResponseMode,
   ResultEnvelope,
@@ -9,9 +10,10 @@ import type {
   StructuredOutputMode,
 } from '../../shared/domain/agent';
 import {
-  IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
-  normalizeImplementationChecklist,
-} from '../../shared/domain/implementation-checklist';
+  isStructuredSchemaName,
+  normalizeStructuredSchemaData,
+  type StructuredSchemaName,
+} from '../../shared/domain/structured-schemas';
 
 // ---------------------------------------------------------------------------
 // Persisted types
@@ -23,6 +25,7 @@ export interface PersistedConversationTurn {
   prompt: string;
   response: string;
   responseMode: ConversationResponseMode;
+  structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
   status: 'completed' | 'failed';
   startedAt: string;
@@ -40,6 +43,7 @@ export interface PersistedSession {
   updatedAt: string;
   turns: PersistedConversationTurn[];
   finalResult?: ResultEnvelope;
+  lastError?: AgentError;
   modelSelection?: SessionModelSelection;
   resumeSummary: string;
   parentAppSessionId?: string;
@@ -72,6 +76,7 @@ interface SessionRow {
   updated_at: string;
   turns: string;
   final_result: string | null;
+  last_error: string | null;
   model_selection: string | null;
   resume_summary: string;
   parent_app_session_id: string | null;
@@ -92,12 +97,12 @@ export class SqliteSessionStore implements SessionStore {
       INSERT OR REPLACE INTO sessions (
         app_session_id, agent, provider_session_id, cwd,
         capabilities, created_at, updated_at, turns,
-        final_result, model_selection, resume_summary,
+        final_result, last_error, model_selection, resume_summary,
         parent_app_session_id
       ) VALUES (
         @app_session_id, @agent, @provider_session_id, @cwd,
         @capabilities, @created_at, @updated_at, @turns,
-        @final_result, @model_selection, @resume_summary,
+        @final_result, @last_error, @model_selection, @resume_summary,
         @parent_app_session_id
       )
     `);
@@ -112,6 +117,7 @@ export class SqliteSessionStore implements SessionStore {
       updated_at: session.updatedAt,
       turns: JSON.stringify(session.turns),
       final_result: session.finalResult ? JSON.stringify(session.finalResult) : null,
+      last_error: session.lastError ? JSON.stringify(session.lastError) : null,
       model_selection: session.modelSelection ? JSON.stringify(session.modelSelection) : null,
       resume_summary: session.resumeSummary,
       parent_app_session_id: session.parentAppSessionId ?? null,
@@ -155,12 +161,18 @@ export class SqliteSessionStore implements SessionStore {
         updated_at          TEXT NOT NULL,
         turns               TEXT NOT NULL,
         final_result        TEXT,
+        last_error          TEXT,
         model_selection     TEXT,
         resume_summary      TEXT NOT NULL
       )
     `);
     try {
       this.db.exec('ALTER TABLE sessions ADD COLUMN parent_app_session_id TEXT');
+    } catch {
+      /* Column already exists in existing DBs — ignore */
+    }
+    try {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN last_error TEXT');
     } catch {
       /* Column already exists in existing DBs — ignore */
     }
@@ -195,6 +207,7 @@ export class SqliteSessionStore implements SessionStore {
       }
 
       const finalResult = row.final_result ? parseResultEnvelope(row.final_result) : undefined;
+      const lastError = row.last_error ? parseAgentError(row.last_error) : undefined;
 
       const modelSelection = row.model_selection
         ? parseModelSelection(row.model_selection)
@@ -214,6 +227,7 @@ export class SqliteSessionStore implements SessionStore {
         updatedAt: row.updated_at,
         turns,
         finalResult: finalResult ?? undefined,
+        lastError: lastError ?? undefined,
         modelSelection: modelSelection ?? undefined,
         resumeSummary: row.resume_summary,
         parentAppSessionId: row.parent_app_session_id ?? undefined,
@@ -262,7 +276,7 @@ function isAgentCapabilityArray(value: unknown): value is AgentCapability[] {
   return value.every((item) => typeof item === 'string' && VALID_CAPABILITIES.has(item));
 }
 
-const VALID_RESPONSE_MODES = new Set<string>(['richText', 'implementationChecklist']);
+const VALID_RESPONSE_MODES = new Set<string>(['richText', 'structured']);
 const VALID_TURN_STATUSES = new Set<string>(['completed', 'failed']);
 const VALID_STRUCTURED_OUTPUT_MODES = new Set<string>(['normal', 'forceFallback']);
 
@@ -287,6 +301,12 @@ function isPersistedTurn(value: unknown): value is PersistedConversationTurn {
     return false;
   }
   if (value.completedAt !== undefined && typeof value.completedAt !== 'string') {
+    return false;
+  }
+  if (
+    value.structuredSchemaName !== undefined &&
+    !isStructuredSchemaName(value.structuredSchemaName)
+  ) {
     return false;
   }
   if (
@@ -329,29 +349,44 @@ function parseResultEnvelope(text: string): ResultEnvelope | null {
         source,
         structuredParseError:
           typeof parsed.structuredParseError === 'string' ? parsed.structuredParseError : undefined,
-        structuredSchemaName:
-          parsed.structuredSchemaName === IMPLEMENTATION_CHECKLIST_SCHEMA_NAME
-            ? IMPLEMENTATION_CHECKLIST_SCHEMA_NAME
-            : undefined,
+        structuredParseFailureReason: isStructuredParseFailureReason(
+          parsed.structuredParseFailureReason,
+        )
+          ? parsed.structuredParseFailureReason
+          : undefined,
+        structuredSchemaName: isStructuredSchemaName(parsed.structuredSchemaName)
+          ? parsed.structuredSchemaName
+          : undefined,
       };
     }
 
     if (parsed.kind === 'structured') {
-      if (parsed.schemaName !== IMPLEMENTATION_CHECKLIST_SCHEMA_NAME) {
+      if (!isStructuredSchemaName(parsed.schemaName)) {
         return null;
       }
       const source = parsed.source;
       if (source !== 'codexOutputSchema' && source !== 'promptedJson') {
         return null;
       }
-      const checklist = normalizeImplementationChecklist(parsed.data);
-      if (!checklist) {
+      const data = normalizeStructuredSchemaData(parsed.schemaName, parsed.data);
+      if (!data) {
         return null;
       }
+      if (parsed.schemaName === 'implementation-checklist') {
+        return {
+          kind: 'structured',
+          schemaName: parsed.schemaName,
+          data,
+          source,
+          fallbackRichText:
+            typeof parsed.fallbackRichText === 'string' ? parsed.fallbackRichText : undefined,
+        };
+      }
+
       return {
         kind: 'structured',
-        schemaName: IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
-        data: checklist,
+        schemaName: parsed.schemaName,
+        data,
         source,
         fallbackRichText:
           typeof parsed.fallbackRichText === 'string' ? parsed.fallbackRichText : undefined,
@@ -362,6 +397,40 @@ function parseResultEnvelope(text: string): ResultEnvelope | null {
   } catch {
     return null;
   }
+}
+
+function parseAgentError(text: string): AgentError | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    if (
+      typeof parsed.code !== 'string' ||
+      typeof parsed.message !== 'string' ||
+      typeof parsed.retryable !== 'boolean'
+    ) {
+      return null;
+    }
+
+    return {
+      code: parsed.code,
+      message: parsed.message,
+      retryable: parsed.retryable,
+      codexErrorInfo: parsed.codexErrorInfo,
+      additionalDetails: parsed.additionalDetails,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isStructuredParseFailureReason(
+  value: unknown,
+): value is 'emptyResponse' | 'jsonParseFailed' | 'schemaValidationFailed' {
+  return (
+    value === 'emptyResponse' || value === 'jsonParseFailed' || value === 'schemaValidationFailed'
+  );
 }
 
 function parseModelSelection(text: string): SessionModelSelection | null {

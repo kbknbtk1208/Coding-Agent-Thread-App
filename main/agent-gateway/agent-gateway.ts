@@ -7,7 +7,13 @@ import type {
   ConversationTurn,
   PendingPermission,
   ResultEnvelope,
+  StructuredResultEnvelope,
 } from '../../shared/domain/agent';
+import {
+  summarizeStructuredResult,
+  type StructuredSchemaMap,
+  type StructuredSchemaName,
+} from '../../shared/domain/structured-schemas';
 import {
   applyMessageDeltaToTurn,
   applyProgressHintToTurn,
@@ -61,10 +67,29 @@ function isBusyStatus(status: AppSession['status']) {
   return BUSY_STATUSES.includes(status as (typeof BUSY_STATUSES)[number]);
 }
 
+function createStructuredResultEnvelope<TName extends StructuredSchemaName>(args: {
+  schemaName: TName;
+  data: StructuredSchemaMap[TName];
+  source: StructuredResultEnvelope['source'];
+  fallbackRichText?: string;
+}): Extract<StructuredResultEnvelope, { schemaName: TName }> {
+  return {
+    kind: 'structured',
+    schemaName: args.schemaName,
+    data: args.data,
+    source: args.source,
+    fallbackRichText: args.fallbackRichText,
+  } as Extract<StructuredResultEnvelope, { schemaName: TName }>;
+}
+
 export class AgentGateway {
   private readonly sessions = new Map<string, AppSession>();
 
   private readonly runtimeSessions = new Map<string, RuntimeSessionHandle>();
+  private readonly settledWaiters = new Map<
+    string,
+    Array<(snapshot: AgentSessionSnapshot) => void>
+  >();
 
   private readonly runtimes: Record<AgentKind, AgentRuntime> = {
     codex: new CodexRuntime(),
@@ -94,20 +119,51 @@ export class AgentGateway {
     );
   }
 
+  async awaitSettled(appSessionId: string): Promise<AgentSessionSnapshot> {
+    this.assertText(appSessionId, '待機するセッションを選択してください。');
+
+    const session = this.sessions.get(appSessionId);
+    if (!session) {
+      throw new Error('指定されたセッションが見つかりません。');
+    }
+
+    if (session.status === 'failed') {
+      return this.cloneSession(session);
+    }
+
+    if (session.status === 'completed' && session.finalResult) {
+      return this.cloneSession(session);
+    }
+
+    return new Promise<AgentSessionSnapshot>((resolve) => {
+      const waiters = this.settledWaiters.get(appSessionId) ?? [];
+      waiters.push(resolve);
+      this.settledWaiters.set(appSessionId, waiters);
+    });
+  }
+
   async startSession(input: StartSessionInput): Promise<AgentSessionSnapshot> {
     this.assertText(input.cwd, '作業ディレクトリを入力してください。');
     this.assertText(input.prompt, 'プロンプトを入力してください。');
+    this.assertStructuredInput(input.responseMode, input.structuredSchemaName);
 
     const now = this.now();
     const appSessionId = randomUUID();
     const responseMode = input.responseMode ?? 'richText';
-    const turn = this.createTurn(input.prompt, responseMode, now, input.structuredOutputMode);
+    const turn = this.createTurn(
+      input.prompt,
+      responseMode,
+      now,
+      input.structuredSchemaName,
+      input.structuredOutputMode,
+    );
     const session: AppSession = {
       agent: input.agent,
       appSessionId,
       capabilities: [],
       createdAt: now,
       cwd: input.cwd.trim(),
+      lastError: undefined,
       status: 'starting',
       pendingPermissions: [],
       progressHint: undefined,
@@ -135,6 +191,7 @@ export class AgentGateway {
           messageId: turn.messageId,
           prompt: turn.prompt,
           responseMode: turn.responseMode,
+          structuredSchemaName: turn.structuredSchemaName,
           structuredOutputMode: turn.structuredOutputMode,
         })
         .catch((error) => {
@@ -250,6 +307,7 @@ export class AgentGateway {
       createdAt: now,
       cwd: parentSession?.cwd ?? parentPersisted!.cwd,
       finalResult: undefined,
+      lastError: undefined,
       modelSelection: parentSession?.modelSelection
         ? { ...parentSession.modelSelection }
         : parentPersisted?.modelSelection
@@ -312,6 +370,7 @@ export class AgentGateway {
 
   async sendFollowUp(input: SendFollowUpInput): Promise<AgentSessionSnapshot> {
     this.assertText(input.prompt, 'follow-up プロンプトを入力してください。');
+    this.assertStructuredInput(input.responseMode, input.structuredSchemaName);
 
     const session = this.sessions.get(input.appSessionId);
     if (!session) {
@@ -328,12 +387,19 @@ export class AgentGateway {
 
     const now = this.now();
     const responseMode = input.responseMode ?? 'richText';
-    const turn = this.createTurn(input.prompt, responseMode, now, input.structuredOutputMode);
+    const turn = this.createTurn(
+      input.prompt,
+      responseMode,
+      now,
+      input.structuredSchemaName,
+      input.structuredOutputMode,
+    );
     session.status = 'starting';
     session.progressHint = undefined;
     session.streamBuffer = { content: '', messageId: turn.messageId };
     session.turns = [...session.turns, turn];
     session.finalResult = undefined;
+    session.lastError = undefined;
     session.updatedAt = now;
 
     this.emit({
@@ -348,6 +414,7 @@ export class AgentGateway {
           messageId: turn.messageId,
           prompt: turn.prompt,
           responseMode: turn.responseMode,
+          structuredSchemaName: turn.structuredSchemaName,
           structuredOutputMode: turn.structuredOutputMode,
         })
         .catch((error) => {
@@ -503,6 +570,7 @@ export class AgentGateway {
         }
         if (isTerminalStatus) {
           this.persistSession(session);
+          this.resolveSettledWaitersIfReady(appSessionId, session);
         }
         emittedEvent = {
           appSessionId,
@@ -565,6 +633,7 @@ export class AgentGateway {
           kind: 'richText' as const,
           source: event.source,
           structuredParseError: event.structuredParseError,
+          structuredParseFailureReason: event.structuredParseFailureReason,
           structuredSchemaName: event.structuredSchemaName,
         };
         const latestTurn = session.turns.at(-1);
@@ -573,30 +642,33 @@ export class AgentGateway {
           latestTurn.progressHint = undefined;
         }
         session.finalResult = result;
+        session.lastError = undefined;
         session.pendingPermissions = [];
         session.progressHint = undefined;
         session.updatedAt = this.now();
         this.persistSession(session);
+        this.resolveSettledWaitersIfReady(appSessionId, session);
         break;
       }
       case 'result.structured': {
-        const result = {
-          data: event.data,
-          fallbackRichText: event.fallbackRichText,
-          kind: 'structured' as const,
+        const result = createStructuredResultEnvelope({
           schemaName: event.schemaName,
+          data: event.data,
           source: event.source,
-        };
+          fallbackRichText: event.fallbackRichText,
+        });
         const latestTurn = session.turns.at(-1);
         if (latestTurn) {
           latestTurn.result = result;
           latestTurn.progressHint = undefined;
         }
         session.finalResult = result;
+        session.lastError = undefined;
         session.pendingPermissions = [];
         session.progressHint = undefined;
         session.updatedAt = this.now();
         this.persistSession(session);
+        this.resolveSettledWaitersIfReady(appSessionId, session);
         break;
       }
       case 'permission.requested': {
@@ -653,6 +725,7 @@ export class AgentGateway {
       }
       case 'error': {
         session.status = 'failed';
+        session.lastError = { ...event.error };
         session.pendingPermissions = [];
         session.progressHint = undefined;
         session.streamBuffer = { content: '', messageId: null };
@@ -663,6 +736,14 @@ export class AgentGateway {
           latestTurn.status = 'failed';
           latestTurn.progressHint = undefined;
         }
+        this.resolveSettledWaitersIfReady(appSessionId, session);
+        emittedEvent = {
+          appSessionId,
+          error: {
+            ...event.error,
+          },
+          type: 'error',
+        };
         break;
       }
       default:
@@ -679,6 +760,11 @@ export class AgentGateway {
     }
 
     session.status = 'failed';
+    session.lastError = {
+      code: 'SESSION_START_FAILED',
+      message,
+      retryable: true,
+    };
     session.pendingPermissions = [];
     session.progressHint = undefined;
     session.streamBuffer = { content: '', messageId: null };
@@ -690,6 +776,8 @@ export class AgentGateway {
       latestTurn.status = 'failed';
       latestTurn.progressHint = undefined;
     }
+
+    this.resolveSettledWaitersIfReady(appSessionId, session);
 
     this.emit({
       appSessionId,
@@ -706,6 +794,7 @@ export class AgentGateway {
     prompt: string,
     responseMode: ConversationResponseMode,
     startedAt: string,
+    structuredSchemaName?: StructuredSchemaName,
     structuredOutputMode?: StartSessionInput['structuredOutputMode'],
   ): ConversationTurn {
     return {
@@ -715,8 +804,9 @@ export class AgentGateway {
       response: '',
       intermediateSegments: [],
       responseMode,
+      structuredSchemaName: responseMode === 'structured' ? structuredSchemaName : undefined,
       structuredOutputMode:
-        responseMode === 'implementationChecklist' ? (structuredOutputMode ?? 'normal') : undefined,
+        responseMode === 'structured' ? (structuredOutputMode ?? 'normal') : undefined,
       progressHint: undefined,
       result: undefined,
       startedAt,
@@ -798,6 +888,7 @@ export class AgentGateway {
       ...session,
       capabilities: [...session.capabilities],
       finalResult: session.finalResult ? this.cloneResultEnvelope(session.finalResult) : undefined,
+      lastError: session.lastError ? { ...session.lastError } : undefined,
       modelSelection: session.modelSelection ? { ...session.modelSelection } : undefined,
       pendingPermissions: session.pendingPermissions.map((permission) =>
         clonePendingPermission(permission),
@@ -814,17 +905,7 @@ export class AgentGateway {
   }
 
   private cloneResultEnvelope(result: ResultEnvelope): ResultEnvelope {
-    if (result.kind === 'richText') {
-      return { ...result };
-    }
-
-    return {
-      ...result,
-      data: {
-        ...result.data,
-        items: result.data.items.map((item) => ({ ...item })),
-      },
-    };
+    return JSON.parse(JSON.stringify(result)) as ResultEnvelope;
   }
 
   private persistSession(session: AppSession): void {
@@ -861,6 +942,7 @@ export class AgentGateway {
           prompt: t.prompt,
           response: t.response,
           responseMode: t.responseMode,
+          structuredSchemaName: t.structuredSchemaName,
           structuredOutputMode: t.structuredOutputMode,
           status: t.status as 'completed' | 'failed',
           startedAt: t.startedAt,
@@ -868,6 +950,7 @@ export class AgentGateway {
           result: t.result,
         })),
       finalResult: session.finalResult,
+      lastError: session.lastError ? { ...session.lastError } : undefined,
       modelSelection: session.modelSelection,
       resumeSummary: this.buildResumeSummary(session),
       parentAppSessionId: session.parentAppSessionId,
@@ -890,8 +973,7 @@ export class AgentGateway {
       return `${promptSummary}\n---\n${resultSummary}`;
     }
 
-    const itemCount = result.data.items.length;
-    return `${promptSummary}\n---\nChecklist: ${String(itemCount)} items`;
+    return `${promptSummary}\n---\n${summarizeStructuredResult(result.schemaName, result.data)}`;
   }
 
   private rehydrateSnapshot(persisted: PersistedSession): AgentSessionSnapshot {
@@ -908,6 +990,7 @@ export class AgentGateway {
       finalResult: persisted.finalResult
         ? this.cloneResultEnvelope(persisted.finalResult)
         : undefined,
+      lastError: persisted.lastError ? { ...persisted.lastError } : undefined,
       progressHint: undefined,
       modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
       pendingPermissions: [],
@@ -930,6 +1013,7 @@ export class AgentGateway {
       finalResult: persisted.finalResult
         ? this.cloneResultEnvelope(persisted.finalResult)
         : undefined,
+      lastError: persisted.lastError ? { ...persisted.lastError } : undefined,
       progressHint: undefined,
       modelSelection: persisted.modelSelection ? { ...persisted.modelSelection } : undefined,
       pendingPermissions: [],
@@ -946,6 +1030,7 @@ export class AgentGateway {
       response: turn.response,
       intermediateSegments: [],
       responseMode: turn.responseMode,
+      structuredSchemaName: turn.structuredSchemaName,
       structuredOutputMode: turn.structuredOutputMode,
       status: turn.status,
       startedAt: turn.startedAt,
@@ -958,6 +1043,36 @@ export class AgentGateway {
   private assertText(value: string, message: string) {
     if (!value.trim()) {
       throw new Error(message);
+    }
+  }
+
+  private assertStructuredInput(
+    responseMode?: ConversationResponseMode,
+    structuredSchemaName?: StructuredSchemaName,
+  ) {
+    if ((responseMode ?? 'richText') === 'structured' && !structuredSchemaName) {
+      throw new Error('structured response では structuredSchemaName が必要です。');
+    }
+  }
+
+  private resolveSettledWaitersIfReady(appSessionId: string, session: AppSession) {
+    if (session.status === 'completed' && !session.finalResult) {
+      return;
+    }
+
+    if (session.status !== 'completed' && session.status !== 'failed') {
+      return;
+    }
+
+    const waiters = this.settledWaiters.get(appSessionId);
+    if (!waiters || waiters.length === 0) {
+      return;
+    }
+
+    const snapshot = this.cloneSession(session);
+    this.settledWaiters.delete(appSessionId);
+    for (const resolve of waiters) {
+      resolve(snapshot);
     }
   }
 

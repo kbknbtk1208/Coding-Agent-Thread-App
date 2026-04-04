@@ -4,14 +4,12 @@ import type {
   PermissionAction,
   ProgressHint,
 } from '../../../shared/domain/agent';
+import { STRUCTURED_FALLBACK_VERIFICATION_REASON } from '../../../shared/domain/implementation-checklist';
 import {
-  IMPLEMENTATION_CHECKLIST_JSON_SCHEMA,
-  STRUCTURED_FALLBACK_VERIFICATION_REASON,
-  buildStructuredFallbackVerificationPrompt,
-  buildImplementationChecklistPrompt,
-  normalizeImplementationChecklist,
-  parseImplementationChecklistResponse,
-} from '../../../shared/domain/implementation-checklist';
+  getStructuredSchemaDescriptor,
+  type StructuredSchemaMap,
+  type StructuredSchemaName,
+} from '../../../shared/domain/structured-schemas';
 import { JsonRpcProcess } from '../shared/json-rpc-process';
 import type {
   AgentRuntime,
@@ -23,6 +21,11 @@ import type {
   SendPromptInput,
   SteerInput,
 } from '../shared/runtime-contracts';
+import {
+  buildCodexFailureError,
+  extractCodexTurnFailureDetail,
+  type CodexTurnFailureDetail,
+} from './codex-turn-failure';
 
 const CODEX_CAPABILITIES: AgentCapability[] = [
   'nativeResumeSession',
@@ -46,12 +49,16 @@ interface CodexTurnStartResult {
 interface CodexTurnContext {
   messageId: string;
   responseMode: SendPromptInput['responseMode'];
+  structuredSchemaName?: SendPromptInput['structuredSchemaName'];
   structuredOutputMode?: SendPromptInput['structuredOutputMode'];
+  usesOutputSchema: boolean;
   providerTurnId?: string;
   finalText: string;
-  nativeStructuredChecklist: ReturnType<typeof normalizeImplementationChecklist> | null;
+  nativeStructuredResult: StructuredSchemaMap[StructuredSchemaName] | null;
   isRunning: boolean;
   finalAnswerItemId: string | null;
+  failureDetail: CodexTurnFailureDetail | null;
+  failureEmitted: boolean;
 }
 
 interface PendingPermissionState {
@@ -185,38 +192,29 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
     this.activeTurn = {
       messageId: input.messageId,
       responseMode: input.responseMode,
+      structuredSchemaName: input.structuredSchemaName,
       structuredOutputMode: input.structuredOutputMode,
+      usesOutputSchema: shouldUseCodexOutputSchema(input),
       finalAnswerItemId: null,
       finalText: '',
-      nativeStructuredChecklist: null,
+      nativeStructuredResult: null,
       isRunning: false,
+      failureDetail: null,
+      failureEmitted: false,
     };
 
-    const response = await this.client.request<CodexTurnStartResult>('turn/start', {
-      approvalPolicy: 'on-request',
-      cwd: this.cwd,
-      input: [
-        {
-          type: 'text',
-          text:
-            input.responseMode === 'implementationChecklist'
-              ? this.buildPromptText(input)
-              : input.prompt,
-        },
-      ],
-      outputSchema:
-        input.responseMode === 'implementationChecklist' &&
-        input.structuredOutputMode !== 'forceFallback'
-          ? IMPLEMENTATION_CHECKLIST_JSON_SCHEMA
-          : undefined,
-      sandboxPolicy: {
-        networkAccess: false,
-        readOnlyAccess: { type: 'fullAccess' },
-        type: 'workspaceWrite',
-        writableRoots: [this.cwd],
-      },
-      threadId: this.providerSessionId,
-    });
+    if (input.responseMode === 'structured' && !input.structuredSchemaName) {
+      throw new Error('structured response では structuredSchemaName が必要です。');
+    }
+
+    const response = await this.client.request<CodexTurnStartResult>(
+      'turn/start',
+      buildCodexTurnStartRequest({
+        cwd: this.cwd,
+        input,
+        providerSessionId: this.providerSessionId,
+      }),
+    );
 
     if (this.activeTurn) {
       this.activeTurn.providerTurnId = response.turn.id;
@@ -321,6 +319,11 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
 
     if (method === 'turn/completed') {
       this.handleTurnCompleted(params);
+      return;
+    }
+
+    if (method === 'error') {
+      this.handleError(params);
     }
   }
 
@@ -429,9 +432,9 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       return;
     }
 
-    const nativeStructuredChecklist = this.findChecklistCandidate(item);
-    if (nativeStructuredChecklist) {
-      this.activeTurn.nativeStructuredChecklist = nativeStructuredChecklist;
+    const nativeStructuredResult = this.findStructuredCandidate(item);
+    if (nativeStructuredResult) {
+      this.activeTurn.nativeStructuredResult = nativeStructuredResult;
     }
 
     const text = this.extractResponseItemText(item);
@@ -455,8 +458,8 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
 
     const status = this.getStringValue(turn, 'status');
     const finalText = this.activeTurn.finalText.trim();
-    if (!this.activeTurn.nativeStructuredChecklist) {
-      this.activeTurn.nativeStructuredChecklist = this.findChecklistCandidate(turn);
+    if (!this.activeTurn.nativeStructuredResult) {
+      this.activeTurn.nativeStructuredResult = this.findStructuredCandidate(turn);
     }
 
     if (status === 'completed') {
@@ -473,49 +476,74 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
       return;
     }
 
-    this.emit({
-      error: {
-        code: 'CODEX_TURN_FAILED',
-        message: 'Codex turn failed.',
-        retryable: false,
-      },
-      type: 'error',
-    });
+    const failureDetail =
+      this.activeTurn.failureDetail ?? extractCodexTurnFailureDetail(turn) ?? null;
+    if (!this.activeTurn.failureEmitted) {
+      this.activeTurn.failureEmitted = true;
+      this.emit({
+        error: buildCodexFailureError(failureDetail),
+        type: 'error',
+      });
+    }
     this.activeTurn = null;
   }
 
+  private handleError(params: unknown) {
+    if (!this.activeTurn) {
+      return;
+    }
+
+    const failureDetail = extractCodexTurnFailureDetail(params);
+    if (!failureDetail) {
+      return;
+    }
+
+    this.activeTurn.failureDetail = failureDetail;
+    if (this.activeTurn.failureEmitted) {
+      return;
+    }
+
+    this.activeTurn.failureEmitted = true;
+    this.emit({
+      error: buildCodexFailureError(failureDetail),
+      type: 'error',
+    });
+  }
+
   private emitResult(turn: CodexTurnContext, finalText: string) {
-    if (turn.responseMode === 'implementationChecklist') {
+    if (turn.responseMode === 'structured' && turn.structuredSchemaName) {
+      const descriptor = getStructuredSchemaDescriptor(turn.structuredSchemaName);
+      const resultSource = getCodexStructuredResultSource(turn.usesOutputSchema);
       if (turn.structuredOutputMode === 'forceFallback') {
         this.emit({
           content: finalText,
           format: 'markdown',
           source: 'structuredParseFallback',
           structuredParseError: STRUCTURED_FALLBACK_VERIFICATION_REASON,
-          structuredSchemaName: 'implementation-checklist',
+          structuredSchemaName: turn.structuredSchemaName,
           type: 'result.richText',
         });
         return;
       }
 
-      if (turn.nativeStructuredChecklist) {
+      if (turn.nativeStructuredResult) {
         this.emit({
-          data: turn.nativeStructuredChecklist,
+          data: turn.nativeStructuredResult,
           fallbackRichText: finalText || undefined,
-          schemaName: 'implementation-checklist',
-          source: 'codexOutputSchema',
+          schemaName: turn.structuredSchemaName,
+          source: resultSource,
           type: 'result.structured',
         });
         return;
       }
 
-      const parsed = parseImplementationChecklistResponse(finalText);
+      const parsed = descriptor.parseText(finalText);
       if (parsed.ok) {
         this.emit({
           data: parsed.value,
           fallbackRichText: finalText || undefined,
-          schemaName: 'implementation-checklist',
-          source: 'codexOutputSchema',
+          schemaName: turn.structuredSchemaName,
+          source: resultSource,
           type: 'result.structured',
         });
         return;
@@ -525,8 +553,11 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
         content: finalText,
         format: 'markdown',
         source: 'structuredParseFallback',
-        structuredParseError: this.describeChecklistParseFailure(parsed.reason, true),
-        structuredSchemaName: 'implementation-checklist',
+        structuredParseError: descriptor.describeParseFailure(parsed.reason, {
+          usesOutputSchema: turn.usesOutputSchema,
+        }),
+        structuredParseFailureReason: parsed.reason,
+        structuredSchemaName: turn.structuredSchemaName,
         type: 'result.richText',
       });
       return;
@@ -541,13 +572,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
   }
 
   private buildPromptText(input: SendPromptInput) {
-    if (input.responseMode !== 'implementationChecklist') {
-      return input.prompt;
-    }
-
-    return input.structuredOutputMode === 'forceFallback'
-      ? buildStructuredFallbackVerificationPrompt(input.prompt)
-      : buildImplementationChecklistPrompt(input.prompt);
+    return buildCodexPromptText(input);
   }
 
   private describeProgressHint(item: Record<string, unknown>): ProgressHint | null {
@@ -1199,25 +1224,29 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
     return value.filter(this.isRecord);
   }
 
-  private findChecklistCandidate(
+  private findStructuredCandidate(
     value: unknown,
     depth = 0,
     seen = new Set<unknown>(),
-  ): ReturnType<typeof normalizeImplementationChecklist> | null {
+  ): StructuredSchemaMap[StructuredSchemaName] | null {
     if (depth > 6 || value === null || typeof value !== 'object' || seen.has(value)) {
       return null;
     }
 
     seen.add(value);
-    const direct = normalizeImplementationChecklist(value);
+    const schemaName = this.activeTurn?.structuredSchemaName;
+    if (!schemaName) {
+      return null;
+    }
+
+    const direct = getStructuredSchemaDescriptor(schemaName).normalize(value);
     if (direct) {
       return direct;
     }
 
     if (Array.isArray(value)) {
       for (const item of value) {
-        const nested: ReturnType<typeof normalizeImplementationChecklist> | null =
-          this.findChecklistCandidate(item, depth + 1, seen);
+        const nested = this.findStructuredCandidate(item, depth + 1, seen);
         if (nested) {
           return nested;
         }
@@ -1226,8 +1255,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
     }
 
     for (const nestedValue of Object.values(value)) {
-      const nested: ReturnType<typeof normalizeImplementationChecklist> | null =
-        this.findChecklistCandidate(nestedValue, depth + 1, seen);
+      const nested = this.findStructuredCandidate(nestedValue, depth + 1, seen);
       if (nested) {
         return nested;
       }
@@ -1235,24 +1263,62 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
 
     return null;
   }
+}
 
-  private describeChecklistParseFailure(reason: string, usesOutputSchema: boolean) {
-    switch (reason) {
-      case 'emptyResponse':
-        return usesOutputSchema
-          ? 'Codex の outputSchema 応答が空でした。'
-          : 'structured checklist の応答が空でした。';
-      case 'schemaValidationFailed':
-        return usesOutputSchema
-          ? 'Codex の outputSchema 応答は取得できましたが checklist schema に合致しませんでした。'
-          : 'JSON は取得できましたが checklist schema に合致しませんでした。';
-      case 'jsonParseFailed':
-      default:
-        return usesOutputSchema
-          ? 'Codex の outputSchema 応答を JSON として解釈できませんでした。'
-          : 'structured checklist を JSON として解釈できませんでした。';
-    }
+export function shouldUseCodexOutputSchema(
+  input: Pick<SendPromptInput, 'responseMode' | 'structuredSchemaName' | 'structuredOutputMode'>,
+) {
+  return (
+    input.responseMode === 'structured' &&
+    Boolean(input.structuredSchemaName) &&
+    input.structuredOutputMode !== 'forceFallback' &&
+    input.structuredSchemaName !== 'review-draft'
+  );
+}
+
+export function getCodexStructuredResultSource(usesOutputSchema: boolean) {
+  return usesOutputSchema ? 'codexOutputSchema' : 'promptedJson';
+}
+
+export function buildCodexPromptText(input: SendPromptInput) {
+  if (input.responseMode !== 'structured' || !input.structuredSchemaName) {
+    return input.prompt;
   }
+
+  const descriptor = getStructuredSchemaDescriptor(input.structuredSchemaName);
+  return input.structuredOutputMode === 'forceFallback'
+    ? descriptor.buildForcedFallbackPrompt(input.prompt)
+    : descriptor.buildPrompt(input.prompt);
+}
+
+export function buildCodexTurnStartRequest(args: {
+  cwd: string;
+  providerSessionId: string;
+  input: SendPromptInput;
+}) {
+  const usesOutputSchema = shouldUseCodexOutputSchema(args.input);
+
+  return {
+    approvalPolicy: 'on-request',
+    cwd: args.cwd,
+    input: [
+      {
+        type: 'text' as const,
+        text: buildCodexPromptText(args.input),
+      },
+    ],
+    outputSchema:
+      usesOutputSchema && args.input.structuredSchemaName
+        ? getStructuredSchemaDescriptor(args.input.structuredSchemaName).jsonSchema
+        : undefined,
+    sandboxPolicy: {
+      networkAccess: false,
+      readOnlyAccess: { type: 'fullAccess' as const },
+      type: 'workspaceWrite' as const,
+      writableRoots: [args.cwd],
+    },
+    threadId: args.providerSessionId,
+  };
 }
 
 const COMMAND_APPROVAL_FALLBACK_DECISIONS = [

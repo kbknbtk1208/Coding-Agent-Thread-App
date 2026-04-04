@@ -12,6 +12,10 @@ import {
 } from '../shared/contracts/agent-ipc';
 import {
   REVIEW_IPC_CHANNELS,
+  type AwaitDraftReviewResultInput,
+  type AwaitDraftReviewResultResult,
+  type BeginDraftReviewInput,
+  type BeginDraftReviewResult,
   type CreateReviewThreadInput,
   type CreateReviewThreadResult,
   type HydrateReviewFileInput,
@@ -84,6 +88,14 @@ const reviewApi = {
   },
   replyThread(input: ReplyReviewThreadInput): Promise<ReplyReviewThreadResult> {
     return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.replyThread, input);
+  },
+  beginDraftReview(input: BeginDraftReviewInput): Promise<BeginDraftReviewResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.beginDraftReview, input);
+  },
+  awaitDraftReviewResult(
+    input: AwaitDraftReviewResultInput,
+  ): Promise<AwaitDraftReviewResultResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.awaitDraftReviewResult, input);
   },
 };
 

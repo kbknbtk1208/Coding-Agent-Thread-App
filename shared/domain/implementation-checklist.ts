@@ -166,6 +166,19 @@ export function normalizeImplementationChecklist(value: unknown): Implementation
   };
 }
 
+export function cloneImplementationChecklist(
+  checklist: ImplementationChecklist,
+): ImplementationChecklist {
+  return {
+    type: IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
+    items: checklist.items.map((item) => ({ ...item })),
+  };
+}
+
+export function summarizeImplementationChecklist(checklist: ImplementationChecklist): string {
+  return `Checklist: ${String(checklist.items.length)} items`;
+}
+
 function normalizeImplementationChecklistItem(
   value: unknown,
   index: number,

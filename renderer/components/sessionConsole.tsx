@@ -2,29 +2,31 @@ import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {
-  AgentEvent,
   AgentKind,
   AgentStatus,
   AppSession,
-  ConversationIntermediateSegment,
   ConversationResponseMode,
-  ConversationTurn,
-  PendingPermission,
-  PermissionAction,
   RichTextResultSource,
   ResultEnvelope,
   StructuredOutputMode,
   StructuredResultSource,
 } from '../../shared/domain/agent';
 import {
-  applyMessageDeltaToTurn,
-  applyProgressHintToTurn,
-  cloneIntermediateSegments,
-} from '../../shared/domain/intermediate-segments';
-import { ChainOfThought } from './ui/chain-of-thought';
-import { Reasoning } from './ui/reasoning';
-import { ShimmerText } from './ui/shimmer-text';
-import { TextEffect } from './ui/text-effect';
+  renderStreamingRichText,
+  renderWaitingResponse,
+  SESSION_STATUS_LABELS,
+  SESSION_STATUS_STYLES,
+  SessionIntermediateSegments,
+  SessionPermissionCard,
+} from './session-event-panel';
+import {
+  applyAgentEventToSession,
+  getPendingPermissionsForTurn,
+  getSessionLevelPendingPermissions,
+  isBusyAgentStatus,
+  mergeAppSessionSnapshot,
+  normalizeAppSession,
+} from './session-event-state';
 
 const DEFAULT_CWD = '';
 const DEFAULT_RICH_TEXT_PROMPT =
@@ -44,31 +46,13 @@ const DEFAULT_STRUCTURED_FALLBACK_FOLLOW_UP = [
   'これは fallback 表示の検証なので、通常の Markdown 箇条書きだけで答えて。',
 ].join('\n');
 
-const STATUS_LABELS: Record<AgentStatus, string> = {
-  completed: 'Completed / 次入力待ち',
-  failed: 'Failed',
-  idle: 'Idle',
-  running: 'Running',
-  starting: 'Starting',
-  waiting_permission: 'Waiting Permission',
-};
-
-const STATUS_STYLES: Record<AgentStatus, string> = {
-  completed: 'border-emerald-300/30 bg-emerald-300/10 text-emerald-50',
-  failed: 'border-rose-300/30 bg-rose-300/10 text-rose-50',
-  idle: 'border-slate-200/15 bg-white/6 text-slate-100',
-  running: 'border-amber-200/25 bg-amber-300/12 text-amber-50',
-  starting: 'border-cyan-200/25 bg-cyan-300/12 text-cyan-50',
-  waiting_permission: 'border-fuchsia-200/25 bg-fuchsia-300/12 text-fuchsia-50',
-};
-
 const MODE_LABELS: Record<ConversationResponseMode, string> = {
-  implementationChecklist: 'Structured Checklist',
+  structured: 'Structured',
   richText: 'Rich Text',
 };
 
 const MODE_STYLES: Record<ConversationResponseMode, string> = {
-  implementationChecklist: 'border-emerald-200/30 bg-emerald-300/12 text-emerald-50',
+  structured: 'border-emerald-200/30 bg-emerald-300/12 text-emerald-50',
   richText: 'border-slate-200/20 bg-white/8 text-slate-100',
 };
 
@@ -93,67 +77,8 @@ const PRIORITY_STYLES = {
   medium: 'border-amber-200/30 bg-amber-300/12 text-amber-50',
 } as const;
 
-const PERMISSION_ACTION_STYLES: Record<
-  PermissionAction['kind'],
-  { border: string; text: string; hover: string }
-> = {
-  approve: {
-    border: 'border-emerald-200/30',
-    text: 'text-emerald-50',
-    hover: 'hover:border-emerald-100/40 hover:bg-emerald-300/18',
-  },
-  cancel: {
-    border: 'border-slate-200/20',
-    text: 'text-slate-100',
-    hover: 'hover:border-white/20 hover:bg-white/10',
-  },
-  other: {
-    border: 'border-fuchsia-200/25',
-    text: 'text-fuchsia-50',
-    hover: 'hover:border-fuchsia-100/40 hover:bg-fuchsia-300/18',
-  },
-  reject: {
-    border: 'border-rose-200/30',
-    text: 'text-rose-50',
-    hover: 'hover:border-rose-100/40 hover:bg-rose-300/18',
-  },
-};
-
-function clonePendingPermission(permission: PendingPermission): PendingPermission {
-  return {
-    ...permission,
-    actions: permission.actions.map((action) => ({ ...action })),
-    payload:
-      permission.payload && typeof permission.payload === 'object'
-        ? Array.isArray(permission.payload)
-          ? [...permission.payload]
-          : { ...permission.payload }
-        : permission.payload,
-  };
-}
-
-function clonePendingPermissions(pendingPermissions: PendingPermission[]) {
-  return pendingPermissions.map((permission) => clonePendingPermission(permission));
-}
-
-function getPendingPermissionsNewestFirst(pendingPermissions: PendingPermission[]) {
-  return [...pendingPermissions].reverse();
-}
-
 function sortSessions(sessions: AppSession[]) {
   return [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-}
-
-function patchLatestTurn(
-  turns: ConversationTurn[],
-  updater: (turn: ConversationTurn) => ConversationTurn,
-) {
-  if (turns.length === 0) {
-    return turns;
-  }
-
-  const latestTurnIndex = turns.length - 1;
-  return turns.map((turn, index) => (index === latestTurnIndex ? updater(turn) : turn));
 }
 
 function upsertSession(sessions: AppSession[], nextSession: AppSession) {
@@ -169,72 +94,12 @@ function upsertActiveSessionIds(activeSessionIds: string[], appSessionId: string
     : [...activeSessionIds, appSessionId];
 }
 
-function normalizeTurn(turn: ConversationTurn): ConversationTurn {
-  return {
-    ...turn,
-    intermediateSegments: turn.intermediateSegments ?? [],
-  };
-}
-
-function normalizeSession(session: AppSession): AppSession {
-  return {
-    ...session,
-    pendingPermissions: clonePendingPermissions(session.pendingPermissions ?? []),
-    turns: session.turns.map(normalizeTurn),
-  };
-}
-
-function mergeTurnSnapshots(
-  existingTurn: ConversationTurn | undefined,
-  nextTurn: ConversationTurn,
-) {
-  if (!existingTurn) {
-    return normalizeTurn(nextTurn);
-  }
-
-  return {
-    ...existingTurn,
-    ...nextTurn,
-    intermediateSegments:
-      nextTurn.intermediateSegments?.length > 0
-        ? cloneIntermediateSegments(nextTurn.intermediateSegments)
-        : cloneIntermediateSegments(existingTurn.intermediateSegments ?? []),
-  };
-}
-
-function mergeSessionSnapshot(existingSession: AppSession | undefined, nextSession: AppSession) {
-  if (!existingSession) {
-    return normalizeSession(nextSession);
-  }
-
-  const turnsById = new Map<string, ConversationTurn>();
-  existingSession.turns.forEach((turn) => {
-    turnsById.set(turn.turnId, turn);
-    turnsById.set(turn.messageId, turn);
-  });
-  return {
-    ...existingSession,
-    ...nextSession,
-    pendingPermissions: clonePendingPermissions(nextSession.pendingPermissions ?? []),
-    turns: nextSession.turns.map((turn, index) =>
-      mergeTurnSnapshots(
-        turnsById.get(turn.turnId) ?? turnsById.get(turn.messageId) ?? existingSession.turns[index],
-        turn,
-      ),
-    ),
-  };
-}
-
-function isBusyStatus(status: AgentStatus) {
-  return status === 'starting' || status === 'running' || status === 'waiting_permission';
-}
-
 function isSessionActive(activeSessionIds: string[], appSessionId: string) {
   return activeSessionIds.includes(appSessionId);
 }
 
 function canSendPrompt(status: AgentStatus, sessionIsActive: boolean) {
-  return sessionIsActive && !isBusyStatus(status);
+  return sessionIsActive && !isBusyAgentStatus(status);
 }
 
 function isSessionResumable(session: AppSession, activeSessionIds: string[]) {
@@ -253,224 +118,12 @@ function getLatestStructuredOutputMode(session: AppSession): StructuredOutputMod
   return session.turns.at(-1)?.structuredOutputMode ?? 'normal';
 }
 
-function toResultEnvelope(
-  event: Extract<AgentEvent, { type: 'result.richText' | 'result.structured' }>,
-) {
-  return event.type === 'result.richText'
-    ? {
-        content: event.content,
-        format: event.format,
-        kind: 'richText' as const,
-        source: event.source,
-        structuredParseError: event.structuredParseError,
-        structuredSchemaName: event.structuredSchemaName,
-      }
-    : {
-        data: event.data,
-        fallbackRichText: event.fallbackRichText,
-        kind: 'structured' as const,
-        schemaName: event.schemaName,
-        source: event.source,
-      };
-}
-
 function getResultSourceLabel(source: StructuredResultSource) {
   return RESULT_SOURCE_LABELS[source];
 }
 
 function getRichTextResultSourceLabel(source: RichTextResultSource) {
   return RICH_TEXT_SOURCE_LABELS[source];
-}
-
-function applyAgentEvent(session: AppSession, event: AgentEvent): AppSession {
-  switch (event.type) {
-    case 'session.capabilities':
-      return {
-        ...session,
-        capabilities: [...event.capabilities],
-        updatedAt: new Date().toISOString(),
-      };
-    case 'status.changed': {
-      const latestTurn = session.turns.at(-1);
-      const nextStatus =
-        session.pendingPermissions.length > 0 && event.status === 'running'
-          ? 'waiting_permission'
-          : event.status;
-      const shouldFinalizeLatestTurn =
-        (nextStatus === 'completed' || nextStatus === 'failed') && latestTurn
-          ? isBusyStatus(latestTurn.status)
-          : false;
-      const shouldSyncLatestTurnStatus =
-        !shouldFinalizeLatestTurn &&
-        latestTurn?.status === 'waiting_permission' &&
-        nextStatus !== 'waiting_permission';
-      const shouldClearPendingPermissions = nextStatus === 'completed' || nextStatus === 'failed';
-
-      return {
-        ...session,
-        pendingPermissions: shouldClearPendingPermissions ? [] : session.pendingPermissions,
-        status: nextStatus,
-        progressHint:
-          nextStatus === 'completed' || nextStatus === 'failed' ? undefined : session.progressHint,
-        streamBuffer:
-          nextStatus === 'completed' || nextStatus === 'failed'
-            ? { content: '', messageId: null }
-            : session.streamBuffer,
-        turns: shouldFinalizeLatestTurn
-          ? patchLatestTurn(session.turns, (turn) => ({
-              ...turn,
-              completedAt: new Date().toISOString(),
-              progressHint: undefined,
-              status: nextStatus,
-            }))
-          : shouldSyncLatestTurnStatus
-            ? patchLatestTurn(session.turns, (turn) => ({
-                ...turn,
-                progressHint: undefined,
-                status: nextStatus,
-              }))
-            : session.turns,
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    case 'progress.updated': {
-      const nextStatus = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
-      return {
-        ...session,
-        progressHint: { ...event.progressHint },
-        status: nextStatus,
-        turns: patchLatestTurn(session.turns, (turn) =>
-          turn.messageId === event.messageId
-            ? {
-                ...applyProgressHintToTurn(turn, event.progressHint, event.progressHint.updatedAt),
-                status: nextStatus,
-              }
-            : turn,
-        ),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    case 'message.delta': {
-      const nextStatus = session.pendingPermissions.length > 0 ? 'waiting_permission' : 'running';
-      return {
-        ...session,
-        progressHint: undefined,
-        status: nextStatus,
-        streamBuffer: {
-          content: session.streamBuffer.content + event.text,
-          messageId: event.messageId,
-        },
-        turns: patchLatestTurn(session.turns, (turn) =>
-          turn.messageId === event.messageId
-            ? {
-                ...applyMessageDeltaToTurn(turn, session.agent, event.text, event.updatedAt),
-                status: nextStatus,
-              }
-            : turn,
-        ),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    case 'message.completed':
-      return {
-        ...session,
-        turns: patchLatestTurn(session.turns, (turn) =>
-          turn.messageId === event.messageId
-            ? { ...turn, completedAt: new Date().toISOString(), status: 'completed' }
-            : turn,
-        ),
-        updatedAt: new Date().toISOString(),
-      };
-    case 'result.richText':
-    case 'result.structured': {
-      const result = toResultEnvelope(event);
-      return {
-        ...session,
-        finalResult: result,
-        pendingPermissions: [],
-        progressHint: undefined,
-        turns: patchLatestTurn(session.turns, (turn) => ({
-          ...turn,
-          progressHint: undefined,
-          result,
-        })),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    case 'permission.requested':
-      return {
-        ...session,
-        pendingPermissions: [
-          ...session.pendingPermissions.filter(
-            (permission) => permission.requestId !== event.permission.requestId,
-          ),
-          clonePendingPermission(event.permission),
-        ],
-        progressHint: undefined,
-        status: 'waiting_permission',
-        turns: session.turns.map((turn) =>
-          turn.turnId === event.permission.turnId ||
-          (!event.permission.turnId && turn === session.turns.at(-1))
-            ? {
-                ...turn,
-                progressHint: undefined,
-                status: 'waiting_permission',
-              }
-            : turn,
-        ),
-        updatedAt: new Date().toISOString(),
-      };
-    case 'permission.resolved': {
-      const resolvedPermission = session.pendingPermissions.find(
-        (permission) => permission.requestId === event.requestId,
-      );
-      const nextPendingPermissions = session.pendingPermissions.filter(
-        (permission) => permission.requestId !== event.requestId,
-      );
-      const turnId = resolvedPermission?.turnId;
-      const stillPendingForTurn = turnId
-        ? nextPendingPermissions.some((permission) => permission.turnId === turnId)
-        : false;
-
-      return {
-        ...session,
-        pendingPermissions: nextPendingPermissions,
-        progressHint: undefined,
-        status: nextPendingPermissions.length > 0 ? 'waiting_permission' : 'running',
-        turns: session.turns.map((turn) =>
-          turn.turnId === turnId || (!turnId && turn === session.turns.at(-1))
-            ? {
-                ...turn,
-                progressHint: undefined,
-                status:
-                  nextPendingPermissions.length > 0 || stillPendingForTurn
-                    ? 'waiting_permission'
-                    : 'running',
-              }
-            : turn,
-        ),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    case 'error':
-      return {
-        ...session,
-        pendingPermissions: [],
-        progressHint: undefined,
-        status: 'failed',
-        streamBuffer: { content: '', messageId: null },
-        turns: patchLatestTurn(session.turns, (turn) => ({
-          ...turn,
-          completedAt: new Date().toISOString(),
-          progressHint: undefined,
-          status: 'failed',
-        })),
-        updatedAt: new Date().toISOString(),
-      };
-    case 'session.started':
-    default:
-      return session;
-  }
 }
 
 function ModeSelect(props: {
@@ -489,7 +142,7 @@ function ModeSelect(props: {
         className="w-full rounded-[1.15rem] border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-200/50"
       >
         <option value="richText">Rich Text</option>
-        <option value="implementationChecklist">Structured Checklist</option>
+        <option value="structured">Structured Checklist</option>
       </select>
     </label>
   );
@@ -549,34 +202,87 @@ function renderResult(result?: ResultEnvelope) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-emerald-200/30 bg-emerald-300/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-50">
-          Structured Checklist
+          {result.schemaName === 'implementation-checklist'
+            ? 'Structured Checklist'
+            : 'Structured Review Draft'}
         </span>
         <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200">
           {getResultSourceLabel(result.source)}
         </span>
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
+          schema: {result.schemaName}
+        </span>
       </div>
 
-      <div className="space-y-3">
-        {result.data.items.map((item) => (
-          <article
-            key={item.id}
-            className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{item.id}</p>
-                <h5 className="mt-2 text-sm font-semibold text-white">{item.title}</h5>
+      {result.schemaName === 'implementation-checklist' ? (
+        <div className="space-y-3">
+          {(
+            result.data as import('../../shared/domain/implementation-checklist').ImplementationChecklist
+          ).items.map((item) => (
+            <article
+              key={item.id}
+              className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{item.id}</p>
+                  <h5 className="mt-2 text-sm font-semibold text-white">{item.title}</h5>
+                </div>
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${PRIORITY_STYLES[item.priority]}`}
+                >
+                  {item.priority}
+                </span>
               </div>
-              <span
-                className={`rounded-full border px-3 py-1 text-xs font-medium ${PRIORITY_STYLES[item.priority]}`}
-              >
-                {item.priority}
-              </span>
-            </div>
-            <p className="mt-3 text-sm leading-7 text-slate-300">{item.reason}</p>
+              <p className="mt-3 text-sm leading-7 text-slate-300">{item.reason}</p>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <article className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4">
+            <h5 className="text-sm font-semibold text-white">
+              {
+                (
+                  result.data as import('../../shared/domain/review-draft').ReviewDraftStructuredResult
+                ).summary.headline
+              }
+            </h5>
+            <p className="mt-3 text-sm leading-7 text-slate-300">
+              {
+                (
+                  result.data as import('../../shared/domain/review-draft').ReviewDraftStructuredResult
+                ).summary.overview
+              }
+            </p>
           </article>
-        ))}
-      </div>
+          {(
+            result.data as import('../../shared/domain/review-draft').ReviewDraftStructuredResult
+          ).findings.map((finding) => (
+            <article
+              key={finding.findingId}
+              className="rounded-[1.3rem] border border-white/10 bg-slate-950/75 p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                    {finding.findingId}
+                  </p>
+                  <h5 className="mt-2 text-sm font-semibold text-white">{finding.title}</h5>
+                </div>
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                    PRIORITY_STYLES[finding.severity]
+                  }`}
+                >
+                  {finding.severity}
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-7 text-slate-300">{finding.body}</p>
+            </article>
+          ))}
+        </div>
+      )}
 
       {result.fallbackRichText ? (
         <details className="rounded-[1.3rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
@@ -687,164 +393,6 @@ function MarkdownRenderer({ content }: { content: string }) {
   );
 }
 
-function renderStreamingRichText(text: string, className: string) {
-  return (
-    <TextEffect
-      as="p"
-      text={text}
-      layout="flow"
-      preserveWhitespace
-      staggerWindow={32}
-      segmentDelay={0.018}
-      className={className}
-    />
-  );
-}
-
-function renderWaitingResponse(text = '応答を待っています...') {
-  return (
-    <p className="text-sm leading-7">
-      <ShimmerText text={text} className="block font-medium" />
-    </p>
-  );
-}
-
-function serializePermissionPayload(payload: unknown) {
-  if (payload === undefined) {
-    return 'undefined';
-  }
-
-  return JSON.stringify(payload, null, 2) ?? 'null';
-}
-
-function getPendingPermissionsForTurn(session: AppSession, turnId: string) {
-  return getPendingPermissionsNewestFirst(
-    session.pendingPermissions.filter((permission) => permission.turnId === turnId),
-  );
-}
-
-function getSessionLevelPendingPermissions(session: AppSession) {
-  return getPendingPermissionsNewestFirst(
-    session.pendingPermissions.filter((permission) => permission.turnId === undefined),
-  );
-}
-
-function PermissionRequestCard(props: {
-  description: string;
-  isSubmitting: boolean;
-  onRespond: (requestId: string, actionId: string) => void;
-  permission: PendingPermission;
-  title: string;
-}) {
-  const { permission } = props;
-
-  return (
-    <div className="space-y-4 rounded-[1.4rem] border border-fuchsia-200/25 bg-fuchsia-300/12 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-fuchsia-100/80">
-            {props.title}
-          </p>
-          <p className="text-sm text-fuchsia-50/90">{props.description}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <span className="rounded-full border border-fuchsia-100/20 bg-fuchsia-200/10 px-3 py-1 text-[11px] font-medium text-fuchsia-50">
-            requestId: {permission.requestId}
-          </span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-slate-200">
-            {permission.method}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid gap-2 text-xs text-fuchsia-50/75 sm:grid-cols-2">
-        {permission.turnId ? (
-          <p className="rounded-[1rem] border border-white/10 bg-black/20 px-3 py-2">
-            turnId: {permission.turnId}
-          </p>
-        ) : null}
-        {permission.itemId ? (
-          <p className="rounded-[1rem] border border-white/10 bg-black/20 px-3 py-2">
-            itemId: {permission.itemId}
-          </p>
-        ) : null}
-      </div>
-
-      <pre className="overflow-x-auto whitespace-pre-wrap rounded-[1.2rem] border border-white/10 bg-black/40 p-4 text-sm leading-7 text-slate-100">
-        {serializePermissionPayload(permission.payload)}
-      </pre>
-
-      <div className="flex flex-wrap gap-3">
-        {permission.actions.map((action) => {
-          const actionStyle =
-            PERMISSION_ACTION_STYLES[action.kind] ?? PERMISSION_ACTION_STYLES.other;
-          return (
-            <button
-              key={action.actionId}
-              type="button"
-              onClick={() => {
-                props.onRespond(permission.requestId, action.actionId);
-              }}
-              disabled={props.isSubmitting}
-              className={`rounded-full border px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500 ${actionStyle.border} ${actionStyle.text} ${actionStyle.hover}`}
-            >
-              {action.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function renderIntermediateSegments(
-  segments: ConversationIntermediateSegment[],
-  options: { isLatestTurn: boolean; turn: ConversationTurn },
-) {
-  const isActiveTurn =
-    options.isLatestTurn &&
-    !options.turn.result &&
-    (options.turn.status === 'starting' || options.turn.status === 'running');
-
-  const latestSegment = segments.at(-1);
-  const messageSegments = segments.filter((s) => s.kind === 'message');
-
-  // Determine the hint/running text to show below ChainOfThought
-  const hintText: string | null = isActiveTurn
-    ? latestSegment !== undefined && latestSegment.kind === 'progress'
-      ? latestSegment.text
-      : 'running'
-    : null;
-
-  // The segmentId of the currently streaming message segment (if any)
-  const activeMessageSegmentId: string | null =
-    isActiveTurn && latestSegment !== undefined && latestSegment.kind === 'message'
-      ? latestSegment.segmentId
-      : null;
-
-  return (
-    <div className="space-y-3">
-      {messageSegments.length > 0 ? (
-        <ChainOfThought>
-          {messageSegments.map((segment) => {
-            const isActiveSegment = segment.segmentId === activeMessageSegmentId;
-            return (
-              <Reasoning key={segment.segmentId} isActive={isActiveSegment}>
-                {isActiveSegment ? (
-                  renderStreamingRichText(segment.text, 'whitespace-pre-wrap text-sm leading-7')
-                ) : (
-                  <span className="whitespace-pre-wrap">{segment.text}</span>
-                )}
-              </Reasoning>
-            );
-          })}
-        </ChainOfThought>
-      ) : null}
-      {hintText !== null ? renderWaitingResponse(hintText) : null}
-    </div>
-  );
-}
-
 export function SessionConsole() {
   const [agent, setAgent] = useState<AgentKind>('codex');
   const [cwd, setCwd] = useState(DEFAULT_CWD);
@@ -894,13 +442,13 @@ export function SessionConsole() {
     const loadSessions = async () => {
       try {
         const nextSessions = sortSessions(
-          (await window.agentApi.listSessions()).map(normalizeSession),
+          (await window.agentApi.listSessions()).map(normalizeAppSession),
         );
         if (!isCancelled) {
           setSessions(nextSessions);
           setActiveSessionIds(
             nextSessions
-              .filter((session) => isBusyStatus(session.status))
+              .filter((session) => isBusyAgentStatus(session.status))
               .map((session) => session.appSessionId),
           );
           setSelectedSessionId(nextSessions[0]?.appSessionId ?? null);
@@ -936,7 +484,9 @@ export function SessionConsole() {
       setSessions((current) =>
         sortSessions(
           current.map((session) =>
-            session.appSessionId === event.appSessionId ? applyAgentEvent(session, event) : session,
+            session.appSessionId === event.appSessionId
+              ? applyAgentEventToSession(session, event)
+              : session,
           ),
         ),
       );
@@ -973,11 +523,11 @@ export function SessionConsole() {
         cwd,
         prompt,
         responseMode: startMode,
-        structuredOutputMode:
-          startMode === 'implementationChecklist' ? startStructuredOutputMode : undefined,
+        structuredSchemaName: startMode === 'structured' ? 'implementation-checklist' : undefined,
+        structuredOutputMode: startMode === 'structured' ? startStructuredOutputMode : undefined,
       });
       setSessions((current) => {
-        const mergedSession = mergeSessionSnapshot(
+        const mergedSession = mergeAppSessionSnapshot(
           current.find((item) => item.appSessionId === session.appSessionId),
           session,
         );
@@ -1013,11 +563,13 @@ export function SessionConsole() {
         appSessionId: selectedSession.appSessionId,
         prompt: followUpPrompt,
         responseMode: followUpMode,
+        structuredSchemaName:
+          followUpMode === 'structured' ? 'implementation-checklist' : undefined,
         structuredOutputMode:
-          followUpMode === 'implementationChecklist' ? followUpStructuredOutputMode : undefined,
+          followUpMode === 'structured' ? followUpStructuredOutputMode : undefined,
       });
       setSessions((current) => {
-        const mergedSession = mergeSessionSnapshot(
+        const mergedSession = mergeAppSessionSnapshot(
           current.find((item) => item.appSessionId === session.appSessionId),
           session,
         );
@@ -1082,7 +634,7 @@ export function SessionConsole() {
         appSessionId: sessionToResume.appSessionId,
       });
       setSessions((current) => {
-        const mergedSession = mergeSessionSnapshot(
+        const mergedSession = mergeAppSessionSnapshot(
           current.find((item) => item.appSessionId === session.appSessionId),
           session,
         );
@@ -1107,9 +659,9 @@ export function SessionConsole() {
       const session = await window.agentApi.forkSession({
         appSessionId: sessionToFork.appSessionId,
       });
-      const normalizedSession = normalizeSession(session);
+      const normalizedSession = normalizeAppSession(session);
       setSessions((current) => {
-        const mergedSession = mergeSessionSnapshot(
+        const mergedSession = mergeAppSessionSnapshot(
           current.find((item) => item.appSessionId === normalizedSession.appSessionId),
           normalizedSession,
         );
@@ -1216,7 +768,7 @@ export function SessionConsole() {
                   <button
                     type="button"
                     onClick={() => {
-                      setStartMode('implementationChecklist');
+                      setStartMode('structured');
                       setStartStructuredOutputMode('normal');
                       setPrompt(DEFAULT_STRUCTURED_PROMPT);
                     }}
@@ -1227,7 +779,7 @@ export function SessionConsole() {
                   <button
                     type="button"
                     onClick={() => {
-                      setStartMode('implementationChecklist');
+                      setStartMode('structured');
                       setStartStructuredOutputMode('forceFallback');
                       setPrompt(DEFAULT_STRUCTURED_FALLBACK_PROMPT);
                     }}
@@ -1237,8 +789,7 @@ export function SessionConsole() {
                   </button>
                 </div>
 
-                {startMode === 'implementationChecklist' &&
-                startStructuredOutputMode === 'forceFallback' ? (
+                {startMode === 'structured' && startStructuredOutputMode === 'forceFallback' ? (
                   <div className="rounded-[1.2rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
                     structured fallback 検証モードが有効です。provider には JSON ではなく Markdown
                     箇条書きを返す検証指示を送ります。
@@ -1316,9 +867,9 @@ export function SessionConsole() {
                           </div>
                           <div className="flex flex-col items-end gap-2">
                             <span
-                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[session.status]}`}
+                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${SESSION_STATUS_STYLES[session.status]}`}
                             >
-                              {STATUS_LABELS[session.status]}
+                              {SESSION_STATUS_LABELS[session.status]}
                             </span>
                             {session.parentAppSessionId ? (
                               <span className="inline-flex rounded-full border border-violet-200/30 bg-violet-300/10 px-2 py-0.5 text-[10px] font-medium text-violet-200">
@@ -1427,9 +978,9 @@ export function SessionConsole() {
                     <div className="mb-4 flex items-center justify-between">
                       <h4 className="text-lg font-semibold text-white">Status Timeline</h4>
                       <span
-                        className={`rounded-full border px-3 py-1 text-xs font-medium ${STATUS_STYLES[selectedSession.status]}`}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium ${SESSION_STATUS_STYLES[selectedSession.status]}`}
                       >
-                        {STATUS_LABELS[selectedSession.status]}
+                        {SESSION_STATUS_LABELS[selectedSession.status]}
                       </span>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -1448,9 +999,9 @@ export function SessionConsole() {
                               {MODE_LABELS[turn.responseMode]}
                             </span>
                             <span
-                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${STATUS_STYLES[turn.status]}`}
+                              className={`rounded-full border px-3 py-1 text-[11px] font-medium ${SESSION_STATUS_STYLES[turn.status]}`}
                             >
-                              {STATUS_LABELS[turn.status]}
+                              {SESSION_STATUS_LABELS[turn.status]}
                             </span>
                           </div>
                         </div>
@@ -1473,7 +1024,7 @@ export function SessionConsole() {
                         </div>
                         <div className="mt-4 space-y-4">
                           {sessionLevelPendingPermissions.map((permission) => (
-                            <PermissionRequestCard
+                            <SessionPermissionCard
                               key={permission.requestId}
                               permission={permission}
                               onRespond={handleRespondPermission}
@@ -1546,7 +1097,7 @@ export function SessionConsole() {
                         <button
                           type="button"
                           onClick={() => {
-                            setFollowUpMode('implementationChecklist');
+                            setFollowUpMode('structured');
                             setFollowUpStructuredOutputMode('normal');
                             setFollowUpPrompt(DEFAULT_STRUCTURED_FOLLOW_UP);
                           }}
@@ -1557,7 +1108,7 @@ export function SessionConsole() {
                         <button
                           type="button"
                           onClick={() => {
-                            setFollowUpMode('implementationChecklist');
+                            setFollowUpMode('structured');
                             setFollowUpStructuredOutputMode('forceFallback');
                             setFollowUpPrompt(DEFAULT_STRUCTURED_FALLBACK_FOLLOW_UP);
                           }}
@@ -1566,7 +1117,7 @@ export function SessionConsole() {
                           S3 fallback 検証
                         </button>
                       </div>
-                      {followUpMode === 'implementationChecklist' &&
+                      {followUpMode === 'structured' &&
                       followUpStructuredOutputMode === 'forceFallback' ? (
                         <div className="mt-4 rounded-[1.2rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">
                           structured fallback 検証モードが有効です。follow-up でも JSON ではなく
@@ -1628,9 +1179,9 @@ export function SessionConsole() {
                               {MODE_LABELS[turn.responseMode]}
                             </span>
                             <span
-                              className={`rounded-full border px-3 py-1 text-xs font-medium ${STATUS_STYLES[turn.status]}`}
+                              className={`rounded-full border px-3 py-1 text-xs font-medium ${SESSION_STATUS_STYLES[turn.status]}`}
                             >
-                              {STATUS_LABELS[turn.status]}
+                              {SESSION_STATUS_LABELS[turn.status]}
                             </span>
                           </div>
                         </div>
@@ -1678,7 +1229,7 @@ export function SessionConsole() {
                                       </div>
                                       <div className="space-y-4">
                                         {turnPendingPermissions.map((permission) => (
-                                          <PermissionRequestCard
+                                          <SessionPermissionCard
                                             key={permission.requestId}
                                             permission={permission}
                                             onRespond={handleRespondPermission}
@@ -1691,12 +1242,13 @@ export function SessionConsole() {
                                     </div>
                                   ) : null}
 
-                                  {hasVisibleIntermediateContent
-                                    ? renderIntermediateSegments(intermediateSegments, {
-                                        isLatestTurn,
-                                        turn,
-                                      })
-                                    : null}
+                                  {hasVisibleIntermediateContent ? (
+                                    <SessionIntermediateSegments
+                                      segments={intermediateSegments}
+                                      isLatestTurn={isLatestTurn}
+                                      turn={turn}
+                                    />
+                                  ) : null}
                                   {turn.result ? (
                                     hasVisibleIntermediateContent ? (
                                       <div className="space-y-4 border-t border-white/10 pt-4">

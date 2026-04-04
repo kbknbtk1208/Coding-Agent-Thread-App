@@ -5,6 +5,7 @@ import type {
   ConversationResponseMode,
   StructuredOutputMode,
 } from '../domain/agent';
+import type { StructuredSchemaName } from '../domain/structured-schemas';
 
 export const AGENT_IPC_CHANNELS = {
   continueConversation: 'agent:continue-conversation',
@@ -23,6 +24,7 @@ export interface StartSessionInput {
   cwd: string;
   prompt: string;
   responseMode?: ConversationResponseMode;
+  structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
 }
 
@@ -34,6 +36,7 @@ export interface SendFollowUpInput {
   appSessionId: string;
   prompt: string;
   responseMode?: ConversationResponseMode;
+  structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
 }
 

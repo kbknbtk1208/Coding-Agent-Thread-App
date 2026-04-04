@@ -14,6 +14,8 @@ import {
 } from '../../shared/domain/intermediate-segments';
 import type { ImplementationChecklist } from '../../shared/domain/implementation-checklist';
 import { STRUCTURED_FALLBACK_VERIFICATION_REASON } from '../../shared/domain/implementation-checklist';
+import type { ReviewDraftStructuredResult } from '../../shared/domain/review-draft';
+import type { StructuredSchemaName } from '../../shared/domain/structured-schemas';
 import type {
   AgentSessionSnapshot,
   SendFollowUpInput,
@@ -39,6 +41,31 @@ export class MockAgentGateway {
       .map((session) => this.cloneSession(session));
   }
 
+  async awaitSettled(appSessionId: string): Promise<AgentSessionSnapshot> {
+    const session = this.sessions.get(appSessionId);
+    if (!session) {
+      throw new Error('指定されたセッションが見つかりません。');
+    }
+
+    if (session.status === 'completed' || session.status === 'failed') {
+      return this.cloneSession(session);
+    }
+
+    return new Promise((resolve) => {
+      const timer = setInterval(() => {
+        const current = this.sessions.get(appSessionId);
+        if (!current) {
+          clearInterval(timer);
+          return;
+        }
+        if (current.status === 'completed' || current.status === 'failed') {
+          clearInterval(timer);
+          resolve(this.cloneSession(current));
+        }
+      }, 25);
+    });
+  }
+
   startSession(input: StartSessionInput): AgentSessionSnapshot {
     this.assertText(input.cwd, '作業ディレクトリを入力してください。');
     this.assertText(input.prompt, 'プロンプトを入力してください。');
@@ -49,6 +76,7 @@ export class MockAgentGateway {
       input.prompt,
       input.responseMode ?? 'richText',
       now,
+      input.structuredSchemaName,
       input.structuredOutputMode,
     );
     const session: AppSession = {
@@ -87,6 +115,7 @@ export class MockAgentGateway {
       input.prompt,
       input.responseMode ?? 'richText',
       now,
+      input.structuredSchemaName,
       input.structuredOutputMode,
     );
     session.status = 'starting';
@@ -196,16 +225,25 @@ export class MockAgentGateway {
               format: result.format,
               source: result.source,
               structuredParseError: result.structuredParseError,
+              structuredParseFailureReason: result.structuredParseFailureReason,
               structuredSchemaName: result.structuredSchemaName,
               type: 'result.richText' as const,
             }
-          : {
-              data: result.data,
-              fallbackRichText: result.fallbackRichText,
-              schemaName: result.schemaName,
-              source: result.source,
-              type: 'result.structured' as const,
-            }),
+          : result.schemaName === 'implementation-checklist'
+            ? {
+                data: result.data,
+                fallbackRichText: result.fallbackRichText,
+                schemaName: result.schemaName,
+                source: result.source,
+                type: 'result.structured' as const,
+              }
+            : {
+                data: result.data,
+                fallbackRichText: result.fallbackRichText,
+                schemaName: result.schemaName,
+                source: result.source,
+                type: 'result.structured' as const,
+              }),
       });
       this.emit({
         appSessionId,
@@ -260,7 +298,9 @@ export class MockAgentGateway {
   }
 
   private buildResultEnvelope(session: AppSession, prompt: string): ResultEnvelope {
-    if (session.turns.at(-1)?.responseMode === 'implementationChecklist') {
+    const latestTurn = session.turns.at(-1);
+    if (latestTurn?.responseMode === 'structured' && latestTurn.structuredSchemaName) {
+      const schemaName = latestTurn.structuredSchemaName;
       if (session.turns.at(-1)?.structuredOutputMode === 'forceFallback') {
         return {
           content: this.buildResponse(session, prompt),
@@ -268,7 +308,7 @@ export class MockAgentGateway {
           kind: 'richText',
           source: 'structuredParseFallback',
           structuredParseError: STRUCTURED_FALLBACK_VERIFICATION_REASON,
-          structuredSchemaName: 'implementation-checklist',
+          structuredSchemaName: schemaName,
         };
       }
 
@@ -279,17 +319,29 @@ export class MockAgentGateway {
           format: 'markdown',
           kind: 'richText',
           source: 'structuredParseFallback',
-          structuredParseError: 'mock で structured checklist の JSON 化に失敗しました。',
-          structuredSchemaName: 'implementation-checklist',
+          structuredParseError: 'mock で structured result の JSON 化に失敗しました。',
+          structuredParseFailureReason: 'jsonParseFailed',
+          structuredSchemaName: schemaName,
         };
       }
 
-      const checklist = this.buildChecklist(prompt);
+      if (schemaName === 'implementation-checklist') {
+        const checklist = this.buildChecklist(prompt);
+        return {
+          data: checklist,
+          fallbackRichText: JSON.stringify(checklist, null, 2),
+          kind: 'structured',
+          schemaName,
+          source: session.agent === 'codex' ? 'codexOutputSchema' : 'promptedJson',
+        };
+      }
+
+      const reviewDraft = this.buildReviewDraft(prompt);
       return {
-        data: checklist,
-        fallbackRichText: JSON.stringify(checklist, null, 2),
+        data: reviewDraft,
+        fallbackRichText: JSON.stringify(reviewDraft, null, 2),
         kind: 'structured',
-        schemaName: 'implementation-checklist',
+        schemaName,
         source: session.agent === 'codex' ? 'codexOutputSchema' : 'promptedJson',
       };
     }
@@ -331,6 +383,34 @@ export class MockAgentGateway {
     };
   }
 
+  private buildReviewDraft(prompt: string): ReviewDraftStructuredResult {
+    const summary = prompt.trim().slice(0, 24) || 'task';
+
+    return {
+      type: 'review-draft',
+      summary: {
+        headline: '主にテストと保守性の懸念があります',
+        overview: `${summary} を見る限り、変更意図は読み取れますが回帰検知が弱いです。`,
+        positives: ['責務分離は比較的明確です'],
+        risks: ['テスト不足で回帰を見逃す恐れがあります'],
+      },
+      findings: [
+        {
+          findingId: 'finding-1',
+          title: 'テストケースが不足している',
+          body: '分岐追加に対して回帰テストが不足しています。',
+          severity: 'high',
+          category: 'tests',
+          confidence: 'high',
+          suggestion: '主要分岐を単体テストで補強してください。',
+          location: {
+            kind: 'overview',
+          },
+        },
+      ],
+    };
+  }
+
   private chunkText(text: string): string[] {
     const chunks: string[] = [];
 
@@ -345,6 +425,7 @@ export class MockAgentGateway {
     prompt: string,
     responseMode: ConversationResponseMode,
     startedAt: string,
+    structuredSchemaName?: StructuredSchemaName,
     structuredOutputMode?: StartSessionInput['structuredOutputMode'],
   ): ConversationTurn {
     return {
@@ -354,8 +435,9 @@ export class MockAgentGateway {
       response: '',
       intermediateSegments: [],
       responseMode,
+      structuredSchemaName: responseMode === 'structured' ? structuredSchemaName : undefined,
       structuredOutputMode:
-        responseMode === 'implementationChecklist' ? (structuredOutputMode ?? 'normal') : undefined,
+        responseMode === 'structured' ? (structuredOutputMode ?? 'normal') : undefined,
       result: undefined,
       startedAt,
       status: 'starting',
@@ -383,17 +465,7 @@ export class MockAgentGateway {
   }
 
   private cloneResultEnvelope(result: ResultEnvelope): ResultEnvelope {
-    if (result.kind === 'richText') {
-      return { ...result };
-    }
-
-    return {
-      ...result,
-      data: {
-        ...result.data,
-        items: result.data.items.map((item) => ({ ...item })),
-      },
-    };
+    return JSON.parse(JSON.stringify(result)) as ResultEnvelope;
   }
 
   private getCapabilities(_agent: AgentKind): AgentCapability[] {

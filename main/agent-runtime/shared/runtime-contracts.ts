@@ -1,20 +1,18 @@
 import type {
   AgentCapability,
+  AgentError,
   AgentKind,
-  PendingPermission,
   AgentStatus,
   ConversationResponseMode,
-  RichTextResultSource,
-  StructuredResultSource,
-  SessionModelSelection,
+  PendingPermission,
   ProgressHint,
+  RichTextResultSource,
+  SessionModelSelection,
   StructuredOutputMode,
+  StructuredResultEnvelope,
 } from '../../../shared/domain/agent';
-import {
-  IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
-  type ImplementationChecklist,
-} from '../../../shared/domain/implementation-checklist';
 import type { ResumeContext } from '../../../shared/domain/resume-context';
+import type { StructuredSchemaName } from '../../../shared/domain/structured-schemas';
 
 export type RuntimeSessionEvent =
   | { type: 'status.changed'; status: AgentStatus }
@@ -25,20 +23,17 @@ export type RuntimeSessionEvent =
     }
   | { type: 'message.delta'; messageId: string; text: string; updatedAt: string }
   | { type: 'message.completed'; messageId: string }
-  | {
+  | ({
       type: 'result.structured';
-      schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
-      data: ImplementationChecklist;
-      source: StructuredResultSource;
-      fallbackRichText?: string;
-    }
+    } & Omit<StructuredResultEnvelope, 'kind'>)
   | {
       type: 'result.richText';
       format: 'markdown';
       content: string;
       source: RichTextResultSource;
       structuredParseError?: string;
-      structuredSchemaName?: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
+      structuredParseFailureReason?: import('../../../shared/domain/structured-schemas').StructuredSchemaParseFailureReason;
+      structuredSchemaName?: StructuredSchemaName;
     }
   | {
       type: 'permission.requested';
@@ -50,13 +45,14 @@ export type RuntimeSessionEvent =
     }
   | {
       type: 'error';
-      error: { code: string; message: string; retryable: boolean };
+      error: AgentError;
     };
 
 export interface SendPromptInput {
   messageId: string;
   prompt: string;
   responseMode: ConversationResponseMode;
+  structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
 }
 

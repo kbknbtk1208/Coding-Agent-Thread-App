@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { SplitSide } from '@git-diff-view/react';
+import type { AgentKind } from '../../../shared/domain/agent';
 import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
+import { SessionEventPanel } from '../../components/session-event-panel';
 import { DiffFilePane } from './diff-file-pane';
+import { LocalThreadPanel } from './local-thread-panel';
 import { OverviewDiscussionPanel } from './overview-discussion-panel';
+import { ReviewExecutionBar } from './review-execution-bar';
+import { ReviewSummaryPanel } from './review-summary-panel';
 import {
   getDefaultReviewHost,
   inferProviderFromReviewUrl,
@@ -12,6 +17,7 @@ import {
 } from './review-source';
 import { ReviewSourceSelector } from './review-source-selector';
 import { useReviewData } from './use-review-data';
+import { useReviewDraft } from './use-review-draft';
 import { useReviewState } from './use-review-state';
 
 function getQueryValue(value: string | string[] | undefined): string {
@@ -40,14 +46,21 @@ export function ReviewPage() {
   const [provider, setProvider] = useState<ReviewProvider>('github');
   const [host, setHost] = useState(getDefaultReviewHost('github'));
   const [reviewUrl, setReviewUrl] = useState('');
+  const [reviewAgent, setReviewAgent] = useState<AgentKind>('codex');
+  const [reviewInstructions, setReviewInstructions] = useState(
+    '全体の設計、テスト、保守性の観点からレビューして。\n指摘は重大度付きで、改善提案も含めて。',
+  );
   const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [activeRightPaneTab, setActiveRightPaneTab] = useState<'drafts' | 'overview'>('drafts');
   const [validationError, setValidationError] = useState<string | null>(null);
   const { data, loading, error, initialSelectedFileId, loadSource } = useReviewData();
   const reviewState = useReviewState();
+  const reviewDraft = useReviewDraft();
   const lastLoadedSourceKeyRef = useRef<string | null>(null);
   const activeSnapshotIdRef = useRef('');
   const hydratingFileKeysRef = useRef(new Set<string>());
+  const prevReviewStatusRef = useRef<string | null>(null);
 
   const querySource = useMemo<ReviewSourceDraft | null>(() => {
     if (!router.isReady) {
@@ -111,6 +124,11 @@ export function ReviewPage() {
   }, [data, reviewState.reset]);
 
   useEffect(() => {
+    reviewDraft.resetReviewDraftState();
+    setActiveRightPaneTab('drafts');
+  }, [reviewState.data.snapshotId, reviewDraft.resetReviewDraftState]);
+
+  useEffect(() => {
     activeSnapshotIdRef.current = reviewState.data.snapshotId;
   }, [reviewState.data.snapshotId]);
 
@@ -135,6 +153,34 @@ export function ReviewPage() {
         : null,
     [reviewState.data.files, selectedFileId],
   );
+
+  const selectedDraftThreads = useMemo(
+    () =>
+      reviewDraft.reviewDraftState.localDraftThreads.filter(
+        (thread) =>
+          thread.anchor !== null &&
+          thread.resolvedLocation.kind === 'diff' &&
+          thread.resolvedLocation.fileId === selectedFileId,
+      ),
+    [reviewDraft.reviewDraftState.localDraftThreads, selectedFileId],
+  );
+
+  const draftCountByFileId = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const thread of reviewDraft.reviewDraftState.localDraftThreads) {
+      if (thread.resolvedLocation.kind !== 'diff') {
+        continue;
+      }
+
+      counts.set(
+        thread.resolvedLocation.fileId,
+        (counts.get(thread.resolvedLocation.fileId) ?? 0) + 1,
+      );
+    }
+
+    return counts;
+  }, [reviewDraft.reviewDraftState.localDraftThreads]);
 
   useEffect(() => {
     if (!selectedFile || selectedFile.contentStatus !== 'idle') {
@@ -184,6 +230,43 @@ export function ReviewPage() {
     () => reviewState.data.discussions.filter((thread) => thread.location.kind === 'overview'),
     [reviewState.data.discussions],
   );
+
+  useEffect(() => {
+    const currentStatus = reviewDraft.reviewDraftState.reviewStatus;
+    const prevStatus = prevReviewStatusRef.current;
+    prevReviewStatusRef.current = currentStatus;
+
+    if (currentStatus !== 'showing_local_threads' || prevStatus === 'showing_local_threads') {
+      return;
+    }
+
+    if (selectedFileId !== null) {
+      return;
+    }
+
+    const firstDiffThread = reviewDraft.reviewDraftState.localDraftThreads.find(
+      (thread) => thread.resolvedLocation.kind === 'diff',
+    );
+    if (firstDiffThread && firstDiffThread.resolvedLocation.kind === 'diff') {
+      setSelectedFileId(firstDiffThread.resolvedLocation.fileId);
+    }
+  }, [reviewDraft.reviewDraftState.reviewStatus, selectedFileId]);
+
+  const handleStartDraftReview = useCallback(async () => {
+    if (!reviewState.data.snapshotId) {
+      return;
+    }
+
+    const result = await reviewDraft.startDraftReview({
+      snapshotId: reviewState.data.snapshotId,
+      reviewAgent,
+      instructions: reviewInstructions,
+    });
+
+    if (result) {
+      setActiveRightPaneTab('drafts');
+    }
+  }, [reviewDraft, reviewAgent, reviewInstructions, reviewState.data.snapshotId]);
 
   const handleProviderSwitch = useCallback((nextProvider: ReviewProvider) => {
     setProvider(nextProvider);
@@ -248,6 +331,7 @@ export function ReviewPage() {
     reviewState.data.description ||
     '説明はまだありません。overview discussion を右側に表示します。';
   const hasLoadedReview = Boolean(reviewState.data.snapshotId);
+  const isFallbackActive = reviewDraft.reviewDraftState.fallbackRichText !== null;
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-white">
@@ -300,6 +384,17 @@ export function ReviewPage() {
             }}
             onSubmit={handleLoad}
           />
+
+          <ReviewExecutionBar
+            reviewAgent={reviewAgent}
+            instructions={reviewInstructions}
+            disabled={!hasLoadedReview}
+            running={reviewDraft.isRunning}
+            error={reviewDraft.reviewDraftState.errorMessage}
+            onReviewAgentChange={setReviewAgent}
+            onInstructionsChange={setReviewInstructions}
+            onSubmit={handleStartDraftReview}
+          />
         </div>
       </header>
 
@@ -338,7 +433,10 @@ export function ReviewPage() {
                           <span>{file.changeType}</span>
                           <span>{getFileStatusLabel(file.contentStatus, file.isBinary)}</span>
                           {file.threads.length > 0 ? (
-                            <span>{file.threads.length} threads</span>
+                            <span>{file.threads.length} remote</span>
+                          ) : null}
+                          {(draftCountByFileId.get(file.fileId) ?? 0) > 0 ? (
+                            <span>{draftCountByFileId.get(file.fileId)} drafts</span>
                           ) : null}
                         </div>
                       </div>
@@ -403,6 +501,8 @@ export function ReviewPage() {
               <DiffFilePane
                 key={selectedFile.fileId}
                 file={selectedFile}
+                remoteThreads={selectedFile.threads}
+                draftThreads={selectedDraftThreads}
                 onAddComment={handleAddComment}
                 onReply={handleReply}
               />
@@ -413,8 +513,63 @@ export function ReviewPage() {
             )}
           </main>
 
-          <aside className="w-full shrink-0 border-t border-white/10 bg-white/[0.02] xl:w-[360px] xl:border-t-0 xl:border-l">
-            <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
+          <aside className="flex w-full shrink-0 flex-col border-t border-white/10 bg-white/[0.02] xl:w-[380px] xl:border-t-0 xl:border-l">
+            <ReviewSummaryPanel
+              status={reviewDraft.reviewDraftState.reviewStatus}
+              latestRun={reviewDraft.reviewDraftState.latestRun}
+              summary={reviewDraft.reviewDraftState.summary}
+              fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
+              fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
+              threadCount={reviewDraft.reviewDraftState.localDraftThreads.length}
+              error={reviewDraft.reviewDraftState.errorMessage}
+            />
+
+            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setActiveRightPaneTab('drafts')}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  activeRightPaneTab === 'drafts'
+                    ? 'bg-fuchsia-500/20 text-fuchsia-200'
+                    : 'bg-white/5 text-slate-400 hover:text-white'
+                }`}
+              >
+                Drafts
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveRightPaneTab('overview')}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  activeRightPaneTab === 'overview'
+                    ? 'bg-amber-500/20 text-amber-100'
+                    : 'bg-white/5 text-slate-400 hover:text-white'
+                }`}
+              >
+                Overview
+              </button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1">
+                {activeRightPaneTab === 'drafts' ? (
+                  <LocalThreadPanel
+                    threads={reviewDraft.reviewDraftState.localDraftThreads}
+                    selectedFileId={selectedFileId}
+                    onSelectFile={setSelectedFileId}
+                    fallbackActive={isFallbackActive}
+                  />
+                ) : (
+                  <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
+                )}
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-4">
+                <SessionEventPanel
+                  pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
+                  session={reviewDraft.reviewDraftState.activeRunSession}
+                />
+              </div>
+            </div>
           </aside>
         </div>
       ) : (

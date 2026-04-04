@@ -1,7 +1,8 @@
-import {
-  IMPLEMENTATION_CHECKLIST_SCHEMA_NAME,
-  type ImplementationChecklist,
-} from './implementation-checklist';
+import type {
+  StructuredSchemaMap,
+  StructuredSchemaName,
+  StructuredSchemaParseFailureReason,
+} from './structured-schemas/registry';
 
 export type AgentKind = 'codex' | 'copilot';
 
@@ -20,7 +21,7 @@ export type AgentStatus =
   | 'completed'
   | 'failed';
 
-export type ConversationResponseMode = 'richText' | 'implementationChecklist';
+export type ConversationResponseMode = 'richText' | 'structured';
 export type StructuredOutputMode = 'normal' | 'forceFallback';
 
 export type AgentProgressKind =
@@ -54,19 +55,28 @@ export type StructuredResultSource = 'codexOutputSchema' | 'promptedJson';
 
 export type RichTextResultSource = 'richText' | 'structuredParseFallback';
 
+export interface AgentError {
+  code: string;
+  message: string;
+  retryable: boolean;
+  codexErrorInfo?: unknown;
+  additionalDetails?: unknown;
+}
+
 export interface RichTextResultEnvelope {
   kind: 'richText';
   format: 'markdown';
   content: string;
   source: RichTextResultSource;
   structuredParseError?: string;
-  structuredSchemaName?: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
+  structuredParseFailureReason?: StructuredSchemaParseFailureReason;
+  structuredSchemaName?: StructuredSchemaName;
 }
 
 export interface StructuredResultEnvelope {
   kind: 'structured';
-  schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
-  data: ImplementationChecklist;
+  schemaName: StructuredSchemaName;
+  data: StructuredSchemaMap[StructuredSchemaName];
   source: StructuredResultSource;
   fallbackRichText?: string;
 }
@@ -109,6 +119,7 @@ export interface ConversationTurn {
   response: string;
   intermediateSegments: ConversationIntermediateSegment[];
   responseMode: ConversationResponseMode;
+  structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
   status: AgentStatus;
   startedAt: string;
@@ -128,6 +139,7 @@ export interface AppSession {
   turns: ConversationTurn[];
   streamBuffer: StreamBuffer;
   finalResult?: ResultEnvelope;
+  lastError?: AgentError;
   progressHint?: ProgressHint;
   modelSelection?: SessionModelSelection;
   providerSessionId?: string;
@@ -160,8 +172,8 @@ export type AgentEvent =
   | {
       type: 'result.structured';
       appSessionId: string;
-      schemaName: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
-      data: ImplementationChecklist;
+      schemaName: StructuredSchemaName;
+      data: StructuredSchemaMap[StructuredSchemaName];
       source: StructuredResultSource;
       fallbackRichText?: string;
     }
@@ -172,7 +184,8 @@ export type AgentEvent =
       content: string;
       source: RichTextResultSource;
       structuredParseError?: string;
-      structuredSchemaName?: typeof IMPLEMENTATION_CHECKLIST_SCHEMA_NAME;
+      structuredParseFailureReason?: StructuredSchemaParseFailureReason;
+      structuredSchemaName?: StructuredSchemaName;
     }
   | {
       type: 'permission.requested';
@@ -187,5 +200,5 @@ export type AgentEvent =
   | {
       type: 'error';
       appSessionId: string;
-      error: { code: string; message: string; retryable: boolean };
+      error: AgentError;
     };
