@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeReviewDraftStructuredResult, parseReviewDraftResponse } from './review-draft';
+import {
+  buildReviewDraftPrompt,
+  normalizeReviewDraftStructuredResult,
+  parseReviewDraftResponse,
+} from './review-draft';
 
 describe('review-draft parser', () => {
   it('parses a valid structured review draft response', () => {
@@ -69,6 +73,18 @@ describe('review-draft parser', () => {
     });
   });
 
+  it('builds a prompt that treats excerpt as advisory', () => {
+    const prompt = buildReviewDraftPrompt('レビューしてください');
+
+    expect(prompt).toContain('レビューしてください');
+    expect(prompt).toContain('type は "review-draft" に固定してください。');
+    expect(prompt).toContain('location.kind = "overview"');
+    expect(prompt).toContain(
+      'excerpt は changed-side の本文を verbatim で確実に抜ける場合だけ使い、少しでも怪しければ null にしてください。',
+    );
+    expect(prompt).toContain('"excerpt": null');
+  });
+
   it('normalizes overview findings and auto-fills missing ids', () => {
     const normalized = normalizeReviewDraftStructuredResult({
       type: 'review-draft',
@@ -126,5 +142,44 @@ describe('review-draft parser', () => {
 
     expect(normalized?.findings[0]?.suggestion).toBeUndefined();
     expect(normalized?.findings[0]?.location).toEqual({ kind: 'overview' });
+  });
+
+  it('normalizes diff findings when excerpt is explicitly null', () => {
+    const normalized = normalizeReviewDraftStructuredResult({
+      type: 'review-draft',
+      summary: {
+        headline: 'headline',
+        overview: 'overview',
+        positives: ['a'],
+        risks: ['b'],
+      },
+      findings: [
+        {
+          findingId: 'finding-1',
+          title: 'Diff finding',
+          body: 'details',
+          severity: 'medium',
+          category: 'correctness',
+          confidence: 'high',
+          suggestion: null,
+          location: {
+            kind: 'diff',
+            filePath: 'src/example.ts',
+            startLine: 10,
+            endLine: 12,
+            side: 'new',
+            excerpt: null,
+          },
+        },
+      ],
+    });
+
+    expect(normalized?.findings[0]?.location).toEqual({
+      kind: 'diff',
+      filePath: 'src/example.ts',
+      startLine: 10,
+      endLine: 12,
+      side: 'new',
+    });
   });
 });

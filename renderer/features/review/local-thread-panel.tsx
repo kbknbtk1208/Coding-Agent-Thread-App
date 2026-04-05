@@ -19,6 +19,43 @@ function getSeverityBadgeClass(severity: ReviewThreadDraft['severity']): string 
   }
 }
 
+function getDebugDowngradeReasonLabel(
+  reason: NonNullable<ReviewThreadDraft['debugDowngrade']>['reason'],
+): string {
+  switch (reason) {
+    case 'fileNotFound':
+      return 'snapshot 内で対象 filePath を解決できませんでした。';
+    case 'ineligibleSide':
+      return 'changeType と requested side の組み合わせが不正でした。';
+    case 'binaryFile':
+      return 'binary file は diff inline 表示の対象外でした。';
+    case 'largeDiff':
+      return 'large diff は diff inline 表示の対象外でした。';
+    case 'lineOutOfRange':
+      return 'requested line 範囲が対象 content の行数を超えていました。';
+    case 'excerptNotFound':
+      return 'requested excerpt が対象 side の本文に一致しませんでした。';
+  }
+}
+
+function formatDebugRequestedLocation(
+  debugDowngrade: NonNullable<ReviewThreadDraft['debugDowngrade']>,
+): string {
+  if (debugDowngrade.requestedStartLine === null && debugDowngrade.requestedEndLine === null) {
+    return `${debugDowngrade.requestedFilePath} [${debugDowngrade.requestedSide}] File`;
+  }
+
+  if (
+    debugDowngrade.requestedStartLine !== null &&
+    debugDowngrade.requestedEndLine !== null &&
+    debugDowngrade.requestedStartLine !== debugDowngrade.requestedEndLine
+  ) {
+    return `${debugDowngrade.requestedFilePath} [${debugDowngrade.requestedSide}] L${debugDowngrade.requestedStartLine}-L${debugDowngrade.requestedEndLine}`;
+  }
+
+  return `${debugDowngrade.requestedFilePath} [${debugDowngrade.requestedSide}] L${debugDowngrade.requestedEndLine ?? debugDowngrade.requestedStartLine ?? '?'}`;
+}
+
 export function LocalThreadPanel({
   threads,
   selectedFileId,
@@ -121,6 +158,20 @@ export function LocalThreadPanel({
                       ? `${resolvedLocation.filePath}:L${resolvedLocation.endLine ?? resolvedLocation.startLine ?? '?'}`
                       : 'Overview finding'}
                   </div>
+
+                  {!resolvedLocation && thread.debugDowngrade && (
+                    <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-left text-xs text-amber-100">
+                      <p className="font-semibold uppercase tracking-[0.18em] text-amber-200">
+                        Debug: diff to overview fallback
+                      </p>
+                      <p className="mt-2">
+                        {getDebugDowngradeReasonLabel(thread.debugDowngrade.reason)}
+                      </p>
+                      <p className="mt-2 font-mono text-[11px] text-amber-200/90">
+                        requested diff: {formatDebugRequestedLocation(thread.debugDowngrade)}
+                      </p>
+                    </div>
+                  )}
                 </button>
               );
             })}

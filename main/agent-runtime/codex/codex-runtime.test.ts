@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getStructuredSchemaDescriptor } from '../../../shared/domain/structured-schemas';
 import {
   buildCodexTurnStartRequest,
   getCodexStructuredResultSource,
@@ -6,14 +7,14 @@ import {
 } from './codex-runtime';
 
 describe('shouldUseCodexOutputSchema', () => {
-  it('disables outputSchema for review-draft', () => {
+  it('enables outputSchema for review-draft', () => {
     expect(
       shouldUseCodexOutputSchema({
         responseMode: 'structured',
         structuredSchemaName: 'review-draft',
         structuredOutputMode: 'normal',
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('keeps outputSchema for other structured schemas', () => {
@@ -36,7 +37,8 @@ describe('shouldUseCodexOutputSchema', () => {
     ).toBe(false);
   });
 
-  it('omits outputSchema from turn/start for review-draft requests', () => {
+  it('includes outputSchema in turn/start for review-draft requests', () => {
+    const descriptor = getStructuredSchemaDescriptor('review-draft');
     const request = buildCodexTurnStartRequest({
       cwd: 'C:/workspace',
       providerSessionId: 'thread-1',
@@ -49,8 +51,12 @@ describe('shouldUseCodexOutputSchema', () => {
       },
     });
 
-    expect(request.outputSchema).toBeUndefined();
+    expect(request.outputSchema).toEqual(descriptor.jsonSchema);
     expect(request.input[0]?.text).toContain('返答は JSON オブジェクトのみで返してください。');
+    expect(request.input[0]?.text).toContain('type は "review-draft" に固定してください。');
+    expect(request.input[0]?.text).toContain(
+      'excerpt は changed-side の本文を verbatim で確実に抜ける場合だけ使い、少しでも怪しければ null にしてください。',
+    );
   });
 
   it('keeps outputSchema on turn/start for implementation-checklist requests', () => {
@@ -67,6 +73,16 @@ describe('shouldUseCodexOutputSchema', () => {
     });
 
     expect(request.outputSchema).toBeDefined();
+  });
+
+  it('reports codexOutputSchema as the structured result source for review-draft requests', () => {
+    const usesOutputSchema = shouldUseCodexOutputSchema({
+      responseMode: 'structured',
+      structuredSchemaName: 'review-draft',
+      structuredOutputMode: 'normal',
+    });
+
+    expect(getCodexStructuredResultSource(usesOutputSchema)).toBe('codexOutputSchema');
   });
 
   it('uses promptedJson as the structured result source when outputSchema is disabled', () => {

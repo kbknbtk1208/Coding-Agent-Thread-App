@@ -101,6 +101,23 @@ export interface ReviewRunRecord {
   completedAt?: string;
 }
 
+export type DiffDowngradeReason =
+  | 'fileNotFound'
+  | 'ineligibleSide'
+  | 'binaryFile'
+  | 'largeDiff'
+  | 'lineOutOfRange'
+  | 'excerptNotFound';
+
+/** Debug-only: attached when a diff-located finding was downgraded to overview by the normalizer. */
+export interface ReviewThreadDraftDebugDowngrade {
+  reason: DiffDowngradeReason;
+  requestedFilePath: string;
+  requestedSide: 'old' | 'new';
+  requestedStartLine: number | null;
+  requestedEndLine: number | null;
+}
+
 export interface ReviewThreadDraft {
   localThreadId: string;
   snapshotId: string;
@@ -116,6 +133,8 @@ export interface ReviewThreadDraft {
   suggestion?: string;
   resolvedLocation: ReviewDiscussionLocation;
   anchor: ReviewAnchor | null;
+  /** Debug-only: present when a diff finding was downgraded to overview. Remove before shipping. */
+  debugDowngrade?: ReviewThreadDraftDebugDowngrade;
 }
 
 export type ReviewDraftFallbackReason =
@@ -211,40 +230,57 @@ export const REVIEW_DRAFT_JSON_SCHEMA = {
   type: 'object',
 } as const;
 
+export const REVIEW_DRAFT_OVERVIEW_LOCATION_PROMPT =
+  'line や filePath に確信が持てない場合は、location.kind = "overview" を返してください。';
+export const REVIEW_DRAFT_OVERVIEW_NULL_FIELDS_PROMPT =
+  'location.kind が "overview" の場合、filePath / startLine / endLine / side / excerpt は null にしてください。';
+export const REVIEW_DRAFT_TYPE_PROMPT = 'type は "review-draft" に固定してください。';
+export const REVIEW_DRAFT_EXCERPT_PROMPT =
+  'excerpt は changed-side の本文を verbatim で確実に抜ける場合だけ使い、少しでも怪しければ null にしてください。';
+
 export function buildReviewDraftPrompt(prompt: string) {
+  const trimmedPrompt = prompt.trim();
   return [
-    prompt.trim(),
+    trimmedPrompt,
     '',
     '返答は JSON オブジェクトのみで返してください。',
     'Markdown コードフェンス、前置き、補足説明は禁止です。',
-    'line が不確実な場合は location.kind に overview を使ってください。',
-    'severity は high / medium / low のいずれかにしてください。',
+    REVIEW_DRAFT_TYPE_PROMPT,
+    'summary と findings は必須です。',
     'findings は最大 8 件までにしてください。',
+    'severity は high / medium / low のいずれかです。',
+    'category は design / correctness / tests / maintainability / performance / security / docs のいずれかです。',
+    'confidence は high / medium / low のいずれかです。',
+    REVIEW_DRAFT_OVERVIEW_LOCATION_PROMPT,
+    REVIEW_DRAFT_OVERVIEW_NULL_FIELDS_PROMPT,
+    'suggestion を出せない場合は null にしてください。',
+    REVIEW_DRAFT_EXCERPT_PROMPT,
+    'structured fields に markdown やコードフェンスを含めないでください。',
     'schema:',
     '{',
     '  "type": "review-draft",',
     '  "summary": {',
-    '    "headline": "重大な問題は少ないが入力検証に改善余地がある",',
-    '    "overview": "全体として責務分割は明確だが、境界条件の扱いに抜けがある。",',
-    '    "positives": ["責務が分かれている"],',
-    '    "risks": ["入力検証が不足している"]',
+    '    "headline": "string",',
+    '    "overview": "string",',
+    '    "positives": ["string"],',
+    '    "risks": ["string"]',
     '  },',
     '  "findings": [',
     '    {',
     '      "findingId": "finding-1",',
-    '      "title": "入力検証が不足",',
-    '      "body": "不正な payload でも処理が継続されます。",',
+    '      "title": "string",',
+    '      "body": "string",',
     '      "severity": "high",',
     '      "category": "correctness",',
-    '      "confidence": "high",',
-    '      "suggestion": "早期 return を追加してください。",',
+    '      "confidence": "medium",',
+    '      "suggestion": "string",',
     '      "location": {',
     '        "kind": "diff",',
-    '        "filePath": "src/review.ts",',
+    '        "filePath": "src/example.ts",',
     '        "startLine": 10,',
     '        "endLine": 12,',
     '        "side": "new",',
-    '        "excerpt": "if (!input.userId)"',
+    '        "excerpt": null',
     '      }',
     '    }',
     '  ]',
@@ -256,9 +292,9 @@ export function buildReviewDraftFallbackPrompt(prompt: string) {
   return [
     prompt.trim(),
     '',
-    'これは structured fallback の検証です。',
+    'これは structured fallback UI の検証です。',
     'JSON オブジェクト、コードフェンス、schema 形式の出力は禁止です。',
-    '代わりに Markdown で、総評と指摘を 3 件以内の箇条書きで返してください。',
+    '代わりに Markdown で、総評・良い点・懸念点・指摘案を簡潔に返してください。',
   ].join('\n');
 }
 

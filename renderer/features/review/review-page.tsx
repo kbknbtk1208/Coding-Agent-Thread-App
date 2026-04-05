@@ -3,12 +3,8 @@ import { useRouter } from 'next/router';
 import { SplitSide } from '@git-diff-view/react';
 import type { AgentKind } from '../../../shared/domain/agent';
 import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
-import { SessionEventPanel } from '../../components/session-event-panel';
 import { DiffFilePane } from './diff-file-pane';
-import { LocalThreadPanel } from './local-thread-panel';
-import { OverviewDiscussionPanel } from './overview-discussion-panel';
-import { ReviewExecutionBar } from './review-execution-bar';
-import { ReviewSummaryPanel } from './review-summary-panel';
+import { ReviewActionPanel } from './review-action-panel';
 import {
   getDefaultReviewHost,
   inferProviderFromReviewUrl,
@@ -329,7 +325,7 @@ export function ReviewPage() {
   const reviewTitle = reviewState.data.title || 'Review Snapshot';
   const reviewDescription =
     reviewState.data.description ||
-    '説明はまだありません。overview discussion を右側に表示します。';
+    '説明はまだありません。overview discussion は上部パネルで確認できます。';
   const hasLoadedReview = Boolean(reviewState.data.snapshotId);
   const isFallbackActive = reviewDraft.reviewDraftState.fallbackRichText !== null;
 
@@ -385,16 +381,34 @@ export function ReviewPage() {
             onSubmit={handleLoad}
           />
 
-          <ReviewExecutionBar
-            reviewAgent={reviewAgent}
-            instructions={reviewInstructions}
-            disabled={!hasLoadedReview}
-            running={reviewDraft.isRunning}
-            error={reviewDraft.reviewDraftState.errorMessage}
-            onReviewAgentChange={setReviewAgent}
-            onInstructionsChange={setReviewInstructions}
-            onSubmit={handleStartDraftReview}
-          />
+          {hasLoadedReview ? (
+            <ReviewActionPanel
+              reviewStatus={reviewDraft.reviewDraftState.reviewStatus}
+              reviewAgent={reviewAgent}
+              instructions={reviewInstructions}
+              disabled={!hasLoadedReview}
+              running={reviewDraft.isRunning}
+              executionError={reviewDraft.reviewDraftState.errorMessage}
+              onReviewAgentChange={setReviewAgent}
+              onInstructionsChange={setReviewInstructions}
+              onSubmit={handleStartDraftReview}
+              pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
+              session={reviewDraft.reviewDraftState.activeRunSession}
+              latestRun={reviewDraft.reviewDraftState.latestRun}
+              summary={reviewDraft.reviewDraftState.summary}
+              fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
+              fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
+              threadCount={reviewDraft.reviewDraftState.localDraftThreads.length}
+              localDraftThreads={reviewDraft.reviewDraftState.localDraftThreads}
+              overviewThreads={overviewThreads}
+              selectedFileId={selectedFileId}
+              fallbackActive={isFallbackActive}
+              activeTab={activeRightPaneTab}
+              onSelectFile={setSelectedFileId}
+              onTabChange={setActiveRightPaneTab}
+              onReply={handleReply}
+            />
+          ) : null}
         </div>
       </header>
 
@@ -512,65 +526,6 @@ export function ReviewPage() {
               </div>
             )}
           </main>
-
-          <aside className="flex w-full shrink-0 flex-col border-t border-white/10 bg-white/[0.02] xl:w-[380px] xl:border-t-0 xl:border-l">
-            <ReviewSummaryPanel
-              status={reviewDraft.reviewDraftState.reviewStatus}
-              latestRun={reviewDraft.reviewDraftState.latestRun}
-              summary={reviewDraft.reviewDraftState.summary}
-              fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
-              fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
-              threadCount={reviewDraft.reviewDraftState.localDraftThreads.length}
-              error={reviewDraft.reviewDraftState.errorMessage}
-            />
-
-            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-              <button
-                type="button"
-                onClick={() => setActiveRightPaneTab('drafts')}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                  activeRightPaneTab === 'drafts'
-                    ? 'bg-fuchsia-500/20 text-fuchsia-200'
-                    : 'bg-white/5 text-slate-400 hover:text-white'
-                }`}
-              >
-                Drafts
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveRightPaneTab('overview')}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                  activeRightPaneTab === 'overview'
-                    ? 'bg-amber-500/20 text-amber-100'
-                    : 'bg-white/5 text-slate-400 hover:text-white'
-                }`}
-              >
-                Overview
-              </button>
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1">
-                {activeRightPaneTab === 'drafts' ? (
-                  <LocalThreadPanel
-                    threads={reviewDraft.reviewDraftState.localDraftThreads}
-                    selectedFileId={selectedFileId}
-                    onSelectFile={setSelectedFileId}
-                    fallbackActive={isFallbackActive}
-                  />
-                ) : (
-                  <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
-                )}
-              </div>
-
-              <div className="border-t border-white/10 px-4 py-4">
-                <SessionEventPanel
-                  pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
-                  session={reviewDraft.reviewDraftState.activeRunSession}
-                />
-              </div>
-            </div>
-          </aside>
         </div>
       ) : (
         <main className="flex flex-1 items-center justify-center p-6">
@@ -583,7 +538,7 @@ export function ReviewPage() {
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-400">
               左側の file list にはメタデータだけを先に出し、本文は選択ファイルごとに lazy hydrate
-              します。overview discussion は右側パネルに分離して表示します。
+              します。review 結果や overview discussion は上部パネルに集約して表示します。
             </p>
           </div>
         </main>

@@ -7,10 +7,19 @@ import {
   type ReviewSnapshotFile,
 } from '../../shared/domain/review';
 import type {
+  DiffDowngradeReason,
   ReviewDraftStructuredResult,
   ReviewFindingDraft,
+  ReviewFindingLocationInput,
   ReviewThreadDraft,
+  ReviewThreadDraftDebugDowngrade,
 } from '../../shared/domain/review-draft';
+
+type ResolveResult = {
+  location: ReviewDiscussionLocation;
+  anchor: ReviewAnchor | null;
+  debugDowngrade?: ReviewThreadDraftDebugDowngrade;
+};
 
 type ReviewResultNormalizerInputBase = {
   snapshot: ReviewSnapshot;
@@ -74,7 +83,7 @@ export class ReviewResultNormalizer {
     snapshot: ReviewSnapshot,
     runId: string,
     finding: ReviewFindingDraft,
-    resolved: { location: ReviewDiscussionLocation; anchor: ReviewAnchor | null },
+    resolved: ResolveResult,
   ): ReviewThreadDraft {
     return {
       localThreadId: `local-review-draft-${randomUUID()}`,
@@ -91,6 +100,7 @@ export class ReviewResultNormalizer {
       suggestion: finding.suggestion,
       resolvedLocation: resolved.location,
       anchor: resolved.anchor,
+      ...(resolved.debugDowngrade ? { debugDowngrade: resolved.debugDowngrade } : {}),
     };
   }
 
@@ -98,14 +108,20 @@ export class ReviewResultNormalizer {
     snapshot: ReviewSnapshot,
     finding: ReviewFindingDraft,
     hydrateFile: (fileId: string) => Promise<ReviewSnapshotFile>,
-  ): Promise<{ location: ReviewDiscussionLocation; anchor: ReviewAnchor | null }> {
+  ): Promise<ResolveResult> {
     if (finding.location.kind === 'overview') {
       return this.toOverviewResult();
     }
 
+    const loc = finding.location;
     const matchedFile = this.findMatchingFile(snapshot, finding);
-    if (!matchedFile || !this.isEligibleDiffFile(matchedFile, finding.location.side)) {
-      return this.toOverviewResult();
+    if (!matchedFile) {
+      return this.toDowngradedOverview('fileNotFound', loc);
+    }
+
+    const ineligibleReason = this.getIneligibilityReason(matchedFile, loc.side);
+    if (ineligibleReason) {
+      return this.toDowngradedOverview(ineligibleReason, loc);
     }
 
     const file =
@@ -113,17 +129,20 @@ export class ReviewResultNormalizer {
     return this.resolveDiffLocation(file, finding);
   }
 
-  private resolveFindingSync(
-    snapshot: ReviewSnapshot,
-    finding: ReviewFindingDraft,
-  ): { location: ReviewDiscussionLocation; anchor: ReviewAnchor | null } {
+  private resolveFindingSync(snapshot: ReviewSnapshot, finding: ReviewFindingDraft): ResolveResult {
     if (finding.location.kind === 'overview') {
       return this.toOverviewResult();
     }
 
+    const loc = finding.location;
     const matchedFile = this.findMatchingFile(snapshot, finding);
-    if (!matchedFile || !this.isEligibleDiffFile(matchedFile, finding.location.side)) {
-      return this.toOverviewResult();
+    if (!matchedFile) {
+      return this.toDowngradedOverview('fileNotFound', loc);
+    }
+
+    const ineligibleReason = this.getIneligibilityReason(matchedFile, loc.side);
+    if (ineligibleReason) {
+      return this.toDowngradedOverview(ineligibleReason, loc);
     }
 
     return this.resolveDiffLocation(matchedFile, finding);
@@ -148,29 +167,26 @@ export class ReviewResultNormalizer {
   private resolveDiffLocation(
     file: ReviewSnapshotFile,
     finding: ReviewFindingDraft,
-  ): { location: ReviewDiscussionLocation; anchor: ReviewAnchor | null } {
+  ): ResolveResult {
     if (finding.location.kind !== 'diff') {
       return this.toOverviewResult();
     }
 
-    const content = finding.location.side === 'old' ? file.oldContent : file.newContent;
+    const loc = finding.location;
+    const content = loc.side === 'old' ? file.oldContent : file.newContent;
     const lines = splitLines(content);
 
-    if (!this.areLinesValid(finding.location.startLine, finding.location.endLine, lines.length)) {
-      return this.toOverviewResult();
-    }
-
-    if (finding.location.excerpt && !content.includes(normalizeExcerpt(finding.location.excerpt))) {
-      return this.toOverviewResult();
+    if (!this.areLinesValid(loc.startLine, loc.endLine, lines.length)) {
+      return this.toDowngradedOverview('lineOutOfRange', loc);
     }
 
     const anchor: ReviewAnchor = {
       fileId: file.fileId,
       filePath: file.filePath,
-      startLine: finding.location.startLine,
-      endLine: finding.location.endLine,
-      side: finding.location.side,
-      kind: deriveAnchorKind(finding.location.startLine, finding.location.endLine),
+      startLine: loc.startLine,
+      endLine: loc.endLine,
+      side: loc.side,
+      kind: deriveAnchorKind(loc.startLine, loc.endLine),
     };
 
     return {
@@ -192,21 +208,44 @@ export class ReviewResultNormalizer {
       : finding.body;
   }
 
-  private toOverviewResult(): { location: ReviewDiscussionLocation; anchor: null } {
+  private toOverviewResult(): ResolveResult {
     return {
-      location: {
-        kind: 'overview',
-      },
+      location: { kind: 'overview' },
       anchor: null,
     };
   }
 
-  private isEligibleDiffFile(file: ReviewSnapshotFile, side: 'old' | 'new'): boolean {
-    if (!this.isValidSideForChangeType(file, side)) {
-      return false;
-    }
+  private toDowngradedOverview(
+    reason: DiffDowngradeReason,
+    loc: Extract<ReviewFindingLocationInput, { kind: 'diff' }>,
+  ): ResolveResult {
+    return {
+      location: { kind: 'overview' },
+      anchor: null,
+      debugDowngrade: {
+        reason,
+        requestedFilePath: loc.filePath,
+        requestedSide: loc.side,
+        requestedStartLine: loc.startLine,
+        requestedEndLine: loc.endLine,
+      },
+    };
+  }
 
-    return !file.isBinary && !file.isLargeDiff;
+  private getIneligibilityReason(
+    file: ReviewSnapshotFile,
+    side: 'old' | 'new',
+  ): DiffDowngradeReason | null {
+    if (!this.isValidSideForChangeType(file, side)) {
+      return 'ineligibleSide';
+    }
+    if (file.isBinary) {
+      return 'binaryFile';
+    }
+    if (file.isLargeDiff) {
+      return 'largeDiff';
+    }
+    return null;
   }
 
   private isValidSideForChangeType(file: ReviewSnapshotFile, side: 'old' | 'new'): boolean {
@@ -247,8 +286,4 @@ function splitLines(content: string): string[] {
   }
 
   return content.replace(/\r\n/g, '\n').split('\n');
-}
-
-function normalizeExcerpt(excerpt: string): string {
-  return excerpt.replace(/\r\n/g, '\n');
 }

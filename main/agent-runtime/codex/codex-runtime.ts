@@ -1271,8 +1271,7 @@ export function shouldUseCodexOutputSchema(
   return (
     input.responseMode === 'structured' &&
     Boolean(input.structuredSchemaName) &&
-    input.structuredOutputMode !== 'forceFallback' &&
-    input.structuredSchemaName !== 'review-draft'
+    input.structuredOutputMode !== 'forceFallback'
   );
 }
 

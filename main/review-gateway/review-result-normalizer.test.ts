@@ -143,8 +143,156 @@ describe('ReviewResultNormalizer', () => {
 
     expect(threads[1]?.anchor).toBeNull();
     expect(threads[1]?.resolvedLocation).toEqual({ kind: 'overview' });
+    expect(threads[1]?.debugDowngrade?.reason).toBe('lineOutOfRange');
+    expect(threads[1]?.debugDowngrade?.requestedFilePath).toBe('src/new.ts');
+    expect(threads[1]?.debugDowngrade?.requestedSide).toBe('new');
+
     expect(threads[2]?.anchor).toBeNull();
     expect(threads[2]?.resolvedLocation).toEqual({ kind: 'overview' });
+    expect(threads[2]?.debugDowngrade?.reason).toBe('fileNotFound');
+    expect(threads[2]?.debugDowngrade?.requestedFilePath).toBe('src/missing.ts');
+  });
+
+  it('does not attach debugDowngrade to findings that were originally overview', async () => {
+    const normalizer = new ReviewResultNormalizer();
+    const result: ReviewDraftStructuredResult = {
+      type: 'review-draft',
+      summary: { headline: 'h', overview: 'o', positives: [], risks: [] },
+      findings: [
+        {
+          findingId: 'f-overview',
+          title: 'intentional overview',
+          body: 'body',
+          severity: 'low',
+          category: 'docs',
+          confidence: 'low',
+          location: { kind: 'overview' },
+        },
+      ],
+    };
+    const threads = await normalizer.normalize({
+      snapshot: createSnapshot(),
+      runId: 'run-1',
+      structuredResult: result,
+    });
+
+    expect(threads[0]?.resolvedLocation.kind).toBe('overview');
+    expect(threads[0]?.debugDowngrade).toBeUndefined();
+  });
+
+  it('attaches ineligibleSide reason when side mismatches changeType', async () => {
+    const snapshot = createSnapshot();
+    const result: ReviewDraftStructuredResult = {
+      type: 'review-draft',
+      summary: { headline: 'h', overview: 'o', positives: [], risks: [] },
+      findings: [
+        {
+          findingId: 'f-side',
+          title: 'new side on deleted file',
+          body: 'body',
+          severity: 'low',
+          category: 'docs',
+          confidence: 'low',
+          location: {
+            kind: 'diff',
+            filePath: 'src/deleted.ts',
+            startLine: 1,
+            endLine: 1,
+            side: 'new',
+          },
+        },
+      ],
+    };
+    const normalizer = new ReviewResultNormalizer();
+    const threads = await normalizer.normalize({
+      snapshot,
+      runId: 'run-side',
+      structuredResult: result,
+    });
+
+    expect(threads[0]?.resolvedLocation.kind).toBe('overview');
+    expect(threads[0]?.debugDowngrade?.reason).toBe('ineligibleSide');
+    expect(threads[0]?.debugDowngrade?.requestedFilePath).toBe('src/deleted.ts');
+    expect(threads[0]?.debugDowngrade?.requestedSide).toBe('new');
+  });
+
+  it('attaches binaryFile reason for binary files', async () => {
+    const snapshot = createSnapshot();
+    (snapshot.files[0] as (typeof snapshot.files)[0]).isBinary = true;
+    const result: ReviewDraftStructuredResult = {
+      type: 'review-draft',
+      summary: { headline: 'h', overview: 'o', positives: [], risks: [] },
+      findings: [
+        {
+          findingId: 'f-bin',
+          title: 'binary file finding',
+          body: 'body',
+          severity: 'low',
+          category: 'docs',
+          confidence: 'low',
+          location: {
+            kind: 'diff',
+            filePath: 'src/new.ts',
+            startLine: 1,
+            endLine: 1,
+            side: 'new',
+          },
+        },
+      ],
+    };
+    const normalizer = new ReviewResultNormalizer();
+    const threads = await normalizer.normalize({
+      snapshot,
+      runId: 'run-bin',
+      structuredResult: result,
+    });
+
+    expect(threads[0]?.resolvedLocation.kind).toBe('overview');
+    expect(threads[0]?.debugDowngrade?.reason).toBe('binaryFile');
+  });
+
+  it('keeps diff anchors even when excerpt is missing from content', async () => {
+    const snapshot = createSnapshot();
+    const result: ReviewDraftStructuredResult = {
+      type: 'review-draft',
+      summary: { headline: 'h', overview: 'o', positives: [], risks: [] },
+      findings: [
+        {
+          findingId: 'f-excerpt',
+          title: 'stale excerpt finding',
+          body: 'body',
+          severity: 'medium',
+          category: 'correctness',
+          confidence: 'medium',
+          location: {
+            kind: 'diff',
+            filePath: 'src/new.ts',
+            startLine: 1,
+            endLine: 1,
+            side: 'new',
+            excerpt: 'this text does not exist in the file',
+          },
+        },
+      ],
+    };
+    const normalizer = new ReviewResultNormalizer();
+    const threads = await normalizer.normalize({
+      snapshot,
+      runId: 'run-excerpt',
+      structuredResult: result,
+    });
+
+    expect(threads[0]?.resolvedLocation.kind).toBe('diff');
+    expect(threads[0]?.anchor).toEqual(
+      expect.objectContaining({
+        fileId: 'file-1',
+        filePath: 'src/new.ts',
+        startLine: 1,
+        endLine: 1,
+        side: 'new',
+      }),
+    );
+    expect(threads[0]?.debugDowngrade).toBeUndefined();
   });
 });
 
@@ -322,6 +470,8 @@ describe('hydrateFile を使った lazy 解決', () => {
 
     expect(threads[0]?.resolvedLocation.kind).toBe('overview');
     expect(threads[0]?.anchor).toBeNull();
+    expect(threads[0]?.debugDowngrade?.reason).toBe('ineligibleSide');
+    expect(threads[0]?.debugDowngrade?.requestedSide).toBe('old');
   });
 
   it('hydrate 後も side 判定が正しく機能する（deleted file に new side は overview）', async () => {
@@ -372,5 +522,7 @@ describe('hydrateFile を使った lazy 解決', () => {
 
     expect(threads[0]?.resolvedLocation.kind).toBe('overview');
     expect(threads[0]?.anchor).toBeNull();
+    expect(threads[0]?.debugDowngrade?.reason).toBe('ineligibleSide');
+    expect(threads[0]?.debugDowngrade?.requestedSide).toBe('new');
   });
 });

@@ -1,4 +1,5 @@
 import type { ReviewSnapshot } from '../../shared/domain/review';
+import { REVIEW_DRAFT_EXCERPT_PROMPT } from '../../shared/domain/review-draft';
 
 const DEFAULT_MAX_PROMPT_CHARS = 14000;
 const DEFAULT_MAX_PATCH_SECTION_CHARS = 6500;
@@ -110,7 +111,7 @@ export class ReviewContextAssembler {
       '- omitted files may only receive overview findings.',
       '- 同じ論点を重複して分割しすぎないこと',
       '- diff finding の startLine/endLine は該当 file の changed-side (new or old) における 1-based line number を使うこと',
-      '- excerpt は diff の +/- 記号を除いた changed-side のテキストをそのまま返すこと',
+      `- ${REVIEW_DRAFT_EXCERPT_PROMPT}`,
       '',
       '## Patch Excerpts',
       ...(patchSections.length > 0
@@ -161,7 +162,7 @@ export class ReviewContextAssembler {
         '- omitted files may only receive overview findings.',
         '- 同じ論点を重複して分割しすぎないこと',
         '- diff finding の startLine/endLine は該当 file の changed-side (new or old) における 1-based line number を使うこと',
-        '- excerpt は diff の +/- 記号を除いた changed-side のテキストをそのまま返すこと',
+        `- ${REVIEW_DRAFT_EXCERPT_PROMPT}`,
         '',
         '## Patch Excerpts',
         ...(patchSections.length > 0

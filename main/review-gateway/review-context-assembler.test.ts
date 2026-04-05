@@ -94,6 +94,9 @@ describe('ReviewContextAssembler', () => {
     expect(result.prompt).toContain(
       'Files marked large-diff or binary may only receive overview findings.',
     );
+    expect(result.prompt).toContain(
+      'excerpt は changed-side の本文を verbatim で確実に抜ける場合だけ使い、少しでも怪しければ null にしてください。',
+    );
   });
 
   it('marks omitted files when patch budget is exceeded', () => {

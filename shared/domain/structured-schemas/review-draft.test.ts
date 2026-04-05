@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import {
+  buildReviewDraftFallbackPrompt,
+  buildReviewDraftPrompt,
+  REVIEW_DRAFT_EXCERPT_PROMPT,
+  REVIEW_DRAFT_JSON_SCHEMA,
+} from '../review-draft';
 import { getStructuredSchemaDescriptor } from './registry';
 
 const descriptor = getStructuredSchemaDescriptor('review-draft');
@@ -79,16 +85,20 @@ describe('review draft structured schema descriptor', () => {
     });
   });
 
-  it('builds a prompt that requests JSON only', () => {
+  it('keeps prompt helpers aligned with the shared review-draft guidance', () => {
     const prompt = descriptor.buildPrompt('レビューしてください');
+    const fallbackPrompt = descriptor.buildForcedFallbackPrompt('レビューしてください');
 
-    expect(prompt).toContain('レビューしてください');
-    expect(prompt).toContain('JSON');
+    expect(prompt).toBe(buildReviewDraftPrompt('レビューしてください'));
+    expect(prompt).toContain(REVIEW_DRAFT_EXCERPT_PROMPT);
+    expect(prompt).toContain('"excerpt": null');
     expect(prompt).toContain('"type": "review-draft"');
+    expect(fallbackPrompt).toBe(buildReviewDraftFallbackPrompt('レビューしてください'));
   });
 
   it('uses a Codex-compatible output schema without oneOf', () => {
     expect(hasSchemaKeyword(descriptor.jsonSchema, 'oneOf')).toBe(false);
+    expect(descriptor.jsonSchema).toEqual(REVIEW_DRAFT_JSON_SCHEMA);
     expect(descriptor.jsonSchema).toMatchObject({
       properties: {
         findings: {
@@ -127,7 +137,7 @@ describe('review draft structured schema descriptor', () => {
         },
       },
     });
-    expect((descriptor.jsonSchema as any).properties.findings.items.required).toEqual(
+    expect(REVIEW_DRAFT_JSON_SCHEMA.properties.findings.items.required).toEqual(
       expect.arrayContaining([
         'findingId',
         'title',
