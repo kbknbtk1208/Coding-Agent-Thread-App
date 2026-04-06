@@ -1,8 +1,12 @@
 import type {
   AwaitDraftReviewResultInput,
   AwaitDraftReviewResultResult,
+  AwaitDraftThreadReplyResultInput,
+  AwaitDraftThreadReplyResultResult,
   BeginDraftReviewInput,
   BeginDraftReviewResult,
+  BeginDraftThreadReplyInput,
+  BeginDraftThreadReplyResult,
   CreateReviewThreadResult,
   HydrateReviewFileResult,
   LoadReviewSourceResult,
@@ -11,30 +15,37 @@ import type {
 import type {
   ReviewAnchor,
   ReviewComment,
-  ReviewSourceDraft,
-  ReviewSourceLocator,
   ReviewSnapshot,
   ReviewSnapshotFile,
   ReviewSnapshotThread,
+  ReviewSourceDraft,
+  ReviewSourceLocator,
 } from '../../shared/domain/review';
-import type { ReviewDraftEnvelope } from '../../shared/domain/review-draft';
+import type {
+  ReviewDraftEnvelope,
+  ReviewLocalThread,
+  ReviewRunRecord,
+  ReviewSummaryDraft,
+  ReviewThreadReplyRecord,
+} from '../../shared/domain/review-draft';
 import type { AgentGateway } from '../agent-gateway/agent-gateway';
 import { adaptGitHubSnapshot } from './adapters/github-snapshot-adapter';
 import { adaptGitLabSnapshot } from './adapters/gitlab-snapshot-adapter';
 import { createGitHubReviewClient, type GitHubReviewClient } from './clients/github-review-client';
 import { createGitLabReviewClient, type GitLabReviewClient } from './clients/gitlab-review-client';
 import { hydrateReviewFileContent } from './file-content-loader';
+import type { FetchLike } from './request-json';
 import type { ReviewContextAssembler } from './review-context-assembler';
-import type { ReviewDraftStore } from './review-draft-store';
-import type { ReviewResultNormalizer } from './review-result-normalizer';
+import { ReviewDraftStore } from './review-draft-store';
 import {
-  resolveProviderToken,
   ReviewGatewayError,
   type ReviewGatewayErrorCode,
+  resolveProviderToken,
 } from './review-gateway-error';
-import type { FetchLike } from './request-json';
-import { parseReviewSource } from './source-parser';
+import type { ReviewResultNormalizer } from './review-result-normalizer';
 import { ReviewRunCoordinator } from './review-run-coordinator';
+import { ReviewThreadReplyCoordinator } from './review-thread-reply-coordinator';
+import { parseReviewSource } from './source-parser';
 
 interface ReviewSessionContext {
   snapshotId: string;
@@ -47,7 +58,10 @@ interface ReviewSessionContext {
 interface ReviewGatewayDependencies {
   fetchImpl?: FetchLike;
   tokenResolver?: typeof resolveProviderToken;
-  agentGateway?: Pick<AgentGateway, 'startSession' | 'awaitSettled'>;
+  agentGateway?: Pick<
+    AgentGateway,
+    'awaitSettled' | 'continueConversation' | 'forkSession' | 'sendFollowUp' | 'startSession'
+  >;
   createGitHubClient?: (args: {
     baseUrl: string;
     token: string;
@@ -63,6 +77,7 @@ interface ReviewGatewayDependencies {
   draftStore?: ReviewDraftStore;
   resultNormalizer?: ReviewResultNormalizer;
   cwdResolver?: () => string;
+  now?: () => string;
 }
 
 function nextSnapshotId(locator: ReviewSourceLocator): string {
@@ -178,10 +193,15 @@ export class ReviewGateway {
     ReviewGatewayDependencies['createGitLabClient']
   >;
   private readonly hydrateFileContent: NonNullable<ReviewGatewayDependencies['hydrateFileContent']>;
+  private readonly draftStore: ReviewDraftStore;
   private readonly reviewRunCoordinator: ReviewRunCoordinator | null;
+  private readonly threadReplyCoordinator: ReviewThreadReplyCoordinator | null;
   private threadIdCounter = 0;
   private commentIdCounter = 0;
   private readonly activeDraftReviews = new Map<string, Promise<ReviewDraftEnvelope>>();
+  private readonly activeDraftThreadReplies = new Map<string, Promise<ReviewLocalThread>>();
+  private readonly completedDraftThreadReplies = new Map<string, ReviewLocalThread>();
+  private readonly draftThreadReplyRecords = new Map<string, ReviewThreadReplyRecord>();
 
   constructor(dependencies: ReviewGatewayDependencies = {}) {
     this.fetchImpl = dependencies.fetchImpl;
@@ -189,12 +209,22 @@ export class ReviewGateway {
     this.createGitHubClientFactory = dependencies.createGitHubClient ?? createGitHubReviewClient;
     this.createGitLabClientFactory = dependencies.createGitLabClient ?? createGitLabReviewClient;
     this.hydrateFileContent = dependencies.hydrateFileContent ?? hydrateReviewFileContent;
+    this.draftStore = dependencies.draftStore ?? new ReviewDraftStore();
     this.reviewRunCoordinator = dependencies.agentGateway
       ? new ReviewRunCoordinator({
           agentGateway: dependencies.agentGateway,
           contextAssembler: dependencies.contextAssembler,
-          draftStore: dependencies.draftStore,
+          draftStore: this.draftStore,
           resultNormalizer: dependencies.resultNormalizer,
+          now: dependencies.now,
+          cwdResolver: dependencies.cwdResolver,
+        })
+      : null;
+    this.threadReplyCoordinator = dependencies.agentGateway
+      ? new ReviewThreadReplyCoordinator({
+          agentGateway: dependencies.agentGateway,
+          draftStore: this.draftStore,
+          now: dependencies.now,
           cwdResolver: dependencies.cwdResolver,
         })
       : null;
@@ -361,7 +391,7 @@ export class ReviewGateway {
   ): Promise<AwaitDraftReviewResultResult> {
     const resultPromise = this.activeDraftReviews.get(input.runId);
     if (!resultPromise) {
-      const envelope = this.reviewRunCoordinator?.getDraftStore().getEnvelopeByRunId(input.runId);
+      const envelope = this.draftStore.getEnvelopeByRunId(input.runId);
       if (envelope) {
         return { result: envelope };
       }
@@ -374,6 +404,96 @@ export class ReviewGateway {
     } finally {
       this.activeDraftReviews.delete(input.runId);
     }
+  }
+
+  async beginDraftThreadReply(
+    input: BeginDraftThreadReplyInput,
+  ): Promise<BeginDraftThreadReplyResult> {
+    if (!this.threadReplyCoordinator) {
+      throw new ReviewGatewayError(
+        'SNAPSHOT_NOT_FOUND',
+        'ReviewGateway is not configured with an AgentGateway.',
+      );
+    }
+
+    const session = this.requireSession(input.snapshotId);
+    const thread = this.draftStore.getLocalThread(input.snapshotId, input.localThreadId);
+    if (!thread) {
+      throw new ReviewGatewayError(
+        'THREAD_NOT_FOUND',
+        `Draft thread not found: ${input.localThreadId}`,
+      );
+    }
+
+    const run = this.resolveRun(input.snapshotId, thread.runId);
+    const summary = this.resolveSummary(run.runId);
+    const hydrateFile = async (fileId: string) => {
+      const result = await this.hydrateReviewFile(input.snapshotId, fileId);
+      return result.file;
+    };
+
+    const begun = await this.threadReplyCoordinator.beginDraftThreadReply({
+      snapshot: session.snapshot,
+      run,
+      summary,
+      localThreadId: input.localThreadId,
+      body: input.body,
+      cwd: input.cwd?.trim() || process.cwd(),
+      hydrateFile,
+    });
+    this.draftThreadReplyRecords.set(begun.reply.replyId, structuredClone(begun.reply));
+    const resultPromise = this.threadReplyCoordinator
+      .awaitDraftThreadReplyResult({
+        replyId: begun.reply.replyId,
+        snapshotId: begun.reply.snapshotId,
+        localThreadId: begun.reply.localThreadId,
+        appSessionId: begun.reply.appSessionId,
+      })
+      .then((resolvedThread) => {
+        this.completedDraftThreadReplies.set(begun.reply.replyId, structuredClone(resolvedThread));
+        return resolvedThread;
+      });
+    void resultPromise.catch(() => undefined);
+    this.activeDraftThreadReplies.set(begun.reply.replyId, resultPromise);
+
+    return begun;
+  }
+
+  async awaitDraftThreadReplyResult(
+    input: AwaitDraftThreadReplyResultInput,
+  ): Promise<AwaitDraftThreadReplyResultResult> {
+    const resultPromise = this.activeDraftThreadReplies.get(input.replyId);
+    if (resultPromise) {
+      try {
+        const thread = await resultPromise;
+        return { thread };
+      } finally {
+        this.activeDraftThreadReplies.delete(input.replyId);
+      }
+    }
+
+    const completedThread = this.completedDraftThreadReplies.get(input.replyId);
+    if (completedThread) {
+      return {
+        thread: structuredClone(completedThread),
+      };
+    }
+
+    const replyRecord = this.draftThreadReplyRecords.get(input.replyId);
+    if (replyRecord) {
+      const thread = this.draftStore.getLocalThread(
+        replyRecord.snapshotId,
+        replyRecord.localThreadId,
+      );
+      if (thread) {
+        return { thread };
+      }
+    }
+
+    throw new ReviewGatewayError(
+      'THREAD_NOT_FOUND',
+      `Draft thread reply not found: ${input.replyId}`,
+    );
   }
 
   private requireSession(snapshotId: string): ReviewSessionContext {
@@ -394,6 +514,22 @@ export class ReviewGateway {
       throw new ReviewGatewayError('FILE_NOT_FOUND', `File not found: ${fileId}`);
     }
     return file;
+  }
+
+  private resolveRun(snapshotId: string, runId: string): ReviewRunRecord {
+    const run = this.draftStore.getRuns(snapshotId).find((candidate) => candidate.runId === runId);
+    if (!run) {
+      throw new ReviewGatewayError('SNAPSHOT_NOT_FOUND', `Review run not found: ${runId}`);
+    }
+    return run;
+  }
+
+  private resolveSummary(runId: string): ReviewSummaryDraft | null {
+    const envelope = this.draftStore.getEnvelopeByRunId(runId);
+    if (!envelope || envelope.kind !== 'structured') {
+      return null;
+    }
+    return envelope.summary;
   }
 
   private replaceSnapshotFile(snapshot: ReviewSnapshot, file: ReviewSnapshotFile): ReviewSnapshot {

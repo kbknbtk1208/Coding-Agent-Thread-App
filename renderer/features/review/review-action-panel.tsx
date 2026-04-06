@@ -1,16 +1,16 @@
 import React from 'react';
-import type { AppSession, AgentKind } from '../../../shared/domain/agent';
+import type { AgentKind, AppSession } from '../../../shared/domain/agent';
 import type { ReviewSnapshotThread } from '../../../shared/domain/review';
 import type {
   ReviewDraftFallbackReason,
+  ReviewLocalThread,
   ReviewRunRecord,
   ReviewSummaryDraft,
-  ReviewThreadDraft,
 } from '../../../shared/domain/review-draft';
 import { SessionEventPanel } from '../../components/session-event-panel';
-import type { ReviewDraftReviewStatus } from './review-draft-state';
 import { LocalThreadPanel } from './local-thread-panel';
 import { OverviewDiscussionPanel } from './overview-discussion-panel';
+import type { ReviewDraftReviewStatus } from './review-draft-state';
 import { ReviewExecutionBar } from './review-execution-bar';
 import { ReviewSummaryPanel } from './review-summary-panel';
 
@@ -37,14 +37,18 @@ interface ReviewActionPanelResultProps {
   fallbackRichText: string | null;
   fallbackReason: ReviewDraftFallbackReason | null;
   threadCount: number;
-  localDraftThreads: ReviewThreadDraft[];
+  localThreads: ReviewLocalThread[];
   overviewThreads: ReviewSnapshotThread[];
   selectedFileId: string | null;
+  selectedThreadId: string | null;
   fallbackActive: boolean;
   activeTab: 'drafts' | 'overview';
   onSelectFile: (fileId: string) => void;
+  onSelectThread: (localThreadId: string) => void;
   onTabChange: (tab: 'drafts' | 'overview') => void;
-  onReply: (threadId: string, body: string) => void;
+  onReplyOverviewThread: (threadId: string, body: string) => void;
+  onReplyLocalThread: (localThreadId: string, body: string) => void;
+  onRespondThreadPermission: (localThreadId: string, requestId: string, actionId: string) => void;
 }
 
 export interface ReviewActionPanelProps
@@ -71,14 +75,18 @@ export function ReviewActionPanel({
   fallbackRichText,
   fallbackReason,
   threadCount,
-  localDraftThreads,
+  localThreads,
   overviewThreads,
   selectedFileId,
+  selectedThreadId,
   fallbackActive,
   activeTab,
   onSelectFile,
+  onSelectThread,
   onTabChange,
-  onReply,
+  onReplyOverviewThread,
+  onReplyLocalThread,
+  onRespondThreadPermission,
 }: ReviewActionPanelProps) {
   if (reviewStatus === 'idle') {
     return (
@@ -107,7 +115,7 @@ export function ReviewActionPanel({
 
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.03]">
-      <div className="max-h-[480px] overflow-y-auto">
+      <div className="max-h-[560px] overflow-y-auto">
         <ReviewSummaryPanel
           status={reviewStatus}
           latestRun={latestRun}
@@ -146,13 +154,17 @@ export function ReviewActionPanel({
         <div className="min-h-0">
           {activeTab === 'drafts' ? (
             <LocalThreadPanel
-              threads={localDraftThreads}
+              threads={localThreads}
               selectedFileId={selectedFileId}
+              selectedLocalThreadId={selectedThreadId}
               onSelectFile={onSelectFile}
+              onSelectThread={onSelectThread}
+              onReply={onReplyLocalThread}
+              onRespondToPermission={onRespondThreadPermission}
               fallbackActive={fallbackActive}
             />
           ) : (
-            <OverviewDiscussionPanel threads={overviewThreads} onReply={onReply} />
+            <OverviewDiscussionPanel threads={overviewThreads} onReply={onReplyOverviewThread} />
           )}
         </div>
       </div>

@@ -1,24 +1,58 @@
 import { describe, expect, it } from 'vitest';
-import type { ReviewDraftEnvelope } from '../../shared/domain/review-draft';
+import { type ReviewDraftEnvelope, type ReviewThreadDraft } from '../../shared/domain/review-draft';
 import { ReviewDraftStore } from './review-draft-store';
+
+function createRun(runId: string): ReviewDraftEnvelope['run'] {
+  return {
+    runId,
+    snapshotId: 'snapshot-1',
+    reviewAgent: 'codex',
+    lensId: 'general',
+    instructions: 'review it',
+    rootAppSessionId: `session-${runId}`,
+    status: 'completed',
+    resultSource: 'codexOutputSchema',
+    createdAt: '2026-04-03T00:00:00.000Z',
+    completedAt: '2026-04-03T00:01:00.000Z',
+  };
+}
+
+function createDraft(): ReviewThreadDraft {
+  return {
+    localThreadId: 'thread-1',
+    snapshotId: 'snapshot-1',
+    runId: 'run-1',
+    findingId: 'finding-1',
+    source: 'ai-review',
+    state: 'draft',
+    severity: 'medium',
+    category: 'maintainability',
+    confidence: 'high',
+    title: 'Thread title',
+    draftBody: 'Thread body',
+    resolvedLocation: {
+      kind: 'overview',
+    },
+    anchor: null,
+  };
+}
 
 function createEnvelope(runId: string): ReviewDraftEnvelope {
   return {
-    kind: 'fallback-richText',
-    run: {
-      runId,
-      snapshotId: 'snapshot-1',
-      reviewAgent: 'codex',
-      lensId: 'general',
-      instructions: 'review it',
-      rootAppSessionId: `session-${runId}`,
-      status: 'fallback_rich_text',
-      resultSource: 'richText',
-      createdAt: '2026-04-03T00:00:00.000Z',
-      completedAt: '2026-04-03T00:01:00.000Z',
+    kind: 'structured',
+    run: createRun(runId),
+    summary: {
+      headline: 'headline',
+      overview: 'overview',
+      positives: [],
+      risks: [],
     },
-    content: `content-${runId}`,
-    reason: 'structuredParseFailed',
+    threads: [
+      {
+        ...createDraft(),
+        runId,
+      },
+    ],
   };
 }
 
@@ -34,5 +68,41 @@ describe('ReviewDraftStore', () => {
     expect(store.getLatestEnvelope('snapshot-1')).toEqual(second);
     expect(store.getEnvelopeByRunId('run-1')).toEqual(first);
     expect(store.getEnvelopeByRunId('run-2')).toEqual(second);
+  });
+
+  it('updates local thread state without mutating the stored envelope run metadata', () => {
+    const store = new ReviewDraftStore();
+    store.saveEnvelope('snapshot-1', createEnvelope('run-1'));
+
+    store.appendThreadMessage('snapshot-1', 'thread-1', {
+      localMessageId: 'thread-1:user:1',
+      localThreadId: 'thread-1',
+      role: 'user',
+      source: 'user-reply',
+      body: 'Can you clarify this?',
+      createdAt: '2026-04-03T00:02:00.000Z',
+    });
+    store.setThreadBinding('snapshot-1', 'thread-1', {
+      snapshotId: 'snapshot-1',
+      localThreadId: 'thread-1',
+      runId: 'run-1',
+      rootAppSessionId: 'session-run-1',
+      discussionAppSessionId: 'thread-session-1',
+      strategy: 'codex-fork',
+      createdAt: '2026-04-03T00:02:00.000Z',
+      lastUsedAt: '2026-04-03T00:02:00.000Z',
+    });
+    store.setThreadReplyState('snapshot-1', 'thread-1', {
+      replyStatus: 'replying',
+      lastError: null,
+      activeReplySessionId: 'thread-session-1',
+      activeReplySession: null,
+    });
+
+    const thread = store.getLocalThread('snapshot-1', 'thread-1');
+    expect(thread?.messages.at(-1)?.body).toBe('Can you clarify this?');
+    expect(thread?.binding?.discussionAppSessionId).toBe('thread-session-1');
+    expect(thread?.replyStatus).toBe('replying');
+    expect(store.getRuns('snapshot-1')[0]?.runId).toBe('run-1');
   });
 });

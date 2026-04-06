@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/router';
 import { SplitSide } from '@git-diff-view/react';
+import { useRouter } from 'next/router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentKind } from '../../../shared/domain/agent';
 import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
 import { DiffFilePane } from './diff-file-pane';
@@ -48,6 +48,7 @@ export function ReviewPage() {
   );
   const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [selectedLocalThreadId, setSelectedLocalThreadId] = useState<string | null>(null);
   const [activeRightPaneTab, setActiveRightPaneTab] = useState<'drafts' | 'overview'>('drafts');
   const [validationError, setValidationError] = useState<string | null>(null);
   const { data, loading, error, initialSelectedFileId, loadSource } = useReviewData();
@@ -122,6 +123,7 @@ export function ReviewPage() {
   useEffect(() => {
     reviewDraft.resetReviewDraftState();
     setActiveRightPaneTab('drafts');
+    setSelectedLocalThreadId(null);
   }, [reviewState.data.snapshotId, reviewDraft.resetReviewDraftState]);
 
   useEffect(() => {
@@ -152,31 +154,31 @@ export function ReviewPage() {
 
   const selectedDraftThreads = useMemo(
     () =>
-      reviewDraft.reviewDraftState.localDraftThreads.filter(
+      reviewDraft.reviewDraftState.localThreads.filter(
         (thread) =>
-          thread.anchor !== null &&
-          thread.resolvedLocation.kind === 'diff' &&
-          thread.resolvedLocation.fileId === selectedFileId,
+          thread.draft.anchor !== null &&
+          thread.draft.resolvedLocation.kind === 'diff' &&
+          thread.draft.resolvedLocation.fileId === selectedFileId,
       ),
-    [reviewDraft.reviewDraftState.localDraftThreads, selectedFileId],
+    [reviewDraft.reviewDraftState.localThreads, selectedFileId],
   );
 
   const draftCountByFileId = useMemo(() => {
     const counts = new Map<string, number>();
 
-    for (const thread of reviewDraft.reviewDraftState.localDraftThreads) {
-      if (thread.resolvedLocation.kind !== 'diff') {
+    for (const thread of reviewDraft.reviewDraftState.localThreads) {
+      if (thread.draft.resolvedLocation.kind !== 'diff') {
         continue;
       }
 
       counts.set(
-        thread.resolvedLocation.fileId,
-        (counts.get(thread.resolvedLocation.fileId) ?? 0) + 1,
+        thread.draft.resolvedLocation.fileId,
+        (counts.get(thread.draft.resolvedLocation.fileId) ?? 0) + 1,
       );
     }
 
     return counts;
-  }, [reviewDraft.reviewDraftState.localDraftThreads]);
+  }, [reviewDraft.reviewDraftState.localThreads]);
 
   useEffect(() => {
     if (!selectedFile || selectedFile.contentStatus !== 'idle') {
@@ -240,13 +242,33 @@ export function ReviewPage() {
       return;
     }
 
-    const firstDiffThread = reviewDraft.reviewDraftState.localDraftThreads.find(
-      (thread) => thread.resolvedLocation.kind === 'diff',
+    const firstDiffThread = reviewDraft.reviewDraftState.localThreads.find(
+      (thread) => thread.draft.resolvedLocation.kind === 'diff',
     );
-    if (firstDiffThread && firstDiffThread.resolvedLocation.kind === 'diff') {
-      setSelectedFileId(firstDiffThread.resolvedLocation.fileId);
+    if (firstDiffThread && firstDiffThread.draft.resolvedLocation.kind === 'diff') {
+      setSelectedFileId(firstDiffThread.draft.resolvedLocation.fileId);
     }
-  }, [reviewDraft.reviewDraftState.reviewStatus, selectedFileId]);
+    if (reviewDraft.reviewDraftState.localThreads.length > 0) {
+      setSelectedLocalThreadId(reviewDraft.reviewDraftState.localThreads[0]?.localThreadId ?? null);
+    }
+  }, [
+    reviewDraft.reviewDraftState.localThreads,
+    reviewDraft.reviewDraftState.reviewStatus,
+    selectedFileId,
+  ]);
+
+  useEffect(() => {
+    if (
+      selectedLocalThreadId &&
+      reviewDraft.reviewDraftState.localThreads.some(
+        (thread) => thread.localThreadId === selectedLocalThreadId,
+      )
+    ) {
+      return;
+    }
+
+    setSelectedLocalThreadId(reviewDraft.reviewDraftState.localThreads[0]?.localThreadId ?? null);
+  }, [reviewDraft.reviewDraftState.localThreads, selectedLocalThreadId]);
 
   const handleStartDraftReview = useCallback(async () => {
     if (!reviewState.data.snapshotId) {
@@ -320,6 +342,34 @@ export function ReviewPage() {
       reviewState.replyThreadOptimistic(threadId, body);
     },
     [reviewState.replyThreadOptimistic],
+  );
+
+  const handleReplyLocalThread = useCallback(
+    (localThreadId: string, body: string) => {
+      void reviewDraft.replyToLocalThread(localThreadId, body);
+    },
+    [reviewDraft],
+  );
+
+  const handleRespondThreadPermission = useCallback(
+    (localThreadId: string, requestId: string, actionId: string) => {
+      void reviewDraft.respondToThreadPermission(localThreadId, requestId, actionId);
+    },
+    [reviewDraft],
+  );
+
+  const handleSelectDraftThread = useCallback(
+    (localThreadId: string) => {
+      setActiveRightPaneTab('drafts');
+      setSelectedLocalThreadId(localThreadId);
+      const thread = reviewDraft.reviewDraftState.localThreads.find(
+        (candidate) => candidate.localThreadId === localThreadId,
+      );
+      if (thread?.draft.resolvedLocation.kind === 'diff') {
+        setSelectedFileId(thread.draft.resolvedLocation.fileId);
+      }
+    },
+    [reviewDraft.reviewDraftState.localThreads],
   );
 
   const reviewTitle = reviewState.data.title || 'Review Snapshot';
@@ -398,15 +448,19 @@ export function ReviewPage() {
               summary={reviewDraft.reviewDraftState.summary}
               fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
               fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
-              threadCount={reviewDraft.reviewDraftState.localDraftThreads.length}
-              localDraftThreads={reviewDraft.reviewDraftState.localDraftThreads}
+              threadCount={reviewDraft.reviewDraftState.localThreads.length}
+              localThreads={reviewDraft.reviewDraftState.localThreads}
               overviewThreads={overviewThreads}
               selectedFileId={selectedFileId}
+              selectedThreadId={selectedLocalThreadId}
               fallbackActive={isFallbackActive}
               activeTab={activeRightPaneTab}
               onSelectFile={setSelectedFileId}
+              onSelectThread={handleSelectDraftThread}
               onTabChange={setActiveRightPaneTab}
-              onReply={handleReply}
+              onReplyOverviewThread={handleReply}
+              onReplyLocalThread={handleReplyLocalThread}
+              onRespondThreadPermission={handleRespondThreadPermission}
             />
           ) : null}
         </div>
@@ -430,7 +484,18 @@ export function ReviewPage() {
                   return (
                     <button
                       key={file.fileId}
-                      onClick={() => setSelectedFileId(file.fileId)}
+                      onClick={() => {
+                        setSelectedFileId(file.fileId);
+                        const nextThread = reviewDraft.reviewDraftState.localThreads.find(
+                          (thread) =>
+                            thread.draft.resolvedLocation.kind === 'diff' &&
+                            thread.draft.resolvedLocation.fileId === file.fileId,
+                        );
+                        if (nextThread) {
+                          setSelectedLocalThreadId(nextThread.localThreadId);
+                          setActiveRightPaneTab('drafts');
+                        }
+                      }}
                       className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
                         isActive
                           ? 'border-cyan-400/30 bg-cyan-400/10 text-white'
@@ -517,8 +582,10 @@ export function ReviewPage() {
                 file={selectedFile}
                 remoteThreads={selectedFile.threads}
                 draftThreads={selectedDraftThreads}
+                selectedDraftThreadId={selectedLocalThreadId}
                 onAddComment={handleAddComment}
                 onReply={handleReply}
+                onSelectDraftThread={handleSelectDraftThread}
               />
             ) : (
               <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-slate-500">

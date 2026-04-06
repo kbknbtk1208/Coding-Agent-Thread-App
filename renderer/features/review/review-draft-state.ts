@@ -2,10 +2,14 @@ import type { AgentEvent, AppSession } from '../../../shared/domain/agent';
 import type {
   ReviewDraftEnvelope,
   ReviewDraftFallbackReason,
+  ReviewLocalThread,
   ReviewRunRecord,
   ReviewSummaryDraft,
-  ReviewThreadDraft,
+  ReviewThreadBinding,
+  ReviewThreadMessage,
+  ReviewThreadReplyRecord,
 } from '../../../shared/domain/review-draft';
+import { createLocalThread } from '../../../shared/domain/review-draft';
 import {
   applyAgentEventToSession,
   mergeAppSessionSnapshot,
@@ -22,7 +26,7 @@ export interface ReviewDraftState {
   reviewStatus: ReviewDraftReviewStatus;
   latestRun: ReviewRunRecord | null;
   summary: ReviewSummaryDraft | null;
-  localDraftThreads: ReviewThreadDraft[];
+  localThreads: ReviewLocalThread[];
   fallbackRichText: string | null;
   fallbackReason: ReviewDraftFallbackReason | null;
   errorMessage: string | null;
@@ -55,6 +59,33 @@ export type ReviewDraftAction =
       envelope: Extract<ReviewDraftEnvelope, { kind: 'fallback-richText' }>;
     }
   | {
+      type: 'BEGIN_THREAD_REPLY';
+      localThreadId: string;
+      reply: ReviewThreadReplyRecord;
+      binding: ReviewThreadBinding;
+      session: AppSession;
+      userMessage: ReviewThreadMessage;
+    }
+  | {
+      type: 'SYNC_THREAD_SESSION';
+      localThreadId: string;
+      session: AppSession;
+    }
+  | {
+      type: 'APPLY_THREAD_SESSION_EVENT';
+      localThreadId: string;
+      event: AgentEvent;
+    }
+  | {
+      type: 'RESOLVE_THREAD_REPLY';
+      thread: ReviewLocalThread;
+    }
+  | {
+      type: 'FAIL_THREAD_REPLY';
+      localThreadId: string;
+      errorMessage: string;
+    }
+  | {
       type: 'FAIL';
       errorMessage: string;
       run?: ReviewRunRecord | null;
@@ -65,13 +96,23 @@ export function createInitialReviewDraftState(): ReviewDraftState {
     reviewStatus: 'idle',
     latestRun: null,
     summary: null,
-    localDraftThreads: [],
+    localThreads: [],
     fallbackRichText: null,
     fallbackReason: null,
     errorMessage: null,
     activeRunSessionId: null,
     activeRunSession: null,
   };
+}
+
+function updateLocalThread(
+  localThreads: ReviewLocalThread[],
+  localThreadId: string,
+  updater: (thread: ReviewLocalThread) => ReviewLocalThread,
+): ReviewLocalThread[] {
+  return localThreads.map((thread) =>
+    thread.localThreadId === localThreadId ? updater(thread) : thread,
+  );
 }
 
 export function reduceReviewDraftState(
@@ -87,7 +128,7 @@ export function reduceReviewDraftState(
         reviewStatus: 'drafting_review',
         latestRun: null,
         summary: null,
-        localDraftThreads: [],
+        localThreads: [],
         fallbackRichText: null,
         fallbackReason: null,
         errorMessage: null,
@@ -138,7 +179,7 @@ export function reduceReviewDraftState(
         reviewStatus: 'showing_local_threads',
         latestRun: action.envelope.run,
         summary: action.envelope.summary,
-        localDraftThreads: action.envelope.threads,
+        localThreads: action.envelope.threads.map((thread) => createLocalThread(thread)),
         fallbackRichText: null,
         fallbackReason: null,
         errorMessage: null,
@@ -150,10 +191,82 @@ export function reduceReviewDraftState(
         reviewStatus: 'showing_local_threads',
         latestRun: action.envelope.run,
         summary: null,
-        localDraftThreads: [],
+        localThreads: [],
         fallbackRichText: action.envelope.content,
         fallbackReason: action.envelope.reason,
         errorMessage: null,
+      };
+
+    case 'BEGIN_THREAD_REPLY':
+      return {
+        ...state,
+        localThreads: updateLocalThread(state.localThreads, action.localThreadId, (thread) => ({
+          ...thread,
+          binding: action.binding,
+          messages: [...thread.messages, action.userMessage],
+          replyStatus: 'replying',
+          lastError: null,
+          activeReplySessionId: action.reply.appSessionId,
+          activeReplySession: normalizeAppSession(action.session),
+        })),
+      };
+
+    case 'SYNC_THREAD_SESSION':
+      return {
+        ...state,
+        localThreads: updateLocalThread(state.localThreads, action.localThreadId, (thread) => ({
+          ...thread,
+          activeReplySessionId: action.session.appSessionId,
+          activeReplySession: mergeAppSessionSnapshot(
+            thread.activeReplySession ?? undefined,
+            normalizeAppSession(action.session),
+          ),
+        })),
+      };
+
+    case 'APPLY_THREAD_SESSION_EVENT':
+      return {
+        ...state,
+        localThreads: updateLocalThread(state.localThreads, action.localThreadId, (thread) => {
+          if (
+            thread.activeReplySessionId !== action.event.appSessionId ||
+            thread.activeReplySession === null
+          ) {
+            return thread;
+          }
+
+          const activeReplySession = applyAgentEventToSession(
+            thread.activeReplySession,
+            action.event,
+          );
+
+          return {
+            ...thread,
+            activeReplySession,
+            replyStatus: activeReplySession.status === 'failed' ? 'failed' : thread.replyStatus,
+            lastError: activeReplySession.lastError?.message ?? thread.lastError,
+          };
+        }),
+      };
+
+    case 'RESOLVE_THREAD_REPLY':
+      return {
+        ...state,
+        localThreads: updateLocalThread(
+          state.localThreads,
+          action.thread.localThreadId,
+          () => action.thread,
+        ),
+      };
+
+    case 'FAIL_THREAD_REPLY':
+      return {
+        ...state,
+        localThreads: updateLocalThread(state.localThreads, action.localThreadId, (thread) => ({
+          ...thread,
+          replyStatus: 'failed',
+          lastError: action.errorMessage,
+        })),
       };
 
     case 'FAIL': {
@@ -170,7 +283,7 @@ export function reduceReviewDraftState(
                 status: 'failed',
               },
         summary: null,
-        localDraftThreads: [],
+        localThreads: [],
         fallbackRichText: null,
         fallbackReason: null,
         errorMessage: action.errorMessage,

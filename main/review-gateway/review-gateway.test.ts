@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ReviewGateway } from './review-gateway';
+import type { AppSession } from '../../shared/domain/agent';
 import type { ReviewSourceDraft } from '../../shared/domain/review';
+import type { ReviewDraftEnvelope, ReviewRunRecord } from '../../shared/domain/review-draft';
+import { ReviewDraftStore } from './review-draft-store';
+import { ReviewGateway } from './review-gateway';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -219,5 +222,171 @@ describe('ReviewGateway', () => {
     } else {
       process.env.REVIEW_GITHUB_TOKEN = originalToken;
     }
+  });
+
+  it('routes a thread reply through the coordinator after loading a snapshot', async () => {
+    function makeSession(appSessionId: string, status: AppSession['status']): AppSession {
+      const finalResult =
+        status === 'completed'
+          ? ({
+              kind: 'richText' as const,
+              format: 'markdown' as const,
+              content: 'Assistant thread reply',
+              source: 'richText' as const,
+            } satisfies AppSession['finalResult'])
+          : undefined;
+      return {
+        appSessionId,
+        agent: 'codex',
+        cwd: 'C:/workspace',
+        status,
+        capabilities: [],
+        createdAt: '2026-04-05T00:00:00.000Z',
+        updatedAt: '2026-04-05T00:00:10.000Z',
+        turns: [],
+        streamBuffer: { content: '', messageId: null },
+        finalResult,
+        pendingPermissions: [],
+      };
+    }
+
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === '/repos/octocat/hello-world/pulls/1') {
+        return jsonResponse({
+          number: 1,
+          title: 'Thread reply test PR',
+          body: 'desc',
+          base: { sha: 'base-sha' },
+          head: { sha: 'head-sha' },
+        });
+      }
+      if (url.pathname === '/repos/octocat/hello-world/pulls/1/files') {
+        return jsonResponse([
+          {
+            sha: 'file-1',
+            filename: 'src/utils.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 1,
+            changes: 2,
+            patch: '@@ -1 +1 @@',
+            contents_url: 'https://api.github.com/repos/octocat/hello-world/contents/src/utils.ts',
+            blob_url: '',
+            raw_url: '',
+          },
+        ]);
+      }
+      if (url.pathname === '/repos/octocat/hello-world/pulls/1/comments') {
+        return jsonResponse([]);
+      }
+      if (url.pathname === '/repos/octocat/hello-world/issues/1/comments') {
+        return jsonResponse([]);
+      }
+      if (url.pathname === '/repos/octocat/hello-world/contents/src/utils.ts') {
+        return textResponse('export function x() {}');
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    });
+
+    const store = new ReviewDraftStore();
+    const forkSession = vi.fn(async () => makeSession('thread-session-1', 'completed'));
+    const sendFollowUp = vi.fn(async () => makeSession('thread-session-1', 'starting'));
+    const awaitSettled = vi.fn(async () => makeSession('thread-session-1', 'completed'));
+
+    const gateway = new ReviewGateway({
+      fetchImpl,
+      tokenResolver: () => 'token',
+      draftStore: store,
+      agentGateway: {
+        awaitSettled,
+        continueConversation: vi.fn(),
+        forkSession,
+        sendFollowUp,
+        startSession: vi.fn(),
+      },
+      now: () => '2026-04-05T00:00:00.000Z',
+    });
+
+    const { snapshot } = await gateway.loadReviewSource({
+      provider: 'github',
+      host: 'https://api.github.com',
+      reviewUrl: 'https://github.com/octocat/hello-world/pull/1',
+    } satisfies ReviewSourceDraft);
+
+    const run: ReviewRunRecord = {
+      runId: 'run-1',
+      snapshotId: snapshot.snapshotId,
+      reviewAgent: 'codex',
+      lensId: 'general',
+      instructions: 'review',
+      rootAppSessionId: 'root-1',
+      status: 'completed',
+      resultSource: 'codexOutputSchema',
+      createdAt: '2026-04-05T00:00:00.000Z',
+      completedAt: '2026-04-05T00:01:00.000Z',
+    };
+    const envelope: ReviewDraftEnvelope = {
+      kind: 'structured',
+      run,
+      summary: { headline: 'summary', overview: 'ok', positives: [], risks: [] },
+      threads: [
+        {
+          localThreadId: 'thread-1',
+          snapshotId: snapshot.snapshotId,
+          runId: 'run-1',
+          findingId: 'finding-1',
+          source: 'ai-review',
+          state: 'draft',
+          severity: 'medium',
+          category: 'correctness',
+          confidence: 'high',
+          title: 'Off-by-one risk',
+          draftBody: 'The zero branch may be skipped.',
+          resolvedLocation: { kind: 'overview' },
+          anchor: null,
+        },
+      ],
+    };
+    store.saveEnvelope(snapshot.snapshotId, envelope);
+
+    const begun = await gateway.beginDraftThreadReply({
+      snapshotId: snapshot.snapshotId,
+      localThreadId: 'thread-1',
+      body: 'Can you confirm the failure mode?',
+      cwd: 'C:/workspace',
+    });
+
+    expect(begun.reply.localThreadId).toBe('thread-1');
+    expect(begun.binding.strategy).toBe('codex-fork');
+
+    const { thread } = await gateway.awaitDraftThreadReplyResult({
+      replyId: begun.reply.replyId,
+    });
+
+    expect(thread.replyStatus).toBe('idle');
+    expect(thread.messages.at(-1)?.body).toBe('Assistant thread reply');
+  });
+
+  it('throws when beginDraftThreadReply is called without agentGateway', async () => {
+    const gateway = new ReviewGateway({ tokenResolver: () => 'token' });
+
+    await expect(
+      gateway.beginDraftThreadReply({
+        snapshotId: 'snapshot-1',
+        localThreadId: 'thread-1',
+        body: 'question',
+        cwd: 'C:/workspace',
+      }),
+    ).rejects.toThrow('not configured');
+  });
+
+  it('throws when awaitDraftThreadReplyResult is called for an unknown replyId', async () => {
+    const gateway = new ReviewGateway({ tokenResolver: () => 'token' });
+
+    await expect(
+      gateway.awaitDraftThreadReplyResult({ replyId: 'nonexistent-reply-id' }),
+    ).rejects.toThrow('nonexistent-reply-id');
   });
 });

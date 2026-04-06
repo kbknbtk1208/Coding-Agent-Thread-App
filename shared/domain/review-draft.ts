@@ -1,4 +1,4 @@
-import type { AgentKind, StructuredResultSource } from './agent';
+import type { AgentKind, AppSession, StructuredResultSource } from './agent';
 import type { ReviewAnchor, ReviewDiscussionLocation } from './review';
 
 export const REVIEW_DRAFT_SCHEMA_NAME = 'review-draft' as const;
@@ -137,6 +137,48 @@ export interface ReviewThreadDraft {
   debugDowngrade?: ReviewThreadDraftDebugDowngrade;
 }
 
+export interface ReviewThreadMessage {
+  localMessageId: string;
+  localThreadId: string;
+  role: 'assistant' | 'user';
+  source: 'initial-finding' | 'user-reply' | 'agent-reply';
+  body: string;
+  createdAt: string;
+}
+
+export interface ReviewThreadBinding {
+  snapshotId: string;
+  localThreadId: string;
+  runId: string;
+  rootAppSessionId: string;
+  discussionAppSessionId: string;
+  strategy: 'codex-fork' | 'app-side-rehydrate';
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export interface ReviewLocalThread {
+  localThreadId: string;
+  snapshotId: string;
+  runId: string;
+  draft: ReviewThreadDraft;
+  messages: ReviewThreadMessage[];
+  binding: ReviewThreadBinding | null;
+  replyStatus: 'idle' | 'replying' | 'failed';
+  lastError: string | null;
+  activeReplySessionId: string | null;
+  activeReplySession: AppSession | null;
+}
+
+export interface ReviewThreadReplyRecord {
+  replyId: string;
+  snapshotId: string;
+  localThreadId: string;
+  appSessionId: string;
+  userMessageId: string;
+  createdAt: string;
+}
+
 export type ReviewDraftFallbackReason =
   | 'structuredParseFailed'
   | 'schemaValidationFailed'
@@ -155,6 +197,41 @@ export type ReviewDraftEnvelope =
       content: string;
       reason: ReviewDraftFallbackReason;
     };
+
+function buildLocalThread(draft: ReviewThreadDraft, createdAt: string): ReviewLocalThread {
+  return {
+    localThreadId: draft.localThreadId,
+    snapshotId: draft.snapshotId,
+    runId: draft.runId,
+    draft,
+    messages: [
+      {
+        localMessageId: `${draft.localThreadId}:initial`,
+        localThreadId: draft.localThreadId,
+        role: 'assistant',
+        source: 'initial-finding',
+        body: draft.draftBody,
+        createdAt,
+      },
+    ],
+    binding: null,
+    replyStatus: 'idle',
+    lastError: null,
+    activeReplySessionId: null,
+    activeReplySession: null,
+  };
+}
+
+export function createLocalThread(draft: ReviewThreadDraft): ReviewLocalThread {
+  return buildLocalThread(draft, new Date().toISOString());
+}
+
+export function createReviewLocalThread(
+  draft: ReviewThreadDraft,
+  createdAt: string,
+): ReviewLocalThread {
+  return buildLocalThread(draft, createdAt);
+}
 
 export const REVIEW_DRAFT_JSON_SCHEMA = {
   additionalProperties: false,

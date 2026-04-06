@@ -1,6 +1,6 @@
-import path from 'path';
-import { BrowserWindow, app, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import serve from 'electron-serve';
+import path from 'path';
 import {
   AGENT_IPC_CHANNELS,
   type ContinueConversationInput,
@@ -11,12 +11,14 @@ import {
   type SteerActiveTurnInput,
 } from '../shared/contracts/agent-ipc';
 import {
-  REVIEW_IPC_CHANNELS,
   type AwaitDraftReviewResultInput,
+  type AwaitDraftThreadReplyResultInput,
   type BeginDraftReviewInput,
+  type BeginDraftThreadReplyInput,
   type CreateReviewThreadInput,
   type HydrateReviewFileInput,
   type LoadReviewSourceInput,
+  REVIEW_IPC_CHANNELS,
   type ReplyReviewThreadInput,
 } from '../shared/contracts/review-ipc';
 import { AgentGateway } from './agent-gateway/agent-gateway';
@@ -148,6 +150,23 @@ if (isProd) {
     REVIEW_IPC_CHANNELS.awaitDraftReviewResult,
     (_event, input: AwaitDraftReviewResultInput) => {
       return reviewGateway.awaitDraftReviewResult(input);
+    },
+  );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.beginDraftThreadReply,
+    (_event, input: BeginDraftThreadReplyInput) => {
+      return reviewGateway.beginDraftThreadReply({
+        ...input,
+        cwd: input.cwd?.trim() || process.cwd(),
+      });
+    },
+  );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.awaitDraftThreadReplyResult,
+    (_event, input: AwaitDraftThreadReplyResultInput) => {
+      return reviewGateway.awaitDraftThreadReplyResult(input);
     },
   );
 

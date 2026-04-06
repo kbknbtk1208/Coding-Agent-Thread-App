@@ -4,9 +4,10 @@ import type { ReviewRunRecord } from '../../../shared/domain/review-draft';
 import {
   createInitialReviewDraftState,
   isReviewDraftRunning,
-  reduceReviewDraftState,
   type ReviewDraftState,
+  reduceReviewDraftState,
 } from './review-draft-state';
+import { useReviewThreadConversations } from './use-review-thread-conversations';
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -20,6 +21,12 @@ export interface UseReviewDraftReturn {
   reviewDraftState: ReviewDraftState;
   isRunning: boolean;
   startDraftReview: (input: BeginDraftReviewInput) => Promise<ReviewRunRecord | null>;
+  replyToLocalThread: (localThreadId: string, body: string) => Promise<void>;
+  respondToThreadPermission: (
+    localThreadId: string,
+    requestId: string,
+    actionId: string,
+  ) => Promise<void>;
   resetReviewDraftState: () => void;
 }
 
@@ -30,6 +37,12 @@ export function useReviewDraft(): UseReviewDraftReturn {
   const requestIdRef = useRef(0);
   const inFlightRequestIdRef = useRef<number | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const threadConversations = useReviewThreadConversations({
+    dispatch,
+    stateRef,
+  });
+  const { replyToLocalThread, respondToThreadPermission, resetThreadConversationState } =
+    threadConversations;
 
   const cleanupSubscription = useCallback(() => {
     unsubscribeRef.current?.();
@@ -40,8 +53,9 @@ export function useReviewDraft(): UseReviewDraftReturn {
     requestIdRef.current += 1;
     inFlightRequestIdRef.current = null;
     cleanupSubscription();
+    resetThreadConversationState();
     dispatch({ type: 'RESET' });
-  }, [cleanupSubscription]);
+  }, [cleanupSubscription, resetThreadConversationState]);
 
   const startDraftReview = useCallback(
     async (input: BeginDraftReviewInput) => {
@@ -61,6 +75,7 @@ export function useReviewDraft(): UseReviewDraftReturn {
       const requestId = ++requestIdRef.current;
       inFlightRequestIdRef.current = requestId;
       cleanupSubscription();
+      resetThreadConversationState();
       dispatch({ type: 'START' });
 
       let activeRun: ReviewRunRecord | null = null;
@@ -166,7 +181,7 @@ export function useReviewDraft(): UseReviewDraftReturn {
         return null;
       }
     },
-    [cleanupSubscription],
+    [cleanupSubscription, resetThreadConversationState],
   );
 
   return useMemo(
@@ -174,8 +189,10 @@ export function useReviewDraft(): UseReviewDraftReturn {
       reviewDraftState: state,
       isRunning: isReviewDraftRunning(state),
       startDraftReview,
+      replyToLocalThread,
+      respondToThreadPermission,
       resetReviewDraftState,
     }),
-    [resetReviewDraftState, startDraftReview, state],
+    [replyToLocalThread, resetReviewDraftState, respondToThreadPermission, startDraftReview, state],
   );
 }

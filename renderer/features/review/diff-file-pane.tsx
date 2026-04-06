@@ -1,3 +1,6 @@
+import { generateDiffFile } from '@git-diff-view/file';
+import type { DiffFile } from '@git-diff-view/react';
+import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/react';
 import React, {
   useCallback,
   useEffect,
@@ -6,13 +9,10 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { DiffView, DiffModeEnum, SplitSide } from '@git-diff-view/react';
-import type { DiffFile } from '@git-diff-view/react';
-import { generateDiffFile } from '@git-diff-view/file';
 import type { NormalizedDiffFile, ReviewThread } from '../../../shared/domain/review';
-import type { ReviewThreadDraft } from '../../../shared/domain/review-draft';
-import { ThreadLayer } from './thread-layer';
+import type { ReviewLocalThread } from '../../../shared/domain/review-draft';
 import { CommentComposer } from './comment-composer';
+import { ThreadLayer } from './thread-layer';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -33,7 +33,8 @@ const INITIAL_CONTEXT_LINES = 3;
 interface DiffFilePaneProps {
   file: NormalizedDiffFile;
   remoteThreads: ReviewThread[];
-  draftThreads: ReviewThreadDraft[];
+  draftThreads: ReviewLocalThread[];
+  selectedDraftThreadId: string | null;
   onAddComment: (
     fileId: string,
     startLine: number | null,
@@ -42,6 +43,7 @@ interface DiffFilePaneProps {
     body: string,
   ) => void;
   onReply: (threadId: string, body: string) => void;
+  onSelectDraftThread: (localThreadId: string) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -56,7 +58,7 @@ interface RangeSelectionState {
 }
 
 interface LineExtendPayload {
-  draftThreads?: ReviewThreadDraft[];
+  draftThreads?: ReviewLocalThread[];
   remoteThreads?: ReviewThread[];
 }
 
@@ -90,9 +92,10 @@ function getChangeTypeBadgeClass(changeType: NormalizedDiffFile['changeType']): 
   }
 }
 
-function buildExtendData<T extends { anchor: { endLine: number | null; side: 'old' | 'new' } }>(
+function buildExtendData<T>(
   threads: T[],
   payloadKey: keyof LineExtendPayload,
+  getAnchor: (thread: T) => { endLine: number | null; side: 'old' | 'new' },
 ): {
   oldFile: Record<string, { data: LineExtendPayload }>;
   newFile: Record<string, { data: LineExtendPayload }>;
@@ -101,11 +104,12 @@ function buildExtendData<T extends { anchor: { endLine: number | null; side: 'ol
   const newFile: Record<string, { data: LineExtendPayload }> = {};
 
   for (const thread of threads) {
-    const lineNumber = thread.anchor.endLine;
+    const anchor = getAnchor(thread);
+    const lineNumber = anchor.endLine;
     if (lineNumber === null) continue;
 
     const lineKey = String(lineNumber);
-    const target = thread.anchor.side === 'old' ? oldFile : newFile;
+    const target = anchor.side === 'old' ? oldFile : newFile;
 
     if (target[lineKey]) {
       const existing = target[lineKey].data[payloadKey] ?? [];
@@ -162,7 +166,7 @@ function mergeExtendData(
   };
 }
 
-function getDraftSeverityBadgeClass(severity: ReviewThreadDraft['severity']): string {
+function getDraftSeverityBadgeClass(severity: ReviewLocalThread['draft']['severity']): string {
   switch (severity) {
     case 'high':
       return 'bg-red-500/20 text-red-200';
@@ -173,8 +177,8 @@ function getDraftSeverityBadgeClass(severity: ReviewThreadDraft['severity']): st
   }
 }
 
-function getDraftAnchorLabel(thread: ReviewThreadDraft): string {
-  const anchor = thread.anchor;
+function getDraftAnchorLabel(thread: ReviewLocalThread): string {
+  const anchor = thread.draft.anchor;
   if (!anchor) {
     return 'Overview';
   }
@@ -189,7 +193,30 @@ function getDraftAnchorLabel(thread: ReviewThreadDraft): string {
   }
 }
 
-function DraftThreadLayer({ threads }: { threads: ReviewThreadDraft[] }) {
+function getDraftPreviewText(thread: ReviewLocalThread): string | null {
+  const latestUserMessage = [...thread.messages]
+    .reverse()
+    .find((message) => message.role === 'user');
+  const latestAssistantMessage = [...thread.messages]
+    .reverse()
+    .find((message) => message.role === 'assistant');
+  const preview = [latestUserMessage, latestAssistantMessage]
+    .filter((message): message is NonNullable<typeof message> => message !== undefined)
+    .map((message) => `${message.role === 'assistant' ? 'Assistant' : 'You'}: ${message.body}`)
+    .join('\n');
+
+  return preview || null;
+}
+
+function DraftThreadLayer({
+  threads,
+  selectedDraftThreadId,
+  onSelectDraftThread,
+}: {
+  threads: ReviewLocalThread[];
+  selectedDraftThreadId: string | null;
+  onSelectDraftThread: (localThreadId: string) => void;
+}) {
   if (threads.length === 0) {
     return null;
   }
@@ -197,25 +224,51 @@ function DraftThreadLayer({ threads }: { threads: ReviewThreadDraft[] }) {
   return (
     <div className="border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-4 py-3">
       {threads.map((thread) => (
-        <div key={thread.localThreadId} className="mb-3 last:mb-0">
+        <div
+          key={thread.localThreadId}
+          className={`mb-3 rounded-2xl p-3 last:mb-0 ${
+            thread.localThreadId === selectedDraftThreadId
+              ? 'border border-fuchsia-300/30 bg-fuchsia-500/10'
+              : 'border border-transparent'
+          }`}
+        >
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-fuchsia-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200">
               Draft
             </span>
             <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${getDraftSeverityBadgeClass(thread.severity)}`}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${getDraftSeverityBadgeClass(thread.draft.severity)}`}
             >
-              {thread.severity}
+              {thread.draft.severity}
             </span>
             <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">
               {getDraftAnchorLabel(thread)}
             </span>
+            {thread.replyStatus === 'replying' ? (
+              <span className="rounded-full bg-cyan-400/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-200">
+                replying
+              </span>
+            ) : null}
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-semibold text-white">{thread.title}</p>
+            <p className="text-sm font-semibold text-white">{thread.draft.title}</p>
             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
-              {thread.draftBody}
+              {thread.draft.draftBody}
             </p>
+            {getDraftPreviewText(thread) ? (
+              <p className="whitespace-pre-wrap text-xs leading-5 text-slate-400">
+                {getDraftPreviewText(thread)}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                onSelectDraftThread(thread.localThreadId);
+              }}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/10"
+            >
+              Reply in panel
+            </button>
           </div>
         </div>
       ))}
@@ -412,8 +465,10 @@ export function DiffFilePane({
   file,
   remoteThreads,
   draftThreads,
+  selectedDraftThreadId,
   onAddComment,
   onReply,
+  onSelectDraftThread,
 }: DiffFilePaneProps) {
   const [expanded, setExpanded] = useState(!file.isLargeDiff);
 
@@ -463,8 +518,11 @@ export function DiffFilePane({
       draftThreads.filter(
         (
           thread,
-        ): thread is ReviewThreadDraft & { anchor: NonNullable<ReviewThreadDraft['anchor']> } =>
-          thread.anchor !== null && thread.anchor.endLine === null,
+        ): thread is ReviewLocalThread & {
+          draft: ReviewLocalThread['draft'] & {
+            anchor: NonNullable<ReviewLocalThread['draft']['anchor']>;
+          };
+        } => thread.draft.anchor !== null && thread.draft.anchor.endLine === null,
       ),
     [draftThreads],
   );
@@ -474,18 +532,21 @@ export function DiffFilePane({
       draftThreads.filter(
         (
           thread,
-        ): thread is ReviewThreadDraft & { anchor: NonNullable<ReviewThreadDraft['anchor']> } =>
-          thread.anchor !== null && thread.anchor.endLine !== null,
+        ): thread is ReviewLocalThread & {
+          draft: ReviewLocalThread['draft'] & {
+            anchor: NonNullable<ReviewLocalThread['draft']['anchor']>;
+          };
+        } => thread.draft.anchor !== null && thread.draft.anchor.endLine !== null,
       ),
     [draftThreads],
   );
 
   const threadExtendData = useMemo(
-    () => buildExtendData(inlineRemoteThreads, 'remoteThreads'),
+    () => buildExtendData(inlineRemoteThreads, 'remoteThreads', (thread) => thread.anchor),
     [inlineRemoteThreads],
   );
   const draftExtendData = useMemo(
-    () => buildExtendData(inlineDraftThreads, 'draftThreads'),
+    () => buildExtendData(inlineDraftThreads, 'draftThreads', (thread) => thread.draft.anchor),
     [inlineDraftThreads],
   );
 
@@ -536,7 +597,14 @@ export function DiffFilePane({
       }
 
       if (data?.draftThreads?.length) {
-        elements.push(<DraftThreadLayer key="draft-threads" threads={data.draftThreads} />);
+        elements.push(
+          <DraftThreadLayer
+            key="draft-threads"
+            threads={data.draftThreads}
+            selectedDraftThreadId={selectedDraftThreadId}
+            onSelectDraftThread={onSelectDraftThread}
+          />,
+        );
       }
 
       // Range composer
@@ -562,7 +630,14 @@ export function DiffFilePane({
       if (elements.length === 0) return null;
       return <>{elements}</>;
     },
-    [onReply, rangeSelection, file.fileId, onAddComment],
+    [
+      onReply,
+      onSelectDraftThread,
+      rangeSelection,
+      file.fileId,
+      onAddComment,
+      selectedDraftThreadId,
+    ],
   );
 
   const renderWidgetLine = useCallback(
@@ -704,11 +779,11 @@ export function DiffFilePane({
     }
 
     for (const thread of inlineDraftThreads) {
-      if (thread.anchor?.kind !== 'range') continue;
-      const start = thread.anchor.startLine;
-      const end = thread.anchor.endLine;
+      if (thread.draft.anchor?.kind !== 'range') continue;
+      const start = thread.draft.anchor.startLine;
+      const end = thread.draft.anchor.endLine;
       if (start === null || end === null) continue;
-      const sideStr = anchorSideToDataAttr(thread.anchor.side);
+      const sideStr = anchorSideToDataAttr(thread.draft.anchor.side);
       const selectors: string[] = [];
       for (let ln = start; ln <= end; ln++) {
         selectors.push(`${scope} tr.diff-line[data-side="${sideStr}"][data-line="${ln}"] td`);
@@ -1020,7 +1095,11 @@ export function DiffFilePane({
         <div>
           {renderPlaceholder()}
           <ThreadLayer threads={remoteThreads} onReply={onReply} />
-          <DraftThreadLayer threads={draftThreads} />
+          <DraftThreadLayer
+            threads={draftThreads}
+            selectedDraftThreadId={selectedDraftThreadId}
+            onSelectDraftThread={onSelectDraftThread}
+          />
         </div>
       ) : file.isLargeDiff && !expanded ? (
         <div className="flex items-center justify-center px-4 py-8">
@@ -1054,7 +1133,13 @@ export function DiffFilePane({
           {fileLevelRemoteThreads.length > 0 && (
             <ThreadLayer threads={fileLevelRemoteThreads} onReply={onReply} />
           )}
-          {fileLevelDraftThreads.length > 0 && <DraftThreadLayer threads={fileLevelDraftThreads} />}
+          {fileLevelDraftThreads.length > 0 && (
+            <DraftThreadLayer
+              threads={fileLevelDraftThreads}
+              selectedDraftThreadId={selectedDraftThreadId}
+              onSelectDraftThread={onSelectDraftThread}
+            />
+          )}
 
           {/* Dynamic highlight for selected range */}
           {highlightStyle && <style>{highlightStyle}</style>}

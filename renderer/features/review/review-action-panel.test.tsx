@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppSession } from '../../../shared/domain/agent';
 import type { ReviewSnapshotThread } from '../../../shared/domain/review';
 import type {
+  ReviewLocalThread,
   ReviewRunRecord,
   ReviewSummaryDraft,
-  ReviewThreadDraft,
 } from '../../../shared/domain/review-draft';
 import { ReviewActionPanel, type ReviewActionPanelProps } from './review-action-panel';
 
@@ -52,14 +52,17 @@ vi.mock('./local-thread-panel', () => ({
   LocalThreadPanel: ({
     threads,
     selectedFileId,
+    selectedLocalThreadId,
     fallbackActive,
   }: {
-    threads: ReviewThreadDraft[];
+    threads: ReviewLocalThread[];
     selectedFileId: string | null;
+    selectedLocalThreadId: string | null;
     fallbackActive: boolean;
   }) => (
     <div>
-      drafts:{threads.length}:{selectedFileId ?? 'none'}:{fallbackActive ? 'fallback' : 'normal'}
+      drafts:{threads.length}:{selectedFileId ?? 'none'}:{selectedLocalThreadId ?? 'none'}:
+      {fallbackActive ? 'fallback' : 'normal'}
     </div>
   ),
 }));
@@ -112,35 +115,55 @@ function createSummary(): ReviewSummaryDraft {
   };
 }
 
-function createDraftThread(): ReviewThreadDraft {
+function createLocalThread(): ReviewLocalThread {
   return {
     localThreadId: 'local-thread-1',
     snapshotId: 'snapshot-1',
     runId: 'run-1',
-    findingId: 'finding-1',
-    source: 'ai-review',
-    state: 'draft',
-    severity: 'high',
-    category: 'correctness',
-    confidence: 'high',
-    title: 'Thread title',
-    draftBody: 'Thread body',
-    resolvedLocation: {
-      kind: 'diff',
-      fileId: 'file-1',
-      filePath: 'src/file.ts',
-      startLine: 10,
-      endLine: 12,
-      side: 'new',
+    draft: {
+      localThreadId: 'local-thread-1',
+      snapshotId: 'snapshot-1',
+      runId: 'run-1',
+      findingId: 'finding-1',
+      source: 'ai-review',
+      state: 'draft',
+      severity: 'high',
+      category: 'correctness',
+      confidence: 'high',
+      title: 'Thread title',
+      draftBody: 'Thread body',
+      resolvedLocation: {
+        kind: 'diff',
+        fileId: 'file-1',
+        filePath: 'src/file.ts',
+        startLine: 10,
+        endLine: 12,
+        side: 'new',
+      },
+      anchor: {
+        fileId: 'file-1',
+        filePath: 'src/file.ts',
+        startLine: 10,
+        endLine: 12,
+        side: 'new',
+        kind: 'range',
+      },
     },
-    anchor: {
-      fileId: 'file-1',
-      filePath: 'src/file.ts',
-      startLine: 10,
-      endLine: 12,
-      side: 'new',
-      kind: 'range',
-    },
+    messages: [
+      {
+        localMessageId: 'local-thread-1:initial',
+        localThreadId: 'local-thread-1',
+        role: 'assistant',
+        source: 'initial-finding',
+        body: 'Thread body',
+        createdAt: '2026-04-04T00:01:00.000Z',
+      },
+    ],
+    binding: null,
+    replyStatus: 'idle',
+    lastError: null,
+    activeReplySessionId: null,
+    activeReplySession: null,
   };
 }
 
@@ -186,14 +209,18 @@ function createProps(overrides: Partial<ReviewActionPanelProps> = {}): ReviewAct
     fallbackRichText: null,
     fallbackReason: null,
     threadCount: 1,
-    localDraftThreads: [createDraftThread()],
+    localThreads: [createLocalThread()],
     overviewThreads: [createOverviewThread()],
     selectedFileId: 'file-1',
+    selectedThreadId: 'local-thread-1',
     fallbackActive: false,
     activeTab: 'drafts',
     onSelectFile: () => undefined,
+    onSelectThread: () => undefined,
     onTabChange: () => undefined,
-    onReply: () => undefined,
+    onReplyOverviewThread: () => undefined,
+    onReplyLocalThread: () => undefined,
+    onRespondThreadPermission: () => undefined,
     ...overrides,
   };
 }
@@ -235,7 +262,7 @@ describe('ReviewActionPanel', () => {
     expect(html).toContain('summary:showing_local_threads:no-error:summary headline');
     expect(html).toContain('Drafts');
     expect(html).toContain('Overview');
-    expect(html).toContain('drafts:1:file-1:normal');
+    expect(html).toContain('drafts:1:file-1:local-thread-1:normal');
     expect(html).not.toContain('stream:');
   });
 
@@ -250,7 +277,7 @@ describe('ReviewActionPanel', () => {
     );
 
     expect(html).toContain('overview:1');
-    expect(html).not.toContain('drafts:1:file-1:normal');
+    expect(html).not.toContain('drafts:1:file-1:local-thread-1:normal');
   });
 
   it('forwards the failure message to the summary in failed state', () => {
@@ -260,7 +287,7 @@ describe('ReviewActionPanel', () => {
           reviewStatus: 'failed',
           executionError: 'review failed',
           summary: null,
-          localDraftThreads: [],
+          localThreads: [],
           threadCount: 0,
         })}
       />,

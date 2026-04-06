@@ -193,6 +193,17 @@ describe('ReviewRunCoordinator', () => {
       }),
     );
     expect(store.getLatestEnvelope('snapshot-1')?.kind).toBe('structured');
+    if (envelope.kind !== 'structured') {
+      return;
+    }
+    expect(envelope.threads[0]?.title).toBe('title');
+    expect(store.getLocalThreads('snapshot-1')[0]?.messages).toEqual([
+      expect.objectContaining({
+        source: 'initial-finding',
+        role: 'assistant',
+        body: 'body',
+      }),
+    ]);
   });
 
   it('stores fallback rich text envelopes when structured parsing fails', async () => {

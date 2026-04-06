@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron';
 import {
   AGENT_IPC_CHANNELS,
   type AgentEventPayload,
@@ -11,17 +11,21 @@ import {
   type SteerActiveTurnInput,
 } from '../shared/contracts/agent-ipc';
 import {
-  REVIEW_IPC_CHANNELS,
   type AwaitDraftReviewResultInput,
   type AwaitDraftReviewResultResult,
+  type AwaitDraftThreadReplyResultInput,
+  type AwaitDraftThreadReplyResultResult,
   type BeginDraftReviewInput,
   type BeginDraftReviewResult,
+  type BeginDraftThreadReplyInput,
+  type BeginDraftThreadReplyResult,
   type CreateReviewThreadInput,
   type CreateReviewThreadResult,
   type HydrateReviewFileInput,
   type HydrateReviewFileResult,
   type LoadReviewSourceInput,
   type LoadReviewSourceResult,
+  REVIEW_IPC_CHANNELS,
   type ReplyReviewThreadInput,
   type ReplyReviewThreadResult,
 } from '../shared/contracts/review-ipc';
@@ -96,6 +100,14 @@ const reviewApi = {
     input: AwaitDraftReviewResultInput,
   ): Promise<AwaitDraftReviewResultResult> {
     return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.awaitDraftReviewResult, input);
+  },
+  beginDraftThreadReply(input: BeginDraftThreadReplyInput): Promise<BeginDraftThreadReplyResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.beginDraftThreadReply, input);
+  },
+  awaitDraftThreadReplyResult(
+    input: AwaitDraftThreadReplyResultInput,
+  ): Promise<AwaitDraftThreadReplyResultResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.awaitDraftThreadReplyResult, input);
   },
 };
 

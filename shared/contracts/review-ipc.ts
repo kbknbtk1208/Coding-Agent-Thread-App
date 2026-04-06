@@ -1,3 +1,4 @@
+import type { AgentKind } from '../domain/agent';
 import type {
   ReviewAnchor,
   ReviewSnapshot,
@@ -5,8 +6,13 @@ import type {
   ReviewSnapshotThread,
   ReviewSourceDraft,
 } from '../domain/review';
-import type { AgentKind } from '../domain/agent';
-import type { ReviewDraftEnvelope, ReviewRunRecord } from '../domain/review-draft';
+import type {
+  ReviewDraftEnvelope,
+  ReviewLocalThread,
+  ReviewRunRecord,
+  ReviewThreadBinding,
+  ReviewThreadReplyRecord,
+} from '../domain/review-draft';
 import type { AgentSessionSnapshot } from './agent-ipc';
 
 export const REVIEW_IPC_CHANNELS = {
@@ -16,6 +22,8 @@ export const REVIEW_IPC_CHANNELS = {
   replyThread: 'review:reply-thread',
   beginDraftReview: 'review:begin-draft-review',
   awaitDraftReviewResult: 'review:await-draft-review-result',
+  beginDraftThreadReply: 'review:begin-draft-thread-reply',
+  awaitDraftThreadReplyResult: 'review:await-draft-thread-reply-result',
 } as const;
 
 export interface LoadReviewSourceInput {
@@ -76,4 +84,25 @@ export interface AwaitDraftReviewResultInput {
 
 export interface AwaitDraftReviewResultResult {
   result: ReviewDraftEnvelope;
+}
+
+export interface BeginDraftThreadReplyInput {
+  snapshotId: string;
+  localThreadId: string;
+  body: string;
+  cwd?: string;
+}
+
+export interface BeginDraftThreadReplyResult {
+  reply: ReviewThreadReplyRecord;
+  binding: ReviewThreadBinding;
+  session: AgentSessionSnapshot;
+}
+
+export interface AwaitDraftThreadReplyResultInput {
+  replyId: string;
+}
+
+export interface AwaitDraftThreadReplyResultResult {
+  thread: ReviewLocalThread;
 }
