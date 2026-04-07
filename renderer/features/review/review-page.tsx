@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentKind } from '../../../shared/domain/agent';
 import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
 import { DiffFilePane } from './diff-file-pane';
+import { OverviewDiscussionPanel } from './overview-discussion-panel';
+import { OverviewDraftThreadSection } from './overview-draft-thread-section';
 import { ReviewActionPanel } from './review-action-panel';
 import {
   getDefaultReviewHost,
@@ -12,6 +14,7 @@ import {
   serializeReviewSource,
 } from './review-source';
 import { ReviewSourceSelector } from './review-source-selector';
+import { useDraftComposerState } from './use-draft-composer-state';
 import { useReviewData } from './use-review-data';
 import { useReviewDraft } from './use-review-draft';
 import { useReviewState } from './use-review-state';
@@ -49,11 +52,11 @@ export function ReviewPage() {
   const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedLocalThreadId, setSelectedLocalThreadId] = useState<string | null>(null);
-  const [activeRightPaneTab, setActiveRightPaneTab] = useState<'drafts' | 'overview'>('drafts');
   const [validationError, setValidationError] = useState<string | null>(null);
   const { data, loading, error, initialSelectedFileId, loadSource } = useReviewData();
   const reviewState = useReviewState();
   const reviewDraft = useReviewDraft();
+  const draftComposer = useDraftComposerState();
   const lastLoadedSourceKeyRef = useRef<string | null>(null);
   const activeSnapshotIdRef = useRef('');
   const hydratingFileKeysRef = useRef(new Set<string>());
@@ -122,9 +125,9 @@ export function ReviewPage() {
 
   useEffect(() => {
     reviewDraft.resetReviewDraftState();
-    setActiveRightPaneTab('drafts');
+    draftComposer.clearAll();
     setSelectedLocalThreadId(null);
-  }, [reviewState.data.snapshotId, reviewDraft.resetReviewDraftState]);
+  }, [reviewState.data.snapshotId, reviewDraft.resetReviewDraftState, draftComposer.clearAll]);
 
   useEffect(() => {
     activeSnapshotIdRef.current = reviewState.data.snapshotId;
@@ -161,6 +164,14 @@ export function ReviewPage() {
           thread.draft.resolvedLocation.fileId === selectedFileId,
       ),
     [reviewDraft.reviewDraftState.localThreads, selectedFileId],
+  );
+
+  const overviewDraftThreads = useMemo(
+    () =>
+      reviewDraft.reviewDraftState.localThreads.filter(
+        (thread) => thread.draft.resolvedLocation.kind === 'overview',
+      ),
+    [reviewDraft.reviewDraftState.localThreads],
   );
 
   const draftCountByFileId = useMemo(() => {
@@ -270,20 +281,33 @@ export function ReviewPage() {
     setSelectedLocalThreadId(reviewDraft.reviewDraftState.localThreads[0]?.localThreadId ?? null);
   }, [reviewDraft.reviewDraftState.localThreads, selectedLocalThreadId]);
 
+  useEffect(() => {
+    if (!selectedLocalThreadId) {
+      return;
+    }
+
+    const selectedThread = reviewDraft.reviewDraftState.localThreads.find(
+      (thread) => thread.localThreadId === selectedLocalThreadId,
+    );
+    if (!selectedThread || selectedThread.draft.resolvedLocation.kind !== 'diff') {
+      return;
+    }
+
+    if (selectedThread.draft.resolvedLocation.fileId !== selectedFileId) {
+      setSelectedFileId(selectedThread.draft.resolvedLocation.fileId);
+    }
+  }, [reviewDraft.reviewDraftState.localThreads, selectedFileId, selectedLocalThreadId]);
+
   const handleStartDraftReview = useCallback(async () => {
     if (!reviewState.data.snapshotId) {
       return;
     }
 
-    const result = await reviewDraft.startDraftReview({
+    await reviewDraft.startDraftReview({
       snapshotId: reviewState.data.snapshotId,
       reviewAgent,
       instructions: reviewInstructions,
     });
-
-    if (result) {
-      setActiveRightPaneTab('drafts');
-    }
   }, [reviewDraft, reviewAgent, reviewInstructions, reviewState.data.snapshotId]);
 
   const handleProviderSwitch = useCallback((nextProvider: ReviewProvider) => {
@@ -346,9 +370,15 @@ export function ReviewPage() {
 
   const handleReplyLocalThread = useCallback(
     (localThreadId: string, body: string) => {
-      void reviewDraft.replyToLocalThread(localThreadId, body);
+      const replyBody = body;
+      if (!replyBody.trim()) {
+        return;
+      }
+
+      draftComposer.clearReplyBody(localThreadId);
+      void reviewDraft.replyToLocalThread(localThreadId, replyBody);
     },
-    [reviewDraft],
+    [draftComposer, reviewDraft],
   );
 
   const handleRespondThreadPermission = useCallback(
@@ -360,7 +390,6 @@ export function ReviewPage() {
 
   const handleSelectDraftThread = useCallback(
     (localThreadId: string) => {
-      setActiveRightPaneTab('drafts');
       setSelectedLocalThreadId(localThreadId);
       const thread = reviewDraft.reviewDraftState.localThreads.find(
         (candidate) => candidate.localThreadId === localThreadId,
@@ -375,9 +404,9 @@ export function ReviewPage() {
   const reviewTitle = reviewState.data.title || 'Review Snapshot';
   const reviewDescription =
     reviewState.data.description ||
-    '説明はまだありません。overview discussion は上部パネルで確認できます。';
+    '説明はまだありません。overview discussion と draft thread は main content 側で確認できます。';
   const hasLoadedReview = Boolean(reviewState.data.snapshotId);
-  const isFallbackActive = reviewDraft.reviewDraftState.fallbackRichText !== null;
+  const overviewConversationCount = overviewThreads.length + overviewDraftThreads.length;
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-white">
@@ -397,7 +426,7 @@ export function ReviewPage() {
               <h1 className="truncate text-sm font-semibold">{reviewTitle}</h1>
               <p className="mt-1 text-xs text-slate-500">
                 {hasLoadedReview
-                  ? `${reviewState.data.files.length} files / ${overviewThreads.length} overview threads`
+                  ? `${reviewState.data.files.length} files / ${overviewConversationCount} overview conversations`
                   : 'GitHub / GitLab の PR・MR URL を入力して読み込みます。'}
               </p>
             </div>
@@ -449,18 +478,7 @@ export function ReviewPage() {
               fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
               fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
               threadCount={reviewDraft.reviewDraftState.localThreads.length}
-              localThreads={reviewDraft.reviewDraftState.localThreads}
-              overviewThreads={overviewThreads}
-              selectedFileId={selectedFileId}
-              selectedThreadId={selectedLocalThreadId}
-              fallbackActive={isFallbackActive}
-              activeTab={activeRightPaneTab}
-              onSelectFile={setSelectedFileId}
-              onSelectThread={handleSelectDraftThread}
-              onTabChange={setActiveRightPaneTab}
-              onReplyOverviewThread={handleReply}
-              onReplyLocalThread={handleReplyLocalThread}
-              onRespondThreadPermission={handleRespondThreadPermission}
+              overviewConversationCount={overviewConversationCount}
             />
           ) : null}
         </div>
@@ -493,7 +511,6 @@ export function ReviewPage() {
                         );
                         if (nextThread) {
                           setSelectedLocalThreadId(nextThread.localThreadId);
-                          setActiveRightPaneTab('drafts');
                         }
                       }}
                       className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
@@ -576,6 +593,22 @@ export function ReviewPage() {
               ) : null}
             </div>
 
+            <OverviewDraftThreadSection
+              threads={overviewDraftThreads}
+              selectedLocalThreadId={selectedLocalThreadId}
+              replyBodies={draftComposer.replyBodies}
+              onSelectThread={handleSelectDraftThread}
+              onReplyBodyChange={draftComposer.setReplyBody}
+              onSubmitReply={handleReplyLocalThread}
+              onRespondToPermission={handleRespondThreadPermission}
+            />
+
+            {overviewThreads.length > 0 ? (
+              <div className="mb-4">
+                <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
+              </div>
+            ) : null}
+
             {selectedFile ? (
               <DiffFilePane
                 key={selectedFile.fileId}
@@ -583,9 +616,13 @@ export function ReviewPage() {
                 remoteThreads={selectedFile.threads}
                 draftThreads={selectedDraftThreads}
                 selectedDraftThreadId={selectedLocalThreadId}
+                draftReplyBodies={draftComposer.replyBodies}
                 onAddComment={handleAddComment}
                 onReply={handleReply}
                 onSelectDraftThread={handleSelectDraftThread}
+                onDraftReplyBodyChange={draftComposer.setReplyBody}
+                onReplyToDraftThread={handleReplyLocalThread}
+                onRespondDraftThreadPermission={handleRespondThreadPermission}
               />
             ) : (
               <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-slate-500">
@@ -605,7 +642,7 @@ export function ReviewPage() {
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-400">
               左側の file list にはメタデータだけを先に出し、本文は選択ファイルごとに lazy hydrate
-              します。review 結果や overview discussion は上部パネルに集約して表示します。
+              します。review 結果は compact panel に、thread 会話は main content に表示します。
             </p>
           </div>
         </main>

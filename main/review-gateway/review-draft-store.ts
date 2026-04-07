@@ -53,15 +53,32 @@ function cloneLocalThreads(threads: ReviewLocalThread[]): ReviewLocalThread[] {
   return threads.map((thread) => cloneLocalThread(thread));
 }
 
-function seedLocalThreads(
+function syncLocalThreads(
   currentLocalThreads: ReviewLocalThread[],
   envelope: ReviewDraftEnvelope,
 ): ReviewLocalThread[] {
-  if (currentLocalThreads.length > 0 || envelope.kind !== 'structured') {
-    return cloneLocalThreads(currentLocalThreads);
+  if (envelope.kind !== 'structured') {
+    return [];
   }
 
-  return envelope.threads.map((thread) => createLocalThread(structuredClone(thread)));
+  const currentById = new Map(
+    currentLocalThreads.map((thread) => [thread.localThreadId, cloneLocalThread(thread)]),
+  );
+
+  return envelope.threads.map((draftThread) => {
+    const currentThread = currentById.get(draftThread.localThreadId);
+    if (!currentThread) {
+      return createLocalThread(structuredClone(draftThread));
+    }
+
+    return {
+      ...currentThread,
+      localThreadId: draftThread.localThreadId,
+      snapshotId: draftThread.snapshotId,
+      runId: draftThread.runId,
+      draft: structuredClone(draftThread),
+    };
+  });
 }
 
 export class ReviewDraftStore {
@@ -76,7 +93,7 @@ export class ReviewDraftStore {
       runs: upsertRun(current.runs, clonedEnvelope.run),
       latestEnvelope: clonedEnvelope,
       threads: clonedEnvelope.kind === 'structured' ? cloneThreads(clonedEnvelope.threads) : [],
-      localThreads: seedLocalThreads(current.localThreads, clonedEnvelope),
+      localThreads: syncLocalThreads(current.localThreads, clonedEnvelope),
     });
   }
 

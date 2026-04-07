@@ -17,7 +17,7 @@ function createRun(runId: string): ReviewDraftEnvelope['run'] {
   };
 }
 
-function createDraft(): ReviewThreadDraft {
+function createDraft(overrides: Partial<ReviewThreadDraft> = {}): ReviewThreadDraft {
   return {
     localThreadId: 'thread-1',
     snapshotId: 'snapshot-1',
@@ -34,10 +34,11 @@ function createDraft(): ReviewThreadDraft {
       kind: 'overview',
     },
     anchor: null,
+    ...overrides,
   };
 }
 
-function createEnvelope(runId: string): ReviewDraftEnvelope {
+function createEnvelope(runId: string, localThreadId = 'thread-1'): ReviewDraftEnvelope {
   return {
     kind: 'structured',
     run: createRun(runId),
@@ -47,12 +48,7 @@ function createEnvelope(runId: string): ReviewDraftEnvelope {
       positives: [],
       risks: [],
     },
-    threads: [
-      {
-        ...createDraft(),
-        runId,
-      },
-    ],
+    threads: [createDraft({ localThreadId, runId })],
   };
 }
 
@@ -104,5 +100,35 @@ describe('ReviewDraftStore', () => {
     expect(thread?.binding?.discussionAppSessionId).toBe('thread-session-1');
     expect(thread?.replyStatus).toBe('replying');
     expect(store.getRuns('snapshot-1')[0]?.runId).toBe('run-1');
+  });
+
+  it('replaces local threads when a newer structured envelope is saved for the same snapshot', () => {
+    const store = new ReviewDraftStore();
+    store.saveEnvelope('snapshot-1', createEnvelope('run-1', 'thread-1'));
+
+    store.appendThreadMessage('snapshot-1', 'thread-1', {
+      localMessageId: 'thread-1:user:1',
+      localThreadId: 'thread-1',
+      role: 'user',
+      source: 'user-reply',
+      body: 'Old run follow-up',
+      createdAt: '2026-04-03T00:02:00.000Z',
+    });
+
+    store.saveEnvelope('snapshot-1', createEnvelope('run-2', 'thread-2'));
+
+    expect(store.getLocalThread('snapshot-1', 'thread-1')).toBeNull();
+    expect(store.getLocalThreads('snapshot-1')).toEqual([
+      expect.objectContaining({
+        localThreadId: 'thread-2',
+        runId: 'run-2',
+        messages: [
+          expect.objectContaining({
+            localThreadId: 'thread-2',
+            source: 'initial-finding',
+          }),
+        ],
+      }),
+    ]);
   });
 });

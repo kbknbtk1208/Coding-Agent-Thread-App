@@ -369,6 +369,172 @@ describe('ReviewGateway', () => {
     expect(thread.messages.at(-1)?.body).toBe('Assistant thread reply');
   });
 
+  it('uses the latest structured draft threads when replying after a rerun on the same snapshot', async () => {
+    function makeSession(appSessionId: string, status: AppSession['status']): AppSession {
+      const finalResult =
+        status === 'completed'
+          ? ({
+              kind: 'richText' as const,
+              format: 'markdown' as const,
+              content: 'Assistant thread reply',
+              source: 'richText' as const,
+            } satisfies AppSession['finalResult'])
+          : undefined;
+      return {
+        appSessionId,
+        agent: 'codex',
+        cwd: 'C:/workspace',
+        status,
+        capabilities: [],
+        createdAt: '2026-04-05T00:00:00.000Z',
+        updatedAt: '2026-04-05T00:00:10.000Z',
+        turns: [],
+        streamBuffer: { content: '', messageId: null },
+        finalResult,
+        pendingPermissions: [],
+      };
+    }
+
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === '/repos/octocat/hello-world/pulls/1') {
+        return jsonResponse({
+          number: 1,
+          title: 'Thread reply rerun test PR',
+          body: 'desc',
+          base: { sha: 'base-sha' },
+          head: { sha: 'head-sha' },
+        });
+      }
+      if (url.pathname === '/repos/octocat/hello-world/pulls/1/files') {
+        return jsonResponse([
+          {
+            sha: 'file-1',
+            filename: 'src/utils.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 1,
+            changes: 2,
+            patch: '@@ -1 +1 @@',
+            contents_url: 'https://api.github.com/repos/octocat/hello-world/contents/src/utils.ts',
+            blob_url: '',
+            raw_url: '',
+          },
+        ]);
+      }
+      if (url.pathname === '/repos/octocat/hello-world/pulls/1/comments') {
+        return jsonResponse([]);
+      }
+      if (url.pathname === '/repos/octocat/hello-world/issues/1/comments') {
+        return jsonResponse([]);
+      }
+      if (url.pathname === '/repos/octocat/hello-world/contents/src/utils.ts') {
+        return textResponse('export function x() {}');
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    });
+
+    const store = new ReviewDraftStore();
+    const gateway = new ReviewGateway({
+      fetchImpl,
+      tokenResolver: () => 'token',
+      draftStore: store,
+      agentGateway: {
+        awaitSettled: vi.fn(async () => makeSession('thread-session-2', 'completed')),
+        continueConversation: vi.fn(),
+        forkSession: vi.fn(async () => makeSession('thread-session-2', 'completed')),
+        sendFollowUp: vi.fn(async () => makeSession('thread-session-2', 'starting')),
+        startSession: vi.fn(),
+      },
+      now: () => '2026-04-05T00:00:00.000Z',
+    });
+
+    const { snapshot } = await gateway.loadReviewSource({
+      provider: 'github',
+      host: 'https://api.github.com',
+      reviewUrl: 'https://github.com/octocat/hello-world/pull/1',
+    } satisfies ReviewSourceDraft);
+
+    const summary = { headline: 'summary', overview: 'ok', positives: [], risks: [] };
+    store.saveEnvelope(snapshot.snapshotId, {
+      kind: 'structured',
+      run: {
+        runId: 'run-1',
+        snapshotId: snapshot.snapshotId,
+        reviewAgent: 'codex',
+        lensId: 'general',
+        instructions: 'review',
+        rootAppSessionId: 'root-1',
+        status: 'completed',
+        resultSource: 'codexOutputSchema',
+        createdAt: '2026-04-05T00:00:00.000Z',
+        completedAt: '2026-04-05T00:01:00.000Z',
+      },
+      summary,
+      threads: [
+        {
+          localThreadId: 'thread-1',
+          snapshotId: snapshot.snapshotId,
+          runId: 'run-1',
+          findingId: 'finding-1',
+          source: 'ai-review',
+          state: 'draft',
+          severity: 'medium',
+          category: 'correctness',
+          confidence: 'high',
+          title: 'Off-by-one risk',
+          draftBody: 'The zero branch may be skipped.',
+          resolvedLocation: { kind: 'overview' },
+          anchor: null,
+        },
+      ],
+    });
+    store.saveEnvelope(snapshot.snapshotId, {
+      kind: 'structured',
+      run: {
+        runId: 'run-2',
+        snapshotId: snapshot.snapshotId,
+        reviewAgent: 'codex',
+        lensId: 'general',
+        instructions: 'review again',
+        rootAppSessionId: 'root-2',
+        status: 'completed',
+        resultSource: 'codexOutputSchema',
+        createdAt: '2026-04-05T00:02:00.000Z',
+        completedAt: '2026-04-05T00:03:00.000Z',
+      },
+      summary,
+      threads: [
+        {
+          localThreadId: 'thread-2',
+          snapshotId: snapshot.snapshotId,
+          runId: 'run-2',
+          findingId: 'finding-2',
+          source: 'ai-review',
+          state: 'draft',
+          severity: 'high',
+          category: 'maintainability',
+          confidence: 'high',
+          title: 'Repeated rerun finding',
+          draftBody: 'Use the latest thread set.',
+          resolvedLocation: { kind: 'overview' },
+          anchor: null,
+        },
+      ],
+    });
+
+    const begun = await gateway.beginDraftThreadReply({
+      snapshotId: snapshot.snapshotId,
+      localThreadId: 'thread-2',
+      body: 'Please expand on this newer finding.',
+      cwd: 'C:/workspace',
+    });
+
+    expect(begun.reply.localThreadId).toBe('thread-2');
+    expect(begun.binding.runId).toBe('run-2');
+  });
+
   it('throws when beginDraftThreadReply is called without agentGateway', async () => {
     const gateway = new ReviewGateway({ tokenResolver: () => 'token' });
 

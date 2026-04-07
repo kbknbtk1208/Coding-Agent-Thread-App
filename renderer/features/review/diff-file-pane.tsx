@@ -12,6 +12,7 @@ import React, {
 import type { NormalizedDiffFile, ReviewThread } from '../../../shared/domain/review';
 import type { ReviewLocalThread } from '../../../shared/domain/review-draft';
 import { CommentComposer } from './comment-composer';
+import { DraftThreadCard } from './draft-thread-card';
 import { ThreadLayer } from './thread-layer';
 
 /* ------------------------------------------------------------------ */
@@ -35,6 +36,7 @@ interface DiffFilePaneProps {
   remoteThreads: ReviewThread[];
   draftThreads: ReviewLocalThread[];
   selectedDraftThreadId: string | null;
+  draftReplyBodies: Record<string, string>;
   onAddComment: (
     fileId: string,
     startLine: number | null,
@@ -44,6 +46,9 @@ interface DiffFilePaneProps {
   ) => void;
   onReply: (threadId: string, body: string) => void;
   onSelectDraftThread: (localThreadId: string) => void;
+  onDraftReplyBodyChange: (threadId: string, body: string) => void;
+  onReplyToDraftThread: (threadId: string, body: string) => void;
+  onRespondDraftThreadPermission: (threadId: string, requestId: string, actionId: string) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -166,56 +171,22 @@ function mergeExtendData(
   };
 }
 
-function getDraftSeverityBadgeClass(severity: ReviewLocalThread['draft']['severity']): string {
-  switch (severity) {
-    case 'high':
-      return 'bg-red-500/20 text-red-200';
-    case 'medium':
-      return 'bg-amber-500/20 text-amber-200';
-    case 'low':
-      return 'bg-emerald-500/20 text-emerald-200';
-  }
-}
-
-function getDraftAnchorLabel(thread: ReviewLocalThread): string {
-  const anchor = thread.draft.anchor;
-  if (!anchor) {
-    return 'Overview';
-  }
-
-  switch (anchor.kind) {
-    case 'file':
-      return 'File';
-    case 'range':
-      return `L${anchor.startLine ?? '?'}-L${anchor.endLine ?? '?'}`;
-    case 'line':
-      return `L${anchor.endLine ?? anchor.startLine ?? '?'}`;
-  }
-}
-
-function getDraftPreviewText(thread: ReviewLocalThread): string | null {
-  const latestUserMessage = [...thread.messages]
-    .reverse()
-    .find((message) => message.role === 'user');
-  const latestAssistantMessage = [...thread.messages]
-    .reverse()
-    .find((message) => message.role === 'assistant');
-  const preview = [latestUserMessage, latestAssistantMessage]
-    .filter((message): message is NonNullable<typeof message> => message !== undefined)
-    .map((message) => `${message.role === 'assistant' ? 'Assistant' : 'You'}: ${message.body}`)
-    .join('\n');
-
-  return preview || null;
-}
-
 function DraftThreadLayer({
   threads,
   selectedDraftThreadId,
+  draftReplyBodies,
   onSelectDraftThread,
+  onDraftReplyBodyChange,
+  onReplyToDraftThread,
+  onRespondDraftThreadPermission,
 }: {
   threads: ReviewLocalThread[];
   selectedDraftThreadId: string | null;
+  draftReplyBodies: Record<string, string>;
   onSelectDraftThread: (localThreadId: string) => void;
+  onDraftReplyBodyChange: (threadId: string, body: string) => void;
+  onReplyToDraftThread: (threadId: string, body: string) => void;
+  onRespondDraftThreadPermission: (threadId: string, requestId: string, actionId: string) => void;
 }) {
   if (threads.length === 0) {
     return null;
@@ -223,55 +194,25 @@ function DraftThreadLayer({
 
   return (
     <div className="border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-4 py-3">
-      {threads.map((thread) => (
-        <div
-          key={thread.localThreadId}
-          className={`mb-3 rounded-2xl p-3 last:mb-0 ${
-            thread.localThreadId === selectedDraftThreadId
-              ? 'border border-fuchsia-300/30 bg-fuchsia-500/10'
-              : 'border border-transparent'
-          }`}
-        >
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-fuchsia-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200">
-              Draft
-            </span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${getDraftSeverityBadgeClass(thread.draft.severity)}`}
-            >
-              {thread.draft.severity}
-            </span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">
-              {getDraftAnchorLabel(thread)}
-            </span>
-            {thread.replyStatus === 'replying' ? (
-              <span className="rounded-full bg-cyan-400/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-200">
-                replying
-              </span>
-            ) : null}
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-white">{thread.draft.title}</p>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
-              {thread.draft.draftBody}
-            </p>
-            {getDraftPreviewText(thread) ? (
-              <p className="whitespace-pre-wrap text-xs leading-5 text-slate-400">
-                {getDraftPreviewText(thread)}
-              </p>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                onSelectDraftThread(thread.localThreadId);
-              }}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/10"
-            >
-              Reply in panel
-            </button>
-          </div>
-        </div>
-      ))}
+      <div className="space-y-3">
+        {threads.map((thread) => {
+          const isExpanded = thread.localThreadId === selectedDraftThreadId;
+          const replyBody = draftReplyBodies[thread.localThreadId] ?? '';
+
+          return (
+            <DraftThreadCard
+              key={thread.localThreadId}
+              thread={thread}
+              isSelected={isExpanded}
+              replyBody={replyBody}
+              onSelectThread={onSelectDraftThread}
+              onReplyBodyChange={onDraftReplyBodyChange}
+              onSubmitReply={onReplyToDraftThread}
+              onRespondToPermission={onRespondDraftThreadPermission}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -466,9 +407,13 @@ export function DiffFilePane({
   remoteThreads,
   draftThreads,
   selectedDraftThreadId,
+  draftReplyBodies,
   onAddComment,
   onReply,
   onSelectDraftThread,
+  onDraftReplyBodyChange,
+  onReplyToDraftThread,
+  onRespondDraftThreadPermission,
 }: DiffFilePaneProps) {
   const [expanded, setExpanded] = useState(!file.isLargeDiff);
 
@@ -602,7 +547,11 @@ export function DiffFilePane({
             key="draft-threads"
             threads={data.draftThreads}
             selectedDraftThreadId={selectedDraftThreadId}
+            draftReplyBodies={draftReplyBodies}
             onSelectDraftThread={onSelectDraftThread}
+            onDraftReplyBodyChange={onDraftReplyBodyChange}
+            onReplyToDraftThread={onReplyToDraftThread}
+            onRespondDraftThreadPermission={onRespondDraftThreadPermission}
           />,
         );
       }
@@ -633,6 +582,9 @@ export function DiffFilePane({
     [
       onReply,
       onSelectDraftThread,
+      onDraftReplyBodyChange,
+      onReplyToDraftThread,
+      onRespondDraftThreadPermission,
       rangeSelection,
       file.fileId,
       onAddComment,
@@ -1098,7 +1050,11 @@ export function DiffFilePane({
           <DraftThreadLayer
             threads={draftThreads}
             selectedDraftThreadId={selectedDraftThreadId}
+            draftReplyBodies={draftReplyBodies}
             onSelectDraftThread={onSelectDraftThread}
+            onDraftReplyBodyChange={onDraftReplyBodyChange}
+            onReplyToDraftThread={onReplyToDraftThread}
+            onRespondDraftThreadPermission={onRespondDraftThreadPermission}
           />
         </div>
       ) : file.isLargeDiff && !expanded ? (
@@ -1137,7 +1093,11 @@ export function DiffFilePane({
             <DraftThreadLayer
               threads={fileLevelDraftThreads}
               selectedDraftThreadId={selectedDraftThreadId}
+              draftReplyBodies={draftReplyBodies}
               onSelectDraftThread={onSelectDraftThread}
+              onDraftReplyBodyChange={onDraftReplyBodyChange}
+              onReplyToDraftThread={onReplyToDraftThread}
+              onRespondDraftThreadPermission={onRespondDraftThreadPermission}
             />
           )}
 

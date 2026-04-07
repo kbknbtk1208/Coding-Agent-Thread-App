@@ -1,15 +1,11 @@
 import React from 'react';
 import type { AgentKind, AppSession } from '../../../shared/domain/agent';
-import type { ReviewSnapshotThread } from '../../../shared/domain/review';
 import type {
   ReviewDraftFallbackReason,
-  ReviewLocalThread,
   ReviewRunRecord,
   ReviewSummaryDraft,
 } from '../../../shared/domain/review-draft';
 import { SessionEventPanel } from '../../components/session-event-panel';
-import { LocalThreadPanel } from './local-thread-panel';
-import { OverviewDiscussionPanel } from './overview-discussion-panel';
 import type { ReviewDraftReviewStatus } from './review-draft-state';
 import { ReviewExecutionBar } from './review-execution-bar';
 import { ReviewSummaryPanel } from './review-summary-panel';
@@ -37,18 +33,7 @@ interface ReviewActionPanelResultProps {
   fallbackRichText: string | null;
   fallbackReason: ReviewDraftFallbackReason | null;
   threadCount: number;
-  localThreads: ReviewLocalThread[];
-  overviewThreads: ReviewSnapshotThread[];
-  selectedFileId: string | null;
-  selectedThreadId: string | null;
-  fallbackActive: boolean;
-  activeTab: 'drafts' | 'overview';
-  onSelectFile: (fileId: string) => void;
-  onSelectThread: (localThreadId: string) => void;
-  onTabChange: (tab: 'drafts' | 'overview') => void;
-  onReplyOverviewThread: (threadId: string, body: string) => void;
-  onReplyLocalThread: (localThreadId: string, body: string) => void;
-  onRespondThreadPermission: (localThreadId: string, requestId: string, actionId: string) => void;
+  overviewConversationCount: number;
 }
 
 export interface ReviewActionPanelProps
@@ -75,18 +60,7 @@ export function ReviewActionPanel({
   fallbackRichText,
   fallbackReason,
   threadCount,
-  localThreads,
-  overviewThreads,
-  selectedFileId,
-  selectedThreadId,
-  fallbackActive,
-  activeTab,
-  onSelectFile,
-  onSelectThread,
-  onTabChange,
-  onReplyOverviewThread,
-  onReplyLocalThread,
-  onRespondThreadPermission,
+  overviewConversationCount,
 }: ReviewActionPanelProps) {
   if (reviewStatus === 'idle') {
     return (
@@ -114,60 +88,22 @@ export function ReviewActionPanel({
   }
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.03]">
-      <div className="max-h-[560px] overflow-y-auto">
-        <ReviewSummaryPanel
-          status={reviewStatus}
-          latestRun={latestRun}
-          summary={summary}
-          fallbackRichText={fallbackRichText}
-          fallbackReason={fallbackReason}
-          threadCount={threadCount}
-          error={reviewStatus === 'failed' ? executionError : null}
-        />
+    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+      <ReviewSummaryPanel
+        status={reviewStatus}
+        latestRun={latestRun}
+        summary={summary}
+        fallbackRichText={fallbackRichText}
+        fallbackReason={fallbackReason}
+        threadCount={threadCount}
+        error={reviewStatus === 'failed' ? executionError : null}
+      />
 
-        <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => onTabChange('drafts')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              activeTab === 'drafts'
-                ? 'bg-fuchsia-500/20 text-fuchsia-200'
-                : 'bg-white/5 text-slate-400 hover:text-white'
-            }`}
-          >
-            Drafts
-          </button>
-          <button
-            type="button"
-            onClick={() => onTabChange('overview')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              activeTab === 'overview'
-                ? 'bg-amber-500/20 text-amber-100'
-                : 'bg-white/5 text-slate-400 hover:text-white'
-            }`}
-          >
-            Overview
-          </button>
+      {overviewConversationCount > 0 ? (
+        <div className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">
+          Overview conversation は main content 側で表示しています。
         </div>
-
-        <div className="min-h-0">
-          {activeTab === 'drafts' ? (
-            <LocalThreadPanel
-              threads={localThreads}
-              selectedFileId={selectedFileId}
-              selectedLocalThreadId={selectedThreadId}
-              onSelectFile={onSelectFile}
-              onSelectThread={onSelectThread}
-              onReply={onReplyLocalThread}
-              onRespondToPermission={onRespondThreadPermission}
-              fallbackActive={fallbackActive}
-            />
-          ) : (
-            <OverviewDiscussionPanel threads={overviewThreads} onReply={onReplyOverviewThread} />
-          )}
-        </div>
-      </div>
+      ) : null}
     </section>
   );
 }

@@ -41,7 +41,7 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
   };
 
   return (
-    <aside className="flex h-full flex-col overflow-hidden">
+    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -56,7 +56,7 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="px-4 py-4">
         {sortedThreads.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm text-slate-500">
             overview discussion はまだありません。
@@ -146,6 +146,6 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
           </div>
         )}
       </div>
-    </aside>
+    </section>
   );
 }
