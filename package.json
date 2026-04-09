@@ -19,13 +19,23 @@
   "dependencies": {
     "@git-diff-view/file": "^0.1.3",
     "@git-diff-view/react": "^0.1.3",
+    "@hugeicons/core-free-icons": "^4.1.1",
+    "@hugeicons/react": "^1.1.6",
     "better-sqlite3": "^12.8.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "dotenv": "^9.0.2",
     "electron-serve": "^1.3.0",
     "electron-store": "^8.2.0",
+    "lucide-react": "^1.8.0",
     "motion": "^12.38.0",
+    "next-themes": "^0.4.6",
+    "radix-ui": "^1.4.3",
+    "react-icons": "^5.6.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "react-use-measure": "^2.1.7",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
@@ -33,6 +43,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.11.16",
     "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.2.3",
     "electron": "^34.0.0",
     "electron-builder": "^24.13.3",
     "lefthook": "^2.1.4",
