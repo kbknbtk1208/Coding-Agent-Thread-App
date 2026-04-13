@@ -18,6 +18,7 @@ import { ShimmerText } from '../components/ui/shimmer-text';
 import { TextEffect } from '../components/ui/text-effect';
 import { VanishInput } from '../components/ui/vanish-input';
 import { ActivitiesCard } from '../components/ui/activities-card';
+import { CommitGraph, type Commit } from '../components/commit-graph';
 import { CommandSearch, type CommandItem } from '../components/ui/command-search';
 import { CreateNewDisclosure } from '../components/ui/create-new-disclosure';
 import ExpandableCards from '../components/ui/expandable-cards';
@@ -30,7 +31,12 @@ import { Glass } from '../components/ui/glass';
 import { ListStack } from '../components/ui/list-stack';
 import { MacOSSidebar } from '../components/ui/macos-sidebar';
 import MagicDock, { type DockItemData } from '../components/ui/magicdock';
+import MorphingText from '../components/ui/morphing-text';
 import { ScrollIsland, type Topic } from '../components/ui/scroll-island';
+import {
+  NativeMorphingButton,
+  type MorphingButtonAction,
+} from '../components/uitripled/native-morphing-button-shadcnui';
 import {
   ScrollXCarousel,
   ScrollXCarouselContainer,
@@ -46,6 +52,57 @@ import {
 } from '../components/odysseyui/thought-chain';
 
 type OverlayDemo = 'none' | 'flex' | 'dock' | 'magic' | 'island';
+
+const morphingLabels = ['Review Radar', 'Thread Fusion', 'Patch Queue', 'Launch Gate'];
+
+const previewCommits: Commit[] = [
+  {
+    hash: '9f8c1d2',
+    message: 'review: persist accepted findings',
+    author: { name: 'Codex' },
+    date: '2026-04-10T09:30:00+09:00',
+    parents: ['7ad4e88'],
+    refs: ['feature/review-ui'],
+  },
+  {
+    hash: '7ad4e88',
+    message: 'ui: add thread inbox counters',
+    author: { name: 'GitHub Copilot' },
+    date: '2026-04-09T18:15:00+09:00',
+    parents: ['6bc219a'],
+    refs: ['HEAD'],
+  },
+  {
+    hash: '6bc219a',
+    message: 'merge branch main into feature/review-ui',
+    author: { name: 'nkubo' },
+    date: '2026-04-09T12:05:00+09:00',
+    parents: ['2ab4f31', '5ee718c'],
+    tag: 'v0.2.0-preview',
+  },
+  {
+    hash: '5ee718c',
+    message: 'main: stabilize diff gateway state',
+    author: { name: 'nkubo' },
+    date: '2026-04-08T17:20:00+09:00',
+    parents: ['4a7c2de'],
+    refs: ['main'],
+  },
+  {
+    hash: '2ab4f31',
+    message: 'feat: stage review thread promotions',
+    author: { name: 'Codex' },
+    date: '2026-04-08T09:10:00+09:00',
+    parents: ['4a7c2de'],
+  },
+  {
+    hash: '4a7c2de',
+    message: 'init: seed review assistant playground',
+    author: { name: 'nkubo' },
+    date: '2026-04-07T14:00:00+09:00',
+    parents: [],
+  },
+];
 
 function Card({
   title,
@@ -66,9 +123,18 @@ function Card({
 
 export default function UiComponentPage() {
   const [prompt, setPrompt] = React.useState(
-    '第二陣コンポーネントを review-assistant UI に接続する。',
+    '第三陣コンポーネントを review-assistant UI に接続する。',
   );
   const [overlay, setOverlay] = React.useState<OverlayDemo>('none');
+  const [morphingIndex, setMorphingIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setMorphingIndex((current) => (current + 1) % morphingLabels.length);
+    }, 2200);
+
+    return () => window.clearInterval(timerId);
+  }, []);
 
   const commandItems = React.useMemo<CommandItem[]>(
     () => [
@@ -100,6 +166,27 @@ export default function UiComponentPage() {
         section: 'Help',
         icon: <SearchCheck size={16} />,
         action: () => setPrompt('reference と architecture を開く。'),
+      },
+    ],
+    [],
+  );
+
+  const morphingActions = React.useMemo<MorphingButtonAction[]>(
+    () => [
+      {
+        label: 'Run Codex',
+        icon: <Bot className="h-4 w-4" />,
+        onClick: () => setPrompt('Codex に review summary を再生成させる。'),
+      },
+      {
+        label: 'Open Diff',
+        icon: <FileCode2 className="h-4 w-4" />,
+        onClick: () => setPrompt('差分ビューを右ペインで開く。'),
+      },
+      {
+        label: 'Promote Thread',
+        icon: <MessageSquareMore className="h-4 w-4" />,
+        onClick: () => setPrompt('採用済みコメントを PR thread に昇格する。'),
       },
     ],
     [],
@@ -157,32 +244,33 @@ export default function UiComponentPage() {
   return (
     <React.Fragment>
       <Head>
-        <title>Coding Agent Thread App | UI Component Wave 2</title>
+        <title>Coding Agent Thread App | UI Component Wave 3</title>
       </Head>
       <AuroraBackground className="min-h-screen">
         <main className="mx-auto flex min-h-screen w-full max-w-[96rem] flex-col px-5 py-10 sm:px-8">
           <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-5">
               <p className="glass-panel inline-flex rounded-full px-4 py-3 text-xs font-semibold uppercase tracking-[0.32em] text-cyan-100">
-                UI Library Wave 2
+                UI Library Wave 3
               </p>
               <TextEffect
                 as="h1"
-                text="Second Batch Installed"
+                text="Third Batch Installed"
                 className="text-5xl font-semibold tracking-[-0.06em] text-white sm:text-6xl"
               />
               <ShimmerText
-                text="watermelon / scrollx / odyssey 系をこのページへ集約"
+                text="asanshay / jalco / uitripled 系をこのページへ集約"
                 className="block max-w-3xl text-lg leading-8 sm:text-xl"
               />
               <p className="max-w-3xl text-base leading-8 text-slate-300">
-                固定配置系は下の switch
-                で切り替え、通常コンポーネントはギャラリーとして常設しています。
+                第三陣は morphing text、commit graph、morphing button を追加しました。
+                第二陣のギャラリーはそのまま残し、下段でまとめて比較できます。
               </p>
               <VanishInput
                 placeholders={[
+                  'commit graph を PR 詳細ペインに埋め込む',
+                  'morphing button から agent action を開く',
                   'dock や navbar の見せ方を詰める',
-                  'command search を runtime 導線に接続する',
                   'thought chain を review summary に埋め込む',
                 ]}
                 onSubmit={setPrompt}
@@ -195,15 +283,67 @@ export default function UiComponentPage() {
                   {prompt}
                 </div>
                 <ul className="space-y-2 text-sm leading-7 text-slate-300">
-                  <li>Watermelon 系は `renderer/components/ui` へ集約。</li>
-                  <li>ScrollX / Odyssey 系は専用フォルダへ移動。</li>
+                  <li>第三陣は見出し、履歴、アクション導線の 3 系統を追加。</li>
+                  <li>生成ファイルは `renderer` 配下へ寄せて参照経路を統一。</li>
                   <li>fixed overlay は selector から個別に有効化。</li>
                 </ul>
               </div>
             </Card>
           </section>
 
-          <section className="mt-8 grid gap-6 xl:grid-cols-3">
+          <section className="mt-8 grid gap-6 xl:grid-cols-[0.85fr_1.3fr_0.85fr]">
+            <Card title="Morphing Text">
+              <div className="space-y-5">
+                <div className="flex flex-wrap gap-2">
+                  {morphingLabels.map((label, index) => (
+                    <span
+                      key={label}
+                      className={`rounded-full px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] ${
+                        morphingIndex === index
+                          ? 'bg-cyan-300 text-slate-950'
+                          : 'border border-white/10 bg-white/6 text-slate-300'
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <div className="min-h-[96px]">
+                  <MorphingText
+                    as="h2"
+                    className="text-4xl font-semibold tracking-[-0.06em] text-white sm:text-5xl"
+                  >
+                    {morphingLabels[morphingIndex]}
+                  </MorphingText>
+                </div>
+                <p className="text-sm leading-7 text-slate-300">
+                  差し替える文字列だけで状態名の見せ方を切り替えられるので、 review-assistant の
+                  phase ラベルや agent status にそのまま転用できます。
+                </p>
+              </div>
+            </Card>
+            <Card title="Commit Graph">
+              <CommitGraph commits={previewCommits} className="bg-black/25" />
+            </Card>
+            <Card title="Native Morphing Button">
+              <div className="relative min-h-[300px] overflow-hidden rounded-[1.6rem] border border-white/10 bg-linear-to-br from-emerald-300/20 via-cyan-300/10 to-slate-950 p-6">
+                <div className="max-w-[16rem] space-y-3">
+                  <p className="text-xs uppercase tracking-[0.28em] text-emerald-100/65">
+                    quick actions
+                  </p>
+                  <h3 className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                    Review Desk
+                  </h3>
+                  <p className="text-sm leading-7 text-slate-300">
+                    FAB を展開して Codex 実行、Diff 表示、Thread 昇格を即時に切り替える想定です。
+                  </p>
+                </div>
+                <NativeMorphingButton actions={morphingActions} className="bottom-5 right-5" />
+              </div>
+            </Card>
+          </section>
+
+          <section className="mt-6 grid gap-6 xl:grid-cols-3">
             <Card title="Activities Card">
               <div className="flex justify-center">
                 <ActivitiesCard
@@ -459,7 +599,7 @@ export default function UiComponentPage() {
             <FlexNavbar
               brandName="THREAD APP"
               tagline="Review assistant surfaces"
-              launchText="PoC wave 2"
+              launchText="PoC wave 3"
               navLinks={[
                 { label: 'Overview', href: '#overview' },
                 { label: 'Threads', href: '#threads' },
