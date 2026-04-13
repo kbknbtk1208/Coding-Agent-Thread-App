@@ -167,6 +167,7 @@ export function adaptGitLabSnapshot(args: {
       anchorRefs: {
         provider: 'gitlab',
         mergeRequestIid: args.detail.iid,
+        startSha: args.detail.diff_refs.start_sha ?? null,
         discussions: Object.fromEntries(
           args.discussions.map((discussion) => [
             discussion.id,

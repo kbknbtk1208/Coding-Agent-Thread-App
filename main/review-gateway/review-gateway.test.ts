@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppSession } from '../../shared/domain/agent';
-import type { ReviewSourceDraft } from '../../shared/domain/review';
-import type { ReviewDraftEnvelope, ReviewRunRecord } from '../../shared/domain/review-draft';
+import type { GitHubPRFile } from '../../shared/domain/review-provider';
+import type { ReviewSnapshotFile, ReviewSourceDraft } from '../../shared/domain/review';
+import {
+  createLocalThread,
+  type ReviewDraftEnvelope,
+  type ReviewRunRecord,
+  type ReviewThreadDraft,
+} from '../../shared/domain/review-draft';
 import { ReviewDraftStore } from './review-draft-store';
+import type { GitHubReviewClient } from './clients/github-review-client';
 import { ReviewGateway } from './review-gateway';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -23,6 +30,124 @@ function textResponse(body: string, init: ResponseInit = {}): Response {
       ...init.headers,
     },
   });
+}
+
+function createPublishThreadDraft(snapshotId: string, file: ReviewSnapshotFile): ReviewThreadDraft {
+  return {
+    localThreadId: 'thread-publish-1',
+    snapshotId,
+    runId: 'run-publish-1',
+    findingId: 'finding-publish-1',
+    source: 'ai-review',
+    state: 'draft',
+    severity: 'medium',
+    category: 'maintainability',
+    confidence: 'high',
+    title: 'Publishable finding',
+    draftBody: 'Original publish body',
+    resolvedLocation: {
+      kind: 'diff',
+      fileId: file.fileId,
+      filePath: file.filePath,
+      startLine: 2,
+      endLine: 2,
+      side: 'new',
+    },
+    anchor: {
+      kind: 'line',
+      fileId: file.fileId,
+      filePath: file.filePath,
+      startLine: 2,
+      endLine: 2,
+      side: 'new',
+    },
+  };
+}
+
+async function createGatewayForPublishTest(options?: {
+  createReviewComment?: GitHubReviewClient['createReviewComment'];
+}) {
+  const draftStore = new ReviewDraftStore();
+  const createReviewComment =
+    options?.createReviewComment ??
+    vi.fn(async (_owner, _repo, _pullNumber, payload) => ({
+      id: 301,
+      body: payload.body,
+      path: payload.path,
+      line: payload.line,
+      start_line: payload.start_line ?? null,
+      start_side: payload.start_side ?? null,
+      side: payload.side,
+      user: { login: 'review-bot' },
+      created_at: '2026-04-06T00:00:00.000Z',
+      commit_id: payload.commit_id,
+      diff_hunk: '@@ -1,4 +1,4 @@',
+      html_url: 'https://github.com/octocat/hello-world/pull/1#discussion_r301',
+    }));
+  const client: GitHubReviewClient = {
+    provider: 'github',
+    fetchPullRequestDetail: vi.fn(async () => ({
+      number: 1,
+      title: 'Publish approval PR',
+      body: 'desc',
+      base: { sha: 'base-sha' },
+      head: { sha: 'head-sha' },
+    })),
+    fetchPullRequestFiles: vi.fn(async () => {
+      return [
+        {
+          sha: 'file-1',
+          filename: 'src/utils/format.ts',
+          status: 'modified',
+          additions: 3,
+          deletions: 1,
+          changes: 4,
+          patch: '@@ -1,4 +1,4 @@',
+          contents_url:
+            'https://api.github.com/repos/octocat/hello-world/contents/src/utils/format.ts',
+          blob_url: '',
+          raw_url: '',
+        },
+      ] satisfies GitHubPRFile[];
+    }),
+    fetchPullRequestComments: vi.fn(async () => []),
+    fetchIssueComments: vi.fn(async () => []),
+    createIssueComment: vi.fn(async () => {
+      throw new Error('Unexpected overview publish');
+    }),
+    createReviewComment,
+  };
+  const createGitHubClient = () => client;
+
+  const gateway = new ReviewGateway({
+    createGitHubClient,
+    draftStore,
+    hydrateFileContent: async ({ file }) => ({
+      ...file,
+      contentStatus: 'loaded',
+      oldContent: 'line 1\nline 2\nline 3\nline 4\nline 5',
+      newContent: 'line 1\nline 2\nline 3\nline 4\nline 5',
+    }),
+    tokenResolver: () => 'token',
+    now: () => '2026-04-06T00:00:00.000Z',
+  });
+
+  const { snapshot } = await gateway.loadReviewSource({
+    provider: 'github',
+    host: 'https://api.github.com',
+    reviewUrl: 'https://github.com/octocat/hello-world/pull/1',
+  });
+
+  draftStore.saveLocalThreads(snapshot.snapshotId, [
+    createLocalThread(createPublishThreadDraft(snapshot.snapshotId, snapshot.files[0]!)),
+  ]);
+
+  return {
+    createReviewComment,
+    draftStore,
+    gateway,
+    snapshot,
+  };
 }
 
 describe('ReviewGateway', () => {
@@ -533,6 +658,122 @@ describe('ReviewGateway', () => {
 
     expect(begun.reply.localThreadId).toBe('thread-2');
     expect(begun.binding.runId).toBe('run-2');
+  });
+
+  it('prepares, edits, and publishes GitHub diff drafts', async () => {
+    const { createReviewComment, draftStore, gateway, snapshot } =
+      await createGatewayForPublishTest();
+
+    const prepared = gateway.preparePublishDrafts(snapshot.snapshotId);
+    expect(prepared.drafts).toHaveLength(1);
+    expect(prepared.drafts[0]).toMatchObject({
+      body: 'Original publish body',
+      state: 'ready',
+      localThreadId: 'thread-publish-1',
+    });
+
+    const draft = prepared.drafts[0]!;
+    const updated = gateway.updatePublishDrafts(snapshot.snapshotId, [
+      {
+        ...draft,
+        body: 'Edited publish body',
+        location:
+          draft.location.kind === 'diff'
+            ? {
+                ...draft.location,
+                startLine: 2,
+                endLine: 4,
+              }
+            : draft.location,
+      },
+    ]);
+
+    expect(updated.drafts[0]).toMatchObject({
+      body: 'Edited publish body',
+      state: 'edited',
+    });
+
+    const published = await gateway.publishDrafts(snapshot.snapshotId, [draft.publishDraftId]);
+
+    expect(createReviewComment).toHaveBeenCalledWith(
+      'octocat',
+      'hello-world',
+      1,
+      expect.objectContaining({
+        body: 'Edited publish body',
+        path: 'src/utils/format.ts',
+        line: 4,
+        start_line: 2,
+        side: 'RIGHT',
+        start_side: 'RIGHT',
+        commit_id: 'head-sha',
+      }),
+    );
+    expect(published.result).toMatchObject({
+      snapshotId: snapshot.snapshotId,
+      attemptedCount: 1,
+      publishedCount: 1,
+      failedCount: 0,
+      items: [
+        expect.objectContaining({
+          publishDraftId: draft.publishDraftId,
+          localThreadId: 'thread-publish-1',
+          status: 'published',
+          remoteThread: expect.objectContaining({
+            location: expect.objectContaining({
+              kind: 'diff',
+              filePath: 'src/utils/format.ts',
+            }),
+          }),
+        }),
+      ],
+    });
+    expect(draftStore.getPublishDrafts(snapshot.snapshotId)).toEqual([
+      expect.objectContaining({
+        publishDraftId: draft.publishDraftId,
+        state: 'published',
+      }),
+    ]);
+    expect(gateway.preparePublishDrafts(snapshot.snapshotId).drafts).toEqual([]);
+  });
+
+  it('keeps failed publish drafts for retry after provider errors', async () => {
+    const createReviewComment = vi.fn(async () => {
+      throw new Error('provider temporarily unavailable');
+    });
+    const { draftStore, gateway, snapshot } = await createGatewayForPublishTest({
+      createReviewComment,
+    });
+
+    const prepared = gateway.preparePublishDrafts(snapshot.snapshotId);
+    const draft = prepared.drafts[0]!;
+    const published = await gateway.publishDrafts(snapshot.snapshotId, [draft.publishDraftId]);
+
+    expect(published.result).toMatchObject({
+      attemptedCount: 1,
+      publishedCount: 0,
+      failedCount: 1,
+      items: [
+        expect.objectContaining({
+          publishDraftId: draft.publishDraftId,
+          status: 'failed',
+          errorMessage: 'provider temporarily unavailable',
+        }),
+      ],
+    });
+    expect(draftStore.getPublishDrafts(snapshot.snapshotId)).toEqual([
+      expect.objectContaining({
+        publishDraftId: draft.publishDraftId,
+        state: 'failed',
+        lastError: 'provider temporarily unavailable',
+      }),
+    ]);
+    expect(gateway.preparePublishDrafts(snapshot.snapshotId).drafts).toEqual([
+      expect.objectContaining({
+        publishDraftId: draft.publishDraftId,
+        state: 'failed',
+      }),
+    ]);
   });
 
   it('throws when beginDraftThreadReply is called without agentGateway', async () => {

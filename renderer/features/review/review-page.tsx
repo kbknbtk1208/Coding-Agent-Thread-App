@@ -6,6 +6,7 @@ import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/r
 import { DiffFilePane } from './diff-file-pane';
 import { OverviewDiscussionPanel } from './overview-discussion-panel';
 import { OverviewDraftThreadSection } from './overview-draft-thread-section';
+import { PublishDraftPanel } from './publish-draft-panel';
 import { ReviewActionPanel } from './review-action-panel';
 import {
   getDefaultReviewHost,
@@ -17,6 +18,7 @@ import { ReviewSourceSelector } from './review-source-selector';
 import { useDraftComposerState } from './use-draft-composer-state';
 import { useReviewData } from './use-review-data';
 import { useReviewDraft } from './use-review-draft';
+import { useReviewPublish } from './use-review-publish';
 import { useReviewState } from './use-review-state';
 
 function getQueryValue(value: string | string[] | undefined): string {
@@ -57,6 +59,7 @@ export function ReviewPage() {
   const reviewState = useReviewState();
   const reviewDraft = useReviewDraft();
   const draftComposer = useDraftComposerState();
+  const reviewPublish = useReviewPublish();
   const lastLoadedSourceKeyRef = useRef<string | null>(null);
   const activeSnapshotIdRef = useRef('');
   const hydratingFileKeysRef = useRef(new Set<string>());
@@ -126,8 +129,14 @@ export function ReviewPage() {
   useEffect(() => {
     reviewDraft.resetReviewDraftState();
     draftComposer.clearAll();
+    reviewPublish.reset();
     setSelectedLocalThreadId(null);
-  }, [reviewState.data.snapshotId, reviewDraft.resetReviewDraftState, draftComposer.clearAll]);
+  }, [
+    reviewState.data.snapshotId,
+    reviewDraft.resetReviewDraftState,
+    draftComposer.clearAll,
+    reviewPublish.reset,
+  ]);
 
   useEffect(() => {
     activeSnapshotIdRef.current = reviewState.data.snapshotId;
@@ -155,29 +164,44 @@ export function ReviewPage() {
     [reviewState.data.files, selectedFileId],
   );
 
-  const selectedDraftThreads = useMemo(
+  const publishedLocalThreadIds = useMemo(
+    () =>
+      new Set(
+        reviewPublish.publishState.drafts
+          .filter((draft) => draft.state === 'published')
+          .map((draft) => draft.localThreadId),
+      ),
+    [reviewPublish.publishState.drafts],
+  );
+
+  const visibleDraftThreads = useMemo(
     () =>
       reviewDraft.reviewDraftState.localThreads.filter(
+        (thread) => !publishedLocalThreadIds.has(thread.localThreadId),
+      ),
+    [publishedLocalThreadIds, reviewDraft.reviewDraftState.localThreads],
+  );
+
+  const selectedDraftThreads = useMemo(
+    () =>
+      visibleDraftThreads.filter(
         (thread) =>
           thread.draft.anchor !== null &&
           thread.draft.resolvedLocation.kind === 'diff' &&
           thread.draft.resolvedLocation.fileId === selectedFileId,
       ),
-    [reviewDraft.reviewDraftState.localThreads, selectedFileId],
+    [selectedFileId, visibleDraftThreads],
   );
 
   const overviewDraftThreads = useMemo(
-    () =>
-      reviewDraft.reviewDraftState.localThreads.filter(
-        (thread) => thread.draft.resolvedLocation.kind === 'overview',
-      ),
-    [reviewDraft.reviewDraftState.localThreads],
+    () => visibleDraftThreads.filter((thread) => thread.draft.resolvedLocation.kind === 'overview'),
+    [visibleDraftThreads],
   );
 
   const draftCountByFileId = useMemo(() => {
     const counts = new Map<string, number>();
 
-    for (const thread of reviewDraft.reviewDraftState.localThreads) {
+    for (const thread of visibleDraftThreads) {
       if (thread.draft.resolvedLocation.kind !== 'diff') {
         continue;
       }
@@ -189,7 +213,7 @@ export function ReviewPage() {
     }
 
     return counts;
-  }, [reviewDraft.reviewDraftState.localThreads]);
+  }, [visibleDraftThreads]);
 
   useEffect(() => {
     if (!selectedFile || selectedFile.contentStatus !== 'idle') {
@@ -253,40 +277,34 @@ export function ReviewPage() {
       return;
     }
 
-    const firstDiffThread = reviewDraft.reviewDraftState.localThreads.find(
+    const firstDiffThread = visibleDraftThreads.find(
       (thread) => thread.draft.resolvedLocation.kind === 'diff',
     );
     if (firstDiffThread && firstDiffThread.draft.resolvedLocation.kind === 'diff') {
       setSelectedFileId(firstDiffThread.draft.resolvedLocation.fileId);
     }
-    if (reviewDraft.reviewDraftState.localThreads.length > 0) {
-      setSelectedLocalThreadId(reviewDraft.reviewDraftState.localThreads[0]?.localThreadId ?? null);
+    if (visibleDraftThreads.length > 0) {
+      setSelectedLocalThreadId(visibleDraftThreads[0]?.localThreadId ?? null);
     }
-  }, [
-    reviewDraft.reviewDraftState.localThreads,
-    reviewDraft.reviewDraftState.reviewStatus,
-    selectedFileId,
-  ]);
+  }, [reviewDraft.reviewDraftState.reviewStatus, selectedFileId, visibleDraftThreads]);
 
   useEffect(() => {
     if (
       selectedLocalThreadId &&
-      reviewDraft.reviewDraftState.localThreads.some(
-        (thread) => thread.localThreadId === selectedLocalThreadId,
-      )
+      visibleDraftThreads.some((thread) => thread.localThreadId === selectedLocalThreadId)
     ) {
       return;
     }
 
-    setSelectedLocalThreadId(reviewDraft.reviewDraftState.localThreads[0]?.localThreadId ?? null);
-  }, [reviewDraft.reviewDraftState.localThreads, selectedLocalThreadId]);
+    setSelectedLocalThreadId(visibleDraftThreads[0]?.localThreadId ?? null);
+  }, [selectedLocalThreadId, visibleDraftThreads]);
 
   useEffect(() => {
     if (!selectedLocalThreadId) {
       return;
     }
 
-    const selectedThread = reviewDraft.reviewDraftState.localThreads.find(
+    const selectedThread = visibleDraftThreads.find(
       (thread) => thread.localThreadId === selectedLocalThreadId,
     );
     if (!selectedThread || selectedThread.draft.resolvedLocation.kind !== 'diff') {
@@ -296,7 +314,7 @@ export function ReviewPage() {
     if (selectedThread.draft.resolvedLocation.fileId !== selectedFileId) {
       setSelectedFileId(selectedThread.draft.resolvedLocation.fileId);
     }
-  }, [reviewDraft.reviewDraftState.localThreads, selectedFileId, selectedLocalThreadId]);
+  }, [selectedFileId, selectedLocalThreadId, visibleDraftThreads]);
 
   const handleStartDraftReview = useCallback(async () => {
     if (!reviewState.data.snapshotId) {
@@ -391,14 +409,37 @@ export function ReviewPage() {
   const handleSelectDraftThread = useCallback(
     (localThreadId: string) => {
       setSelectedLocalThreadId(localThreadId);
-      const thread = reviewDraft.reviewDraftState.localThreads.find(
+      const thread = visibleDraftThreads.find(
         (candidate) => candidate.localThreadId === localThreadId,
       );
       if (thread?.draft.resolvedLocation.kind === 'diff') {
         setSelectedFileId(thread.draft.resolvedLocation.fileId);
       }
     },
-    [reviewDraft.reviewDraftState.localThreads],
+    [visibleDraftThreads],
+  );
+
+  const handleOpenPublishPanel = useCallback(() => {
+    const snapshotId = reviewState.data.snapshotId;
+    if (!snapshotId) {
+      return;
+    }
+    void reviewPublish.openPanel(snapshotId);
+  }, [reviewPublish, reviewState.data.snapshotId]);
+
+  const handleConfirmPublish = useCallback(
+    async (snapshotId: string) => {
+      const remoteThreads = await reviewPublish.confirmPublish(snapshotId);
+      if (remoteThreads.length > 0) {
+        reviewState.mergeRemoteThreads(remoteThreads);
+      }
+    },
+    [reviewPublish, reviewState],
+  );
+
+  const unpublishedDraftCount = useMemo(
+    () => reviewPublish.publishState.drafts.filter((d) => d.state !== 'published').length,
+    [reviewPublish.publishState.drafts],
   );
 
   const reviewTitle = reviewState.data.title || 'Review Snapshot';
@@ -461,25 +502,46 @@ export function ReviewPage() {
           />
 
           {hasLoadedReview ? (
-            <ReviewActionPanel
-              reviewStatus={reviewDraft.reviewDraftState.reviewStatus}
-              reviewAgent={reviewAgent}
-              instructions={reviewInstructions}
-              disabled={!hasLoadedReview}
-              running={reviewDraft.isRunning}
-              executionError={reviewDraft.reviewDraftState.errorMessage}
-              onReviewAgentChange={setReviewAgent}
-              onInstructionsChange={setReviewInstructions}
-              onSubmit={handleStartDraftReview}
-              pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
-              session={reviewDraft.reviewDraftState.activeRunSession}
-              latestRun={reviewDraft.reviewDraftState.latestRun}
-              summary={reviewDraft.reviewDraftState.summary}
-              fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
-              fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
-              threadCount={reviewDraft.reviewDraftState.localThreads.length}
-              overviewConversationCount={overviewConversationCount}
-            />
+            <>
+              <ReviewActionPanel
+                reviewStatus={reviewDraft.reviewDraftState.reviewStatus}
+                reviewAgent={reviewAgent}
+                instructions={reviewInstructions}
+                disabled={!hasLoadedReview}
+                running={reviewDraft.isRunning}
+                executionError={reviewDraft.reviewDraftState.errorMessage}
+                onReviewAgentChange={setReviewAgent}
+                onInstructionsChange={setReviewInstructions}
+                onSubmit={handleStartDraftReview}
+                pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
+                session={reviewDraft.reviewDraftState.activeRunSession}
+                latestRun={reviewDraft.reviewDraftState.latestRun}
+                summary={reviewDraft.reviewDraftState.summary}
+                fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
+                fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
+                threadCount={visibleDraftThreads.length}
+                overviewConversationCount={overviewConversationCount}
+                unpublishedDraftCount={unpublishedDraftCount}
+                isPublishing={reviewPublish.publishState.publishStatus === 'publishing'}
+                publishError={
+                  reviewPublish.publishState.publishStatus === 'failed'
+                    ? reviewPublish.publishState.errorMessage
+                    : null
+                }
+                onOpenPublishPanel={handleOpenPublishPanel}
+              />
+              {reviewState.data.snapshotId != null && (
+                <PublishDraftPanel
+                  publishState={reviewPublish.publishState}
+                  files={reviewState.data.files}
+                  snapshotId={reviewState.data.snapshotId}
+                  onClose={reviewPublish.closePanel}
+                  onToggleSelect={reviewPublish.toggleDraftSelection}
+                  onDraftChange={reviewPublish.updateDraft}
+                  onConfirmPublish={handleConfirmPublish}
+                />
+              )}
+            </>
           ) : null}
         </div>
       </header>
@@ -504,7 +566,7 @@ export function ReviewPage() {
                       key={file.fileId}
                       onClick={() => {
                         setSelectedFileId(file.fileId);
-                        const nextThread = reviewDraft.reviewDraftState.localThreads.find(
+                        const nextThread = visibleDraftThreads.find(
                           (thread) =>
                             thread.draft.resolvedLocation.kind === 'diff' &&
                             thread.draft.resolvedLocation.fileId === file.fileId,

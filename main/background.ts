@@ -20,6 +20,9 @@ import {
   type LoadReviewSourceInput,
   REVIEW_IPC_CHANNELS,
   type ReplyReviewThreadInput,
+  type PreparePublishDraftsInput,
+  type UpdatePublishDraftsInput,
+  type PublishDraftsInput,
 } from '../shared/contracts/review-ipc';
 import { AgentGateway } from './agent-gateway/agent-gateway';
 import { SqliteSessionStore } from './agent-gateway/session-store';
@@ -169,6 +172,24 @@ if (isProd) {
       return reviewGateway.awaitDraftThreadReplyResult(input);
     },
   );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.preparePublishDrafts,
+    (_event, input: PreparePublishDraftsInput) => {
+      return reviewGateway.preparePublishDrafts(input.snapshotId);
+    },
+  );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.updatePublishDrafts,
+    (_event, input: UpdatePublishDraftsInput) => {
+      return reviewGateway.updatePublishDrafts(input.snapshotId, input.drafts);
+    },
+  );
+
+  ipcMain.handle(REVIEW_IPC_CHANNELS.publishDrafts, (_event, input: PublishDraftsInput) => {
+    return reviewGateway.publishDrafts(input.snapshotId, input.publishDraftIds);
+  });
 
   app.on('before-quit', () => {
     void gateway.dispose();

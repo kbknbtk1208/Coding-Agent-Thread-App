@@ -7,6 +7,7 @@ import {
   type ReviewThreadDraft,
   type ReviewThreadMessage,
 } from '../../shared/domain/review-draft';
+import type { ReviewPublishDraft, ReviewPublishResult } from '../../shared/domain/review-publish';
 
 interface SnapshotDraftState {
   envelopesByRunId: Map<string, ReviewDraftEnvelope>;
@@ -14,6 +15,7 @@ interface SnapshotDraftState {
   latestEnvelope: ReviewDraftEnvelope | null;
   threads: ReviewThreadDraft[];
   localThreads: ReviewLocalThread[];
+  publishDrafts: ReviewPublishDraft[];
 }
 
 function upsertRun(runs: ReviewRunRecord[], run: ReviewRunRecord): ReviewRunRecord[] {
@@ -34,6 +36,7 @@ function createEmptyState(): SnapshotDraftState {
     latestEnvelope: null,
     threads: [],
     localThreads: [],
+    publishDrafts: [],
   };
 }
 
@@ -94,6 +97,7 @@ export class ReviewDraftStore {
       latestEnvelope: clonedEnvelope,
       threads: clonedEnvelope.kind === 'structured' ? cloneThreads(clonedEnvelope.threads) : [],
       localThreads: syncLocalThreads(current.localThreads, clonedEnvelope),
+      publishDrafts: current.publishDrafts.map((d) => structuredClone(d)),
     });
   }
 
@@ -106,6 +110,7 @@ export class ReviewDraftStore {
       latestEnvelope: current.latestEnvelope ? cloneEnvelope(current.latestEnvelope) : null,
       threads: cloneThreads(current.threads),
       localThreads: cloneLocalThreads(current.localThreads),
+      publishDrafts: current.publishDrafts.map((d) => structuredClone(d)),
     });
   }
 
@@ -157,6 +162,7 @@ export class ReviewDraftStore {
       latestEnvelope: current.latestEnvelope ? cloneEnvelope(current.latestEnvelope) : null,
       threads: cloneThreads(current.threads),
       localThreads: cloneLocalThreads(localThreads),
+      publishDrafts: current.publishDrafts.map((d) => structuredClone(d)),
     });
   }
 
@@ -225,6 +231,88 @@ export class ReviewDraftStore {
         : null,
       threads: cloneThreads(snapshotState.threads),
       localThreads: nextLocalThreads,
+      publishDrafts: snapshotState.publishDrafts.map((d) => structuredClone(d)),
+    });
+  }
+
+  getPublishDrafts(snapshotId: string): ReviewPublishDraft[] {
+    return (this.stateBySnapshotId.get(snapshotId)?.publishDrafts ?? []).map((d) =>
+      structuredClone(d),
+    );
+  }
+
+  savePublishDrafts(snapshotId: string, drafts: ReviewPublishDraft[]): void {
+    const current = this.stateBySnapshotId.get(snapshotId) ?? createEmptyState();
+
+    this.stateBySnapshotId.set(snapshotId, {
+      envelopesByRunId: new Map(current.envelopesByRunId),
+      runs: current.runs.map((run) => structuredClone(run)),
+      latestEnvelope: current.latestEnvelope ? cloneEnvelope(current.latestEnvelope) : null,
+      threads: cloneThreads(current.threads),
+      localThreads: cloneLocalThreads(current.localThreads),
+      publishDrafts: drafts.map((d) => structuredClone(d)),
+    });
+  }
+
+  upsertPublishDraft(snapshotId: string, draft: ReviewPublishDraft): void {
+    const current = this.stateBySnapshotId.get(snapshotId) ?? createEmptyState();
+    const exists = current.publishDrafts.some((d) => d.publishDraftId === draft.publishDraftId);
+    const nextDrafts = exists
+      ? current.publishDrafts.map((d) =>
+          d.publishDraftId === draft.publishDraftId ? structuredClone(draft) : structuredClone(d),
+        )
+      : [...current.publishDrafts.map((d) => structuredClone(d)), structuredClone(draft)];
+
+    this.stateBySnapshotId.set(snapshotId, {
+      envelopesByRunId: new Map(current.envelopesByRunId),
+      runs: current.runs.map((run) => structuredClone(run)),
+      latestEnvelope: current.latestEnvelope ? cloneEnvelope(current.latestEnvelope) : null,
+      threads: cloneThreads(current.threads),
+      localThreads: cloneLocalThreads(current.localThreads),
+      publishDrafts: nextDrafts,
+    });
+  }
+
+  markPublishResult(snapshotId: string, result: ReviewPublishResult): void {
+    const current = this.stateBySnapshotId.get(snapshotId) ?? createEmptyState();
+    const resultMap = new Map(result.items.map((item) => [item.publishDraftId, item]));
+
+    const nextDrafts = current.publishDrafts.map((draft) => {
+      const item = resultMap.get(draft.publishDraftId);
+      if (!item) {
+        return structuredClone(draft);
+      }
+      if (item.status === 'published') {
+        return structuredClone({
+          ...draft,
+          state: 'published' as const,
+          lastError: null,
+          publishedRemote: item.remoteThread
+            ? {
+                provider: item.remoteThread.providerContext.remoteDiscussionId
+                  ? ('github' as const)
+                  : ('github' as const),
+                remoteDiscussionId: item.remoteThread.providerContext.remoteDiscussionId,
+                remoteCommentIds: item.remoteThread.providerContext.remoteCommentIds,
+                publishedAt: new Date().toISOString(),
+              }
+            : draft.publishedRemote,
+        });
+      }
+      return structuredClone({
+        ...draft,
+        state: 'failed' as const,
+        lastError: item.errorMessage ?? 'Unknown error',
+      });
+    });
+
+    this.stateBySnapshotId.set(snapshotId, {
+      envelopesByRunId: new Map(current.envelopesByRunId),
+      runs: current.runs.map((run) => structuredClone(run)),
+      latestEnvelope: current.latestEnvelope ? cloneEnvelope(current.latestEnvelope) : null,
+      threads: cloneThreads(current.threads),
+      localThreads: cloneLocalThreads(current.localThreads),
+      publishDrafts: nextDrafts,
     });
   }
 }

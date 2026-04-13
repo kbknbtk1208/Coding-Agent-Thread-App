@@ -25,9 +25,15 @@ import {
   type HydrateReviewFileResult,
   type LoadReviewSourceInput,
   type LoadReviewSourceResult,
+  type PreparePublishDraftsInput,
+  type PreparePublishDraftsResult,
+  type PublishDraftsInput,
+  type PublishDraftsResult,
   REVIEW_IPC_CHANNELS,
   type ReplyReviewThreadInput,
   type ReplyReviewThreadResult,
+  type UpdatePublishDraftsInput,
+  type UpdatePublishDraftsResult,
 } from '../shared/contracts/review-ipc';
 
 const handler = {
@@ -108,6 +114,15 @@ const reviewApi = {
     input: AwaitDraftThreadReplyResultInput,
   ): Promise<AwaitDraftThreadReplyResultResult> {
     return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.awaitDraftThreadReplyResult, input);
+  },
+  preparePublishDrafts(input: PreparePublishDraftsInput): Promise<PreparePublishDraftsResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.preparePublishDrafts, input);
+  },
+  updatePublishDrafts(input: UpdatePublishDraftsInput): Promise<UpdatePublishDraftsResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.updatePublishDrafts, input);
+  },
+  publishDrafts(input: PublishDraftsInput): Promise<PublishDraftsResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.publishDrafts, input);
   },
 };
 

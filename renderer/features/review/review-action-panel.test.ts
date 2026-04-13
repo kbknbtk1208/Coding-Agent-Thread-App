@@ -107,6 +107,10 @@ function createProps(overrides: Partial<ReviewActionPanelProps> = {}): ReviewAct
     fallbackReason: null,
     threadCount: 1,
     overviewConversationCount: 0,
+    unpublishedDraftCount: 0,
+    isPublishing: false,
+    publishError: null,
+    onOpenPublishPanel: () => undefined,
     ...overrides,
   };
 }

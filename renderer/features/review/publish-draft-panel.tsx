@@ -1,0 +1,390 @@
+import React from 'react';
+import type { ReviewSnapshotFile } from '../../../shared/domain/review';
+import type { ReviewPublishDraft } from '../../../shared/domain/review-publish';
+import type { ReviewPublishState } from './use-review-publish';
+
+function severityLabel(severity: 'high' | 'medium' | 'low'): string {
+  switch (severity) {
+    case 'high':
+      return 'High';
+    case 'medium':
+      return 'Medium';
+    case 'low':
+      return 'Low';
+  }
+}
+
+function findEligibleDiffFile(files: ReviewSnapshotFile[]): ReviewSnapshotFile | null {
+  return files.find((file) => !file.isBinary && !file.isLargeDiff) ?? files[0] ?? null;
+}
+
+function buildDefaultDiffLocation(
+  files: ReviewSnapshotFile[],
+): ReviewPublishDraft['location'] | null {
+  const file = findEligibleDiffFile(files);
+  if (!file) {
+    return null;
+  }
+
+  return {
+    kind: 'diff',
+    fileId: file.fileId,
+    filePath: file.filePath,
+    side: file.changeType === 'deleted' ? 'old' : 'new',
+    startLine: 1,
+    endLine: 1,
+  };
+}
+
+interface PublishDraftCardProps {
+  draft: ReviewPublishDraft;
+  files: ReviewSnapshotFile[];
+  isSelected: boolean;
+  snapshotId: string;
+  onToggleSelect: (id: string) => void;
+  onDraftChange: (draft: ReviewPublishDraft, snapshotId: string) => void;
+}
+
+function PublishDraftCard({
+  draft,
+  files,
+  isSelected,
+  snapshotId,
+  onToggleSelect,
+  onDraftChange,
+}: PublishDraftCardProps) {
+  const isLocked = draft.state === 'published' || draft.state === 'publishing';
+  let selectedFile: ReviewSnapshotFile | null = null;
+  if (draft.location.kind === 'diff') {
+    const location = draft.location;
+    selectedFile = files.find((file) => file.fileId === location.fileId) ?? null;
+  }
+
+  const stateLabel =
+    draft.state === 'published'
+      ? '投稿済み'
+      : draft.state === 'failed'
+        ? '失敗'
+        : draft.state === 'publishing'
+          ? '投稿中'
+          : draft.state === 'edited'
+            ? '編集中'
+            : null;
+
+  const handleLocationKindChange = (kind: 'overview' | 'diff') => {
+    if (kind === 'overview') {
+      onDraftChange(
+        {
+          ...draft,
+          location: { kind: 'overview' },
+          anchor: null,
+        },
+        snapshotId,
+      );
+      return;
+    }
+
+    const nextLocation = buildDefaultDiffLocation(files);
+    if (!nextLocation) {
+      return;
+    }
+
+    onDraftChange(
+      {
+        ...draft,
+        location: nextLocation,
+        anchor: null,
+      },
+      snapshotId,
+    );
+  };
+
+  const handleDiffFieldChange = (
+    field: 'fileId' | 'side' | 'startLine' | 'endLine',
+    value: string,
+  ) => {
+    if (draft.location.kind !== 'diff') {
+      return;
+    }
+
+    let nextLocation: ReviewPublishDraft['location'] = { ...draft.location };
+
+    if (field === 'fileId') {
+      const nextFile = files.find((file) => file.fileId === value);
+      if (!nextFile) {
+        return;
+      }
+
+      nextLocation = {
+        ...draft.location,
+        fileId: nextFile.fileId,
+        filePath: nextFile.filePath,
+        side: nextFile.changeType === 'deleted' ? 'old' : draft.location.side,
+      };
+    } else if (field === 'side') {
+      nextLocation = {
+        ...draft.location,
+        side: value === 'old' ? 'old' : 'new',
+      };
+    } else {
+      const nextNumber = value.trim() ? Number(value) : null;
+      nextLocation = {
+        ...draft.location,
+        [field]: Number.isNaN(nextNumber) ? null : nextNumber,
+      };
+    }
+
+    onDraftChange(
+      {
+        ...draft,
+        location: nextLocation,
+        anchor: null,
+      },
+      snapshotId,
+    );
+  };
+
+  return (
+    <section
+      className={`rounded-2xl border p-4 transition ${
+        isSelected ? 'border-cyan-400/30 bg-cyan-400/5' : 'border-white/10 bg-white/[0.03]'
+      } ${draft.state === 'published' ? 'opacity-60' : ''}`}
+    >
+      <div className="flex items-start gap-3">
+        {draft.state !== 'published' ? (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            disabled={isLocked}
+            onChange={() => onToggleSelect(draft.publishDraftId)}
+            className="mt-1 shrink-0 accent-cyan-400"
+            aria-label={`${draft.title} を選択`}
+          />
+        ) : (
+          <span className="mt-1 text-xs text-emerald-300">✓</span>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-white">{draft.title}</h3>
+            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-400">
+              {severityLabel(draft.severity)}
+            </span>
+            {stateLabel ? (
+              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                {stateLabel}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-3 space-y-3">
+            <textarea
+              value={draft.body}
+              onChange={(event) =>
+                void onDraftChange(
+                  {
+                    ...draft,
+                    body: event.target.value,
+                  },
+                  snapshotId,
+                )
+              }
+              disabled={isLocked}
+              rows={5}
+              className="w-full resize-none rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-cyan-400/40 focus:outline-none disabled:opacity-50"
+              aria-label={`${draft.title} の本文`}
+            />
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs text-slate-400">
+                <span>Location</span>
+                <select
+                  value={draft.location.kind}
+                  onChange={(event) =>
+                    handleLocationKindChange(event.target.value === 'diff' ? 'diff' : 'overview')
+                  }
+                  disabled={isLocked}
+                  className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                >
+                  <option value="overview">overview</option>
+                  <option value="diff">diff</option>
+                </select>
+              </label>
+
+              {draft.location.kind === 'diff' ? (
+                <label className="flex flex-col gap-1 text-xs text-slate-400">
+                  <span>Side</span>
+                  <select
+                    value={draft.location.side}
+                    onChange={(event) => handleDiffFieldChange('side', event.target.value)}
+                    disabled={isLocked}
+                    className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  >
+                    <option value="new">new</option>
+                    <option value="old">old</option>
+                  </select>
+                </label>
+              ) : null}
+
+              {draft.location.kind === 'diff' ? (
+                <label className="flex flex-col gap-1 text-xs text-slate-400 md:col-span-2">
+                  <span>File</span>
+                  <select
+                    value={draft.location.fileId}
+                    onChange={(event) => handleDiffFieldChange('fileId', event.target.value)}
+                    disabled={isLocked}
+                    className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                  >
+                    {files.map((file) => (
+                      <option key={file.fileId} value={file.fileId}>
+                        {file.filePath}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              {draft.location.kind === 'diff' ? (
+                <>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    <span>Start line</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.location.startLine ?? ''}
+                      onChange={(event) => handleDiffFieldChange('startLine', event.target.value)}
+                      disabled={isLocked}
+                      className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    <span>End line</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.location.endLine ?? ''}
+                      onChange={(event) => handleDiffFieldChange('endLine', event.target.value)}
+                      disabled={isLocked}
+                      className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
+
+            {selectedFile?.isBinary || selectedFile?.isLargeDiff ? (
+              <p className="text-xs text-amber-300">
+                このファイルは diff 投稿に向かないため、overview へ切り替える必要があります。
+              </p>
+            ) : null}
+
+            {draft.lastError ? <p className="text-xs text-red-400">{draft.lastError}</p> : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+interface PublishDraftPanelProps {
+  publishState: ReviewPublishState;
+  files: ReviewSnapshotFile[];
+  snapshotId: string;
+  onClose: () => void;
+  onToggleSelect: (publishDraftId: string) => void;
+  onDraftChange: (draft: ReviewPublishDraft, snapshotId: string) => Promise<void>;
+  onConfirmPublish: (snapshotId: string) => Promise<void>;
+}
+
+export function PublishDraftPanel({
+  publishState,
+  files,
+  snapshotId,
+  onClose,
+  onToggleSelect,
+  onDraftChange,
+  onConfirmPublish,
+}: PublishDraftPanelProps) {
+  if (!publishState.isPanelOpen) {
+    return null;
+  }
+
+  const visibleDrafts = publishState.drafts.filter((draft) => draft.state !== 'published');
+  const selectedCount = publishState.selectedDraftIds.filter((id) =>
+    visibleDrafts.some((draft) => draft.publishDraftId === id),
+  ).length;
+  const isPublishing = publishState.publishStatus === 'publishing';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-end bg-black/50 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <aside className="flex h-full w-full max-w-[560px] flex-col border-l border-white/10 bg-slate-950 shadow-2xl">
+        <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-white">投稿前確認</h2>
+            <p className="text-xs text-slate-400">
+              {visibleDrafts.length} 件中 {selectedCount} 件選択
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/10 hover:text-white"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          {visibleDrafts.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">投稿候補がありません。</p>
+          ) : (
+            visibleDrafts.map((draft) => (
+              <PublishDraftCard
+                key={draft.publishDraftId}
+                draft={draft}
+                files={files}
+                isSelected={publishState.selectedDraftIds.includes(draft.publishDraftId)}
+                snapshotId={snapshotId}
+                onToggleSelect={onToggleSelect}
+                onDraftChange={onDraftChange}
+              />
+            ))
+          )}
+        </div>
+
+        {publishState.errorMessage ? (
+          <div className="border-t border-red-400/20 bg-red-400/5 px-4 py-2">
+            <p className="text-xs text-red-400">{publishState.errorMessage}</p>
+          </div>
+        ) : null}
+
+        <footer className="flex items-center justify-between gap-2 border-t border-white/10 px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isPublishing}
+            className="rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-50"
+          >
+            閉じる
+          </button>
+          <button
+            type="button"
+            onClick={() => void onConfirmPublish(snapshotId)}
+            disabled={isPublishing || selectedCount === 0}
+            className="rounded-lg bg-cyan-500 px-4 py-1.5 text-xs font-semibold text-black hover:bg-cyan-400 disabled:opacity-50"
+          >
+            {isPublishing ? '投稿中…' : `投稿を確定 (${selectedCount})`}
+          </button>
+        </footer>
+      </aside>
+    </div>
+  );
+}

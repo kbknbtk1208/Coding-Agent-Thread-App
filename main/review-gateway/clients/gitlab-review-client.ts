@@ -13,6 +13,48 @@ export interface GitLabMergeRequestDetail {
   };
 }
 
+export interface GitLabCreatedDiscussion {
+  id: string;
+  notes: Array<{
+    id: number;
+    body: string;
+    author: { username: string };
+    created_at: string;
+    position?: {
+      new_path: string;
+      old_path: string;
+      new_line: number | null;
+      old_line: number | null;
+      line_range?: {
+        start: { new_line: number | null; old_line: number | null; type: string };
+        end: { new_line: number | null; old_line: number | null; type: string };
+      };
+    } | null;
+    resolvable: boolean;
+    resolved?: boolean;
+  }>;
+}
+
+export interface GitLabCreateDiscussionPosition {
+  position_type: 'text';
+  base_sha: string;
+  head_sha: string;
+  start_sha: string;
+  new_path?: string;
+  old_path?: string;
+  new_line?: number;
+  old_line?: number;
+  line_range?: {
+    start: { line_code: string; type: 'old' | 'new' };
+    end: { line_code: string; type: 'old' | 'new' };
+  };
+}
+
+export interface GitLabCreateDiscussionPayload {
+  body: string;
+  position?: GitLabCreateDiscussionPosition;
+}
+
 export interface GitLabReviewClient {
   provider: ReviewProvider;
   fetchMergeRequestDetail(
@@ -24,6 +66,11 @@ export interface GitLabReviewClient {
     projectPathOrId: string,
     mergeRequestIid: number,
   ): Promise<GitLabDiscussion[]>;
+  createMergeRequestDiscussion(
+    projectPathOrId: string,
+    mergeRequestIid: number,
+    payload: GitLabCreateDiscussionPayload,
+  ): Promise<GitLabCreatedDiscussion>;
 }
 
 function encodePathSegment(value: string): string {
@@ -72,6 +119,23 @@ export function createGitLabReviewClient(args: {
             `/api/v4/projects/${encodePathSegment(projectPathOrId)}/merge_requests/${mergeRequestIid}/discussions`,
           ),
         { fetchImpl: args.fetchImpl, headers },
+      );
+    },
+    async createMergeRequestDiscussion(projectPathOrId, mergeRequestIid, payload) {
+      return requestJson<GitLabCreatedDiscussion>(
+        createUrl(
+          args.baseUrl,
+          `/api/v4/projects/${encodePathSegment(projectPathOrId)}/merge_requests/${mergeRequestIid}/discussions`,
+        ),
+        {
+          fetchImpl: args.fetchImpl,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
       );
     },
   };

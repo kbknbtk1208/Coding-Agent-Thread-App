@@ -24,6 +24,45 @@ export interface GitHubIssueComment {
   updated_at: string;
 }
 
+export interface GitHubCreatedIssueComment {
+  id: number;
+  body: string;
+  user: { login: string };
+  created_at: string;
+  html_url: string;
+}
+
+export interface GitHubCreatedReviewComment {
+  id: number;
+  body: string;
+  path: string;
+  line: number | null;
+  start_line: number | null;
+  start_side?: 'LEFT' | 'RIGHT' | null;
+  side: string;
+  user: { login: string };
+  created_at: string;
+  commit_id: string;
+  diff_hunk: string;
+  in_reply_to_id?: number;
+  original_commit_id?: string;
+  html_url: string;
+}
+
+export interface GitHubCreateIssueCommentPayload {
+  body: string;
+}
+
+export interface GitHubCreateReviewCommentPayload {
+  body: string;
+  commit_id: string;
+  path: string;
+  line: number;
+  side: 'LEFT' | 'RIGHT';
+  start_line?: number;
+  start_side?: 'LEFT' | 'RIGHT';
+}
+
 export interface GitHubReviewClient {
   provider: ReviewProvider;
   fetchPullRequestDetail(
@@ -42,6 +81,18 @@ export interface GitHubReviewClient {
     repo: string,
     pullNumber: number,
   ): Promise<GitHubIssueComment[]>;
+  createIssueComment(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    payload: GitHubCreateIssueCommentPayload,
+  ): Promise<GitHubCreatedIssueComment>;
+  createReviewComment(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    payload: GitHubCreateReviewCommentPayload,
+  ): Promise<GitHubCreatedReviewComment>;
 }
 
 function encodePathSegment(value: string): string {
@@ -105,6 +156,40 @@ export function createGitHubReviewClient(args: {
             `/repos/${encodePathSegment(owner)}/${encodePathSegment(repo)}/issues/${pullNumber}/comments`,
           ),
         { fetchImpl: args.fetchImpl, headers },
+      );
+    },
+    async createIssueComment(owner, repo, pullNumber, payload) {
+      return requestJson<GitHubCreatedIssueComment>(
+        createUrl(
+          args.baseUrl,
+          `/repos/${encodePathSegment(owner)}/${encodePathSegment(repo)}/issues/${pullNumber}/comments`,
+        ),
+        {
+          fetchImpl: args.fetchImpl,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+      );
+    },
+    async createReviewComment(owner, repo, pullNumber, payload) {
+      return requestJson<GitHubCreatedReviewComment>(
+        createUrl(
+          args.baseUrl,
+          `/repos/${encodePathSegment(owner)}/${encodePathSegment(repo)}/pulls/${pullNumber}/comments`,
+        ),
+        {
+          fetchImpl: args.fetchImpl,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
       );
     },
   };

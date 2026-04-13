@@ -60,6 +60,10 @@ type ReviewAction =
       type: 'REPLY_THREAD_ROLLBACK';
       threadId: string;
       optimisticCommentId: string;
+    }
+  | {
+      type: 'MERGE_REMOTE_THREADS';
+      threads: ReviewSnapshotThread[];
     };
 
 function replaceFileThreads(
@@ -138,6 +142,60 @@ function replaceFileData(
   });
 }
 
+function mergeRemoteThreadsIntoFiles(
+  files: NormalizedDiffFile[],
+  threads: ReviewSnapshotThread[],
+): NormalizedDiffFile[] {
+  let nextFiles = files;
+
+  for (const snapshotThread of threads) {
+    if (snapshotThread.location.kind !== 'diff') {
+      continue;
+    }
+
+    const legacyThread = toLegacyThread(snapshotThread);
+    if (!legacyThread) {
+      continue;
+    }
+
+    nextFiles = replaceFileThreads(nextFiles, snapshotThread.location.fileId, (currentThreads) => {
+      const existingIndex = currentThreads.findIndex(
+        (thread) => thread.threadId === legacyThread.threadId,
+      );
+      if (existingIndex === -1) {
+        return [...currentThreads, legacyThread];
+      }
+
+      const updatedThreads = [...currentThreads];
+      updatedThreads[existingIndex] = legacyThread;
+      return updatedThreads;
+    });
+  }
+
+  return nextFiles;
+}
+
+function mergeRemoteThreadsIntoDiscussions(
+  discussions: ReviewSnapshotThread[],
+  threads: ReviewSnapshotThread[],
+): ReviewSnapshotThread[] {
+  const nextDiscussions = [...discussions];
+
+  for (const thread of threads) {
+    const existingIndex = nextDiscussions.findIndex(
+      (candidate) => candidate.threadId === thread.threadId,
+    );
+    if (existingIndex === -1) {
+      nextDiscussions.push(thread);
+      continue;
+    }
+
+    nextDiscussions[existingIndex] = thread;
+  }
+
+  return nextDiscussions;
+}
+
 function toSnapshotThread(thread: ReviewThread): ReviewSnapshotThread {
   return {
     threadId: thread.threadId,
@@ -211,6 +269,16 @@ function reviewReducer(state: ReviewState, action: ReviewAction): ReviewState {
         data: {
           ...state.data,
           files: replaceFileData(state.data.files, action.file),
+        },
+      };
+
+    case 'MERGE_REMOTE_THREADS':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          files: mergeRemoteThreadsIntoFiles(state.data.files, action.threads),
+          discussions: mergeRemoteThreadsIntoDiscussions(state.data.discussions, action.threads),
         },
       };
 
@@ -370,6 +438,7 @@ export interface UseReviewStateReturn {
   reset: (data: NormalizedReviewData) => void;
   setFileContentStatus: (fileId: string, contentStatus: ReviewContentStatus) => void;
   replaceFile: (file: ReviewSnapshotFile) => void;
+  mergeRemoteThreads: (threads: ReviewSnapshotThread[]) => void;
   createThreadOptimistic: (
     fileId: string,
     startLine: number | null,
@@ -415,6 +484,14 @@ export function useReviewState(): UseReviewStateReturn {
 
   const replaceFile = useCallback((file: ReviewSnapshotFile) => {
     dispatch({ type: 'REPLACE_FILE', file });
+  }, []);
+
+  const mergeRemoteThreads = useCallback((threads: ReviewSnapshotThread[]) => {
+    if (threads.length === 0) {
+      return;
+    }
+
+    dispatch({ type: 'MERGE_REMOTE_THREADS', threads });
   }, []);
 
   const createThreadOptimistic = useCallback(
@@ -548,6 +625,7 @@ export function useReviewState(): UseReviewStateReturn {
       reset,
       setFileContentStatus,
       replaceFile,
+      mergeRemoteThreads,
       createThreadOptimistic,
       replyThreadOptimistic,
     }),
@@ -556,6 +634,7 @@ export function useReviewState(): UseReviewStateReturn {
       reset,
       setFileContentStatus,
       replaceFile,
+      mergeRemoteThreads,
       createThreadOptimistic,
       replyThreadOptimistic,
     ],

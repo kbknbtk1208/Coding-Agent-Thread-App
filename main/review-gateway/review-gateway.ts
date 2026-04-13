@@ -10,7 +10,10 @@ import type {
   CreateReviewThreadResult,
   HydrateReviewFileResult,
   LoadReviewSourceResult,
+  PreparePublishDraftsResult,
+  PublishDraftsResult,
   ReplyReviewThreadResult,
+  UpdatePublishDraftsResult,
 } from '../../shared/contracts/review-ipc';
 import type {
   ReviewAnchor,
@@ -28,6 +31,7 @@ import type {
   ReviewSummaryDraft,
   ReviewThreadReplyRecord,
 } from '../../shared/domain/review-draft';
+import type { ReviewPublishDraft } from '../../shared/domain/review-publish';
 import type { AgentGateway } from '../agent-gateway/agent-gateway';
 import { adaptGitHubSnapshot } from './adapters/github-snapshot-adapter';
 import { adaptGitLabSnapshot } from './adapters/gitlab-snapshot-adapter';
@@ -45,6 +49,9 @@ import {
 import type { ReviewResultNormalizer } from './review-result-normalizer';
 import { ReviewRunCoordinator } from './review-run-coordinator';
 import { ReviewThreadReplyCoordinator } from './review-thread-reply-coordinator';
+import { ReviewAnchorValidator } from './review-anchor-validator';
+import { ReviewPublishDraftAssembler } from './review-publish-draft-assembler';
+import { ReviewPublishCoordinator } from './review-publish-coordinator';
 import { parseReviewSource } from './source-parser';
 
 interface ReviewSessionContext {
@@ -196,6 +203,7 @@ export class ReviewGateway {
   private readonly draftStore: ReviewDraftStore;
   private readonly reviewRunCoordinator: ReviewRunCoordinator | null;
   private readonly threadReplyCoordinator: ReviewThreadReplyCoordinator | null;
+  private readonly publishCoordinator: ReviewPublishCoordinator;
   private threadIdCounter = 0;
   private commentIdCounter = 0;
   private readonly activeDraftReviews = new Map<string, Promise<ReviewDraftEnvelope>>();
@@ -228,6 +236,17 @@ export class ReviewGateway {
           cwdResolver: dependencies.cwdResolver,
         })
       : null;
+    const anchorValidator = new ReviewAnchorValidator();
+    const assembler = new ReviewPublishDraftAssembler();
+    this.publishCoordinator = new ReviewPublishCoordinator({
+      createGitHubClient: dependencies.createGitHubClient,
+      createGitLabClient: dependencies.createGitLabClient,
+      draftStore: this.draftStore,
+      assembler,
+      anchorValidator,
+      fetchImpl: dependencies.fetchImpl,
+      now: dependencies.now,
+    });
   }
 
   async loadReviewSource(source: ReviewSourceDraft): Promise<LoadReviewSourceResult> {
@@ -494,6 +513,44 @@ export class ReviewGateway {
       'THREAD_NOT_FOUND',
       `Draft thread reply not found: ${input.replyId}`,
     );
+  }
+
+  preparePublishDrafts(snapshotId: string): PreparePublishDraftsResult {
+    const session = this.requireSession(snapshotId);
+    const localThreads = this.draftStore.getLocalThreads(snapshotId);
+    const drafts = this.publishCoordinator.preparePublishDrafts(snapshotId, localThreads);
+    void session;
+    return { drafts };
+  }
+
+  updatePublishDrafts(snapshotId: string, drafts: ReviewPublishDraft[]): UpdatePublishDraftsResult {
+    this.requireSession(snapshotId);
+    const updated = this.publishCoordinator.updatePublishDrafts(snapshotId, drafts);
+    return { drafts: updated };
+  }
+
+  async publishDrafts(snapshotId: string, publishDraftIds: string[]): Promise<PublishDraftsResult> {
+    const session = this.requireSession(snapshotId);
+
+    const { result, remoteThreads } = await this.publishCoordinator.publishDrafts(
+      {
+        snapshotId,
+        locator: session.locator,
+        snapshot: session.snapshot,
+        token: session.token,
+      },
+      publishDraftIds,
+    );
+
+    if (remoteThreads.length > 0) {
+      session.snapshot = {
+        ...session.snapshot,
+        discussions: [...session.snapshot.discussions, ...remoteThreads],
+      };
+      this.sessions.set(snapshotId, session);
+    }
+
+    return { result };
   }
 
   private requireSession(snapshotId: string): ReviewSessionContext {

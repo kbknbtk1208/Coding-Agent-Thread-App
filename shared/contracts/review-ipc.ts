@@ -13,6 +13,7 @@ import type {
   ReviewThreadBinding,
   ReviewThreadReplyRecord,
 } from '../domain/review-draft';
+import type { ReviewPublishDraft, ReviewPublishResult } from '../domain/review-publish';
 import type { AgentSessionSnapshot } from './agent-ipc';
 
 export const REVIEW_IPC_CHANNELS = {
@@ -24,6 +25,9 @@ export const REVIEW_IPC_CHANNELS = {
   awaitDraftReviewResult: 'review:await-draft-review-result',
   beginDraftThreadReply: 'review:begin-draft-thread-reply',
   awaitDraftThreadReplyResult: 'review:await-draft-thread-reply-result',
+  preparePublishDrafts: 'review:prepare-publish-drafts',
+  updatePublishDrafts: 'review:update-publish-drafts',
+  publishDrafts: 'review:publish-drafts',
 } as const;
 
 export interface LoadReviewSourceInput {
@@ -105,4 +109,30 @@ export interface AwaitDraftThreadReplyResultInput {
 
 export interface AwaitDraftThreadReplyResultResult {
   thread: ReviewLocalThread;
+}
+
+export interface PreparePublishDraftsInput {
+  snapshotId: string;
+}
+
+export interface PreparePublishDraftsResult {
+  drafts: ReviewPublishDraft[];
+}
+
+export interface UpdatePublishDraftsInput {
+  snapshotId: string;
+  drafts: ReviewPublishDraft[];
+}
+
+export interface UpdatePublishDraftsResult {
+  drafts: ReviewPublishDraft[];
+}
+
+export interface PublishDraftsInput {
+  snapshotId: string;
+  publishDraftIds: string[];
+}
+
+export interface PublishDraftsResult {
+  result: ReviewPublishResult;
 }
