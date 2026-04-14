@@ -15,10 +15,14 @@ import {
   type AwaitDraftReviewResultResult,
   type AwaitDraftThreadReplyResultInput,
   type AwaitDraftThreadReplyResultResult,
+  type AwaitSelectionMentionResultInput,
+  type AwaitSelectionMentionResultResult,
   type BeginDraftReviewInput,
   type BeginDraftReviewResult,
   type BeginDraftThreadReplyInput,
   type BeginDraftThreadReplyResult,
+  type BeginSelectionMentionInput,
+  type BeginSelectionMentionResult,
   type CreateReviewThreadInput,
   type CreateReviewThreadResult,
   type HydrateReviewFileInput,
@@ -27,6 +31,8 @@ import {
   type LoadReviewSourceResult,
   type PreparePublishDraftsInput,
   type PreparePublishDraftsResult,
+  type PromoteSelectionMentionToDraftInput,
+  type PromoteSelectionMentionToDraftResult,
   type PublishDraftsInput,
   type PublishDraftsResult,
   REVIEW_IPC_CHANNELS,
@@ -114,6 +120,19 @@ const reviewApi = {
     input: AwaitDraftThreadReplyResultInput,
   ): Promise<AwaitDraftThreadReplyResultResult> {
     return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.awaitDraftThreadReplyResult, input);
+  },
+  beginSelectionMention(input: BeginSelectionMentionInput): Promise<BeginSelectionMentionResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.beginSelectionMention, input);
+  },
+  awaitSelectionMentionResult(
+    input: AwaitSelectionMentionResultInput,
+  ): Promise<AwaitSelectionMentionResultResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.awaitSelectionMentionResult, input);
+  },
+  promoteSelectionMentionToDraft(
+    input: PromoteSelectionMentionToDraftInput,
+  ): Promise<PromoteSelectionMentionToDraftResult> {
+    return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.promoteSelectionMentionToDraft, input);
   },
   preparePublishDrafts(input: PreparePublishDraftsInput): Promise<PreparePublishDraftsResult> {
     return ipcRenderer.invoke(REVIEW_IPC_CHANNELS.preparePublishDrafts, input);

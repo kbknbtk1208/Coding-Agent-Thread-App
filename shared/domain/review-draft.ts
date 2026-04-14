@@ -118,12 +118,24 @@ export interface ReviewThreadDraftDebugDowngrade {
   requestedEndLine: number | null;
 }
 
+export type ReviewThreadDraftOrigin =
+  | {
+      kind: 'review-run';
+      runId: string;
+      findingId: string;
+    }
+  | {
+      kind: 'selection-mention';
+      mentionThreadId: string;
+    };
+
 export interface ReviewThreadDraft {
   localThreadId: string;
   snapshotId: string;
   runId: string;
   findingId: string;
-  source: 'ai-review';
+  source: 'ai-review' | 'selection-mention';
+  origin?: ReviewThreadDraftOrigin;
   state: 'draft' | 'edited' | 'dismissed';
   severity: ReviewFindingSeverity;
   category: ReviewFindingCategory;

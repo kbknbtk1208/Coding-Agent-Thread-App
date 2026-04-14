@@ -13,8 +13,10 @@ import {
 import {
   type AwaitDraftReviewResultInput,
   type AwaitDraftThreadReplyResultInput,
+  type AwaitSelectionMentionResultInput,
   type BeginDraftReviewInput,
   type BeginDraftThreadReplyInput,
+  type BeginSelectionMentionInput,
   type CreateReviewThreadInput,
   type HydrateReviewFileInput,
   type LoadReviewSourceInput,
@@ -23,6 +25,7 @@ import {
   type PreparePublishDraftsInput,
   type UpdatePublishDraftsInput,
   type PublishDraftsInput,
+  type PromoteSelectionMentionToDraftInput,
 } from '../shared/contracts/review-ipc';
 import { AgentGateway } from './agent-gateway/agent-gateway';
 import { SqliteSessionStore } from './agent-gateway/session-store';
@@ -170,6 +173,30 @@ if (isProd) {
     REVIEW_IPC_CHANNELS.awaitDraftThreadReplyResult,
     (_event, input: AwaitDraftThreadReplyResultInput) => {
       return reviewGateway.awaitDraftThreadReplyResult(input);
+    },
+  );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.beginSelectionMention,
+    (_event, input: BeginSelectionMentionInput) => {
+      return reviewGateway.beginSelectionMention({
+        ...input,
+        cwd: input.cwd?.trim() || process.cwd(),
+      });
+    },
+  );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.awaitSelectionMentionResult,
+    (_event, input: AwaitSelectionMentionResultInput) => {
+      return reviewGateway.awaitSelectionMentionResult(input);
+    },
+  );
+
+  ipcMain.handle(
+    REVIEW_IPC_CHANNELS.promoteSelectionMentionToDraft,
+    (_event, input: PromoteSelectionMentionToDraftInput) => {
+      return reviewGateway.promoteSelectionMentionToDraft(input);
     },
   );
 

@@ -11,8 +11,14 @@ import React, {
 } from 'react';
 import type { NormalizedDiffFile, ReviewThread } from '../../../shared/domain/review';
 import type { ReviewLocalThread } from '../../../shared/domain/review-draft';
+import type {
+  DiffInteractionMode,
+  ReviewMentionThread,
+} from '../../../shared/domain/review-mention';
 import { CommentComposer } from './comment-composer';
 import { DraftThreadCard } from './draft-thread-card';
+import { MentionThreadCard } from './mention-thread-card';
+import { SelectionMentionComposer } from './selection-mention-composer';
 import { ThreadLayer } from './thread-layer';
 
 /* ------------------------------------------------------------------ */
@@ -35,8 +41,12 @@ interface DiffFilePaneProps {
   file: NormalizedDiffFile;
   remoteThreads: ReviewThread[];
   draftThreads: ReviewLocalThread[];
+  mentionThreads: ReviewMentionThread[];
+  interactionMode: DiffInteractionMode;
   selectedDraftThreadId: string | null;
+  selectedMentionThreadId: string | null;
   draftReplyBodies: Record<string, string>;
+  mentionReplyBodies: Record<string, string>;
   onAddComment: (
     fileId: string,
     startLine: number | null,
@@ -44,11 +54,27 @@ interface DiffFilePaneProps {
     side: SplitSide,
     body: string,
   ) => void;
+  onStartMention: (
+    fileId: string,
+    startLine: number,
+    endLine: number,
+    side: SplitSide,
+    body: string,
+  ) => void;
   onReply: (threadId: string, body: string) => void;
   onSelectDraftThread: (localThreadId: string) => void;
+  onSelectMentionThread: (mentionThreadId: string) => void;
   onDraftReplyBodyChange: (threadId: string, body: string) => void;
+  onMentionReplyBodyChange: (threadId: string, body: string) => void;
   onReplyToDraftThread: (threadId: string, body: string) => void;
+  onReplyToMentionThread: (threadId: string, body: string) => void;
+  onPromoteMentionThread: Parameters<typeof MentionThreadCard>[0]['onPromote'];
   onRespondDraftThreadPermission: (threadId: string, requestId: string, actionId: string) => void;
+  onRespondMentionThreadPermission: (
+    mentionThreadId: string,
+    requestId: string,
+    actionId: string,
+  ) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -64,6 +90,7 @@ interface RangeSelectionState {
 
 interface LineExtendPayload {
   draftThreads?: ReviewLocalThread[];
+  mentionThreads?: ReviewMentionThread[];
   remoteThreads?: ReviewThread[];
 }
 
@@ -158,6 +185,10 @@ function mergeExtendData(
             ...(merged[lineNumber].data.draftThreads ?? []),
             ...(payload.data.draftThreads ?? []),
           ],
+          mentionThreads: [
+            ...(merged[lineNumber].data.mentionThreads ?? []),
+            ...(payload.data.mentionThreads ?? []),
+          ],
         },
       };
     }
@@ -212,6 +243,54 @@ function DraftThreadLayer({
             />
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function MentionThreadLayer({
+  threads,
+  selectedMentionThreadId,
+  mentionReplyBodies,
+  onSelectMentionThread,
+  onMentionReplyBodyChange,
+  onReplyToMentionThread,
+  onPromoteMentionThread,
+  onRespondMentionThreadPermission,
+}: {
+  threads: ReviewMentionThread[];
+  selectedMentionThreadId: string | null;
+  mentionReplyBodies: Record<string, string>;
+  onSelectMentionThread: (mentionThreadId: string) => void;
+  onMentionReplyBodyChange: (threadId: string, body: string) => void;
+  onReplyToMentionThread: (threadId: string, body: string) => void;
+  onPromoteMentionThread: Parameters<typeof MentionThreadCard>[0]['onPromote'];
+  onRespondMentionThreadPermission: (
+    mentionThreadId: string,
+    requestId: string,
+    actionId: string,
+  ) => void;
+}) {
+  if (threads.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="border-l-2 border-emerald-300/40 bg-emerald-400/[0.05] px-4 py-3">
+      <div className="space-y-3">
+        {threads.map((thread) => (
+          <MentionThreadCard
+            key={thread.mentionThreadId}
+            thread={thread}
+            isSelected={thread.mentionThreadId === selectedMentionThreadId}
+            replyBody={mentionReplyBodies[thread.mentionThreadId] ?? ''}
+            onSelectThread={onSelectMentionThread}
+            onReplyBodyChange={onMentionReplyBodyChange}
+            onSubmitReply={onReplyToMentionThread}
+            onPromote={onPromoteMentionThread}
+            onRespondToPermission={onRespondMentionThreadPermission}
+          />
+        ))}
       </div>
     </div>
   );
@@ -406,14 +485,24 @@ export function DiffFilePane({
   file,
   remoteThreads,
   draftThreads,
+  mentionThreads,
+  interactionMode,
   selectedDraftThreadId,
+  selectedMentionThreadId,
   draftReplyBodies,
+  mentionReplyBodies,
   onAddComment,
+  onStartMention,
   onReply,
   onSelectDraftThread,
+  onSelectMentionThread,
   onDraftReplyBodyChange,
+  onMentionReplyBodyChange,
   onReplyToDraftThread,
+  onReplyToMentionThread,
+  onPromoteMentionThread,
   onRespondDraftThreadPermission,
+  onRespondMentionThreadPermission,
 }: DiffFilePaneProps) {
   const [expanded, setExpanded] = useState(!file.isLargeDiff);
 
@@ -425,6 +514,7 @@ export function DiffFilePane({
    * below further ensures CSS recalculations are bounded to the active file.
    */
   const [rangeSelection, setRangeSelection] = useState<RangeSelectionState | null>(null);
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
   /* Keep a mutable ref for the raw drag anchor so pointer-move reads the
      latest value without re-rendering on every move event. */
@@ -486,6 +576,16 @@ export function DiffFilePane({
     [draftThreads],
   );
 
+  const fileLevelMentionThreads = useMemo(
+    () => mentionThreads.filter((thread) => thread.selection.anchor.endLine === null),
+    [mentionThreads],
+  );
+
+  const inlineMentionThreads = useMemo(
+    () => mentionThreads.filter((thread) => thread.selection.anchor.endLine !== null),
+    [mentionThreads],
+  );
+
   const threadExtendData = useMemo(
     () => buildExtendData(inlineRemoteThreads, 'remoteThreads', (thread) => thread.anchor),
     [inlineRemoteThreads],
@@ -494,9 +594,17 @@ export function DiffFilePane({
     () => buildExtendData(inlineDraftThreads, 'draftThreads', (thread) => thread.draft.anchor),
     [inlineDraftThreads],
   );
+  const mentionExtendData = useMemo(
+    () =>
+      buildExtendData(inlineMentionThreads, 'mentionThreads', (thread) => thread.selection.anchor),
+    [inlineMentionThreads],
+  );
 
   const extendData = useMemo(() => {
-    const merged = mergeExtendData(threadExtendData, draftExtendData);
+    const merged = mergeExtendData(
+      mergeExtendData(threadExtendData, draftExtendData),
+      mentionExtendData,
+    );
     if (!rangeSelection || rangeSelection.status !== 'composing') return merged;
 
     const normalized = normalizeRange(rangeSelection.startLine, rangeSelection.endLine);
@@ -519,7 +627,7 @@ export function DiffFilePane({
       ...merged,
       [sideKey]: clonedSide,
     };
-  }, [threadExtendData, draftExtendData, rangeSelection]);
+  }, [threadExtendData, draftExtendData, mentionExtendData, rangeSelection]);
 
   /* ------ Render callbacks ------ */
 
@@ -556,22 +664,52 @@ export function DiffFilePane({
         );
       }
 
+      if (data?.mentionThreads?.length) {
+        elements.push(
+          <MentionThreadLayer
+            key="mention-threads"
+            threads={data.mentionThreads}
+            selectedMentionThreadId={selectedMentionThreadId}
+            mentionReplyBodies={mentionReplyBodies}
+            onSelectMentionThread={onSelectMentionThread}
+            onMentionReplyBodyChange={onMentionReplyBodyChange}
+            onReplyToMentionThread={onReplyToMentionThread}
+            onPromoteMentionThread={onPromoteMentionThread}
+            onRespondMentionThreadPermission={onRespondMentionThreadPermission}
+          />,
+        );
+      }
+
       // Range composer
       if (rangeSelection && rangeSelection.status === 'composing' && rangeSelection.side === side) {
         const { start, end } = normalizeRange(rangeSelection.startLine, rangeSelection.endLine);
         if (lineNumber === end) {
           elements.push(
-            <CommentComposer
-              key="range-composer"
-              startLine={start}
-              endLine={end}
-              side={side}
-              onSubmit={(body) => {
-                onAddComment(file.fileId, start, end, side, body);
-                setRangeSelection(null);
-              }}
-              onClose={() => setRangeSelection(null)}
-            />,
+            interactionMode === 'mention' ? (
+              <SelectionMentionComposer
+                key="range-mention-composer"
+                startLine={start}
+                endLine={end}
+                side={side}
+                onSubmit={(body) => {
+                  onStartMention(file.fileId, start, end, side, body);
+                  setRangeSelection(null);
+                }}
+                onClose={() => setRangeSelection(null)}
+              />
+            ) : (
+              <CommentComposer
+                key="range-composer"
+                startLine={start}
+                endLine={end}
+                side={side}
+                onSubmit={(body) => {
+                  onAddComment(file.fileId, start, end, side, body);
+                  setRangeSelection(null);
+                }}
+                onClose={() => setRangeSelection(null)}
+              />
+            ),
           );
         }
       }
@@ -582,13 +720,23 @@ export function DiffFilePane({
     [
       onReply,
       onSelectDraftThread,
+      onSelectMentionThread,
       onDraftReplyBodyChange,
+      onMentionReplyBodyChange,
       onReplyToDraftThread,
+      onReplyToMentionThread,
+      onPromoteMentionThread,
       onRespondDraftThreadPermission,
+      onRespondMentionThreadPermission,
       rangeSelection,
       file.fileId,
       onAddComment,
+      onStartMention,
       selectedDraftThreadId,
+      selectedMentionThreadId,
+      draftReplyBodies,
+      mentionReplyBodies,
+      interactionMode,
     ],
   );
 
@@ -626,6 +774,8 @@ export function DiffFilePane({
     // Only respond to primary button (left click)
     if (e.button !== 0) return;
 
+    setRangeError(null);
+
     // Fix #4: prevent text selection during drag
     e.preventDefault();
 
@@ -659,30 +809,40 @@ export function DiffFilePane({
     });
   }, []);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const anchor = dragAnchorRef.current;
-    if (!anchor) return;
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const anchor = dragAnchorRef.current;
+      if (!anchor) return;
 
-    dragAnchorRef.current = null;
+      dragAnchorRef.current = null;
 
-    // Fix #1: use elementFromPoint for final position detection
-    const info = extractLineInfoFromPoint(e.clientX, e.clientY);
+      // Fix #1: use elementFromPoint for final position detection
+      const info = extractLineInfoFromPoint(e.clientX, e.clientY);
 
-    setRangeSelection((prev) => {
-      if (!prev || prev.status !== 'selecting') return null;
+      setRangeSelection((prev) => {
+        if (!prev || prev.status !== 'selecting') return null;
 
-      // If pointer ended on a valid line on the same side, use that as the final end
-      const finalEnd = info && info.side === prev.side ? info.lineNumber : prev.endLine;
-      const { start, end } = normalizeRange(prev.startLine, finalEnd);
+        // If pointer ended on a valid line on the same side, use that as the final end
+        const finalEnd = info && info.side === prev.side ? info.lineNumber : prev.endLine;
+        const { start, end } = normalizeRange(prev.startLine, finalEnd);
 
-      if (start === end) {
-        // Single line — let the library's built-in + button / renderWidgetLine handle it
-        return null;
-      }
-      // Multi-line range -> open composer
-      return { side: prev.side, startLine: start, endLine: end, status: 'composing' };
-    });
-  }, []);
+        if (start === end) {
+          if (interactionMode === 'mention') {
+            return { side: prev.side, startLine: start, endLine: end, status: 'composing' };
+          }
+          // Single line — let the library's built-in + button / renderWidgetLine handle it
+          return null;
+        }
+        if (interactionMode === 'mention' && end - start + 1 > 30) {
+          setRangeError('範囲が広すぎます。30行以内に絞ってください。');
+          return null;
+        }
+        // Multi-line range -> open composer
+        return { side: prev.side, startLine: start, endLine: end, status: 'composing' };
+      });
+    },
+    [interactionMode],
+  );
 
   /* ------ Selection highlight CSS ------ */
 
@@ -747,6 +907,23 @@ export function DiffFilePane({
       }
     }
 
+    for (const thread of inlineMentionThreads) {
+      if (thread.selection.anchor.kind !== 'range') continue;
+      const start = thread.selection.anchor.startLine;
+      const end = thread.selection.anchor.endLine;
+      if (start === null || end === null) continue;
+      const sideStr = anchorSideToDataAttr(thread.selection.anchor.side);
+      const selectors: string[] = [];
+      for (let ln = start; ln <= end; ln++) {
+        selectors.push(`${scope} tr.diff-line[data-side="${sideStr}"][data-line="${ln}"] td`);
+      }
+      if (selectors.length > 0) {
+        rules.push(
+          `${selectors.join(',\n')} { background-color: rgba(16, 185, 129, 0.08) !important; }`,
+        );
+      }
+    }
+
     // 2. Active range selection highlight (composing or selecting)
     // Note: rangeStart === rangeEnd && rangeStatus === 'composing' cannot occur here because
     // handlePointerUp returns null (cancels selection) when start === end, so only multi-line
@@ -774,6 +951,7 @@ export function DiffFilePane({
     file.fileId,
     remoteThreads,
     inlineDraftThreads,
+    inlineMentionThreads,
     rangeStart,
     rangeEnd,
     rangeSide,
@@ -1030,6 +1208,16 @@ export function DiffFilePane({
             {remoteThreads.length} remote / {draftThreads.length} draft
           </span>
         )}
+        {mentionThreads.length > 0 ? (
+          <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">
+            {mentionThreads.length} mention
+          </span>
+        ) : null}
+        {interactionMode === 'mention' ? (
+          <span className="rounded-full border border-emerald-300/20 px-2 py-0.5 text-[10px] text-emerald-100">
+            mention mode
+          </span>
+        ) : null}
         {/* Expand All / Collapse toggle — only shown when the diff is loaded */}
         {diffFileInstance && (
           <button
@@ -1041,6 +1229,11 @@ export function DiffFilePane({
           </button>
         )}
       </div>
+      {rangeError ? (
+        <div className="border-b border-amber-300/20 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+          {rangeError}
+        </div>
+      ) : null}
 
       {/* Diff content */}
       {file.contentStatus !== 'loaded' || file.isBinary ? (
@@ -1055,6 +1248,16 @@ export function DiffFilePane({
             onDraftReplyBodyChange={onDraftReplyBodyChange}
             onReplyToDraftThread={onReplyToDraftThread}
             onRespondDraftThreadPermission={onRespondDraftThreadPermission}
+          />
+          <MentionThreadLayer
+            threads={mentionThreads}
+            selectedMentionThreadId={selectedMentionThreadId}
+            mentionReplyBodies={mentionReplyBodies}
+            onSelectMentionThread={onSelectMentionThread}
+            onMentionReplyBodyChange={onMentionReplyBodyChange}
+            onReplyToMentionThread={onReplyToMentionThread}
+            onPromoteMentionThread={onPromoteMentionThread}
+            onRespondMentionThreadPermission={onRespondMentionThreadPermission}
           />
         </div>
       ) : file.isLargeDiff && !expanded ? (
@@ -1100,6 +1303,18 @@ export function DiffFilePane({
               onRespondDraftThreadPermission={onRespondDraftThreadPermission}
             />
           )}
+          {fileLevelMentionThreads.length > 0 && (
+            <MentionThreadLayer
+              threads={fileLevelMentionThreads}
+              selectedMentionThreadId={selectedMentionThreadId}
+              mentionReplyBodies={mentionReplyBodies}
+              onSelectMentionThread={onSelectMentionThread}
+              onMentionReplyBodyChange={onMentionReplyBodyChange}
+              onReplyToMentionThread={onReplyToMentionThread}
+              onPromoteMentionThread={onPromoteMentionThread}
+              onRespondMentionThreadPermission={onRespondMentionThreadPermission}
+            />
+          )}
 
           {/* Dynamic highlight for selected range */}
           {highlightStyle && <style>{highlightStyle}</style>}
@@ -1111,7 +1326,7 @@ export function DiffFilePane({
             diffViewTheme="dark"
             diffViewFontSize={13}
             diffViewHighlight={true}
-            diffViewAddWidget={true}
+            diffViewAddWidget={interactionMode === 'comment'}
             extendData={extendData}
             renderExtendLine={renderExtendLine}
             renderWidgetLine={renderWidgetLine}

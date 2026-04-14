@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentKind } from '../../../shared/domain/agent';
 import type { ReviewProvider, ReviewSourceDraft } from '../../../shared/domain/review';
+import type { DiffInteractionMode } from '../../../shared/domain/review-mention';
 import { DiffFilePane } from './diff-file-pane';
 import { OverviewDiscussionPanel } from './overview-discussion-panel';
 import { OverviewDraftThreadSection } from './overview-draft-thread-section';
@@ -15,10 +16,12 @@ import {
   serializeReviewSource,
 } from './review-source';
 import { ReviewSourceSelector } from './review-source-selector';
+import { SelectionMentionSection } from './selection-mention-section';
 import { useDraftComposerState } from './use-draft-composer-state';
 import { useReviewData } from './use-review-data';
 import { useReviewDraft } from './use-review-draft';
 import { useReviewPublish } from './use-review-publish';
+import { useReviewSelectionMentions } from './use-review-selection-mentions';
 import { useReviewState } from './use-review-state';
 
 function getQueryValue(value: string | string[] | undefined): string {
@@ -54,12 +57,14 @@ export function ReviewPage() {
   const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedLocalThreadId, setSelectedLocalThreadId] = useState<string | null>(null);
+  const [interactionMode, setInteractionMode] = useState<DiffInteractionMode>('comment');
   const [validationError, setValidationError] = useState<string | null>(null);
   const { data, loading, error, initialSelectedFileId, loadSource } = useReviewData();
   const reviewState = useReviewState();
   const reviewDraft = useReviewDraft();
   const draftComposer = useDraftComposerState();
   const reviewPublish = useReviewPublish();
+  const selectionMentions = useReviewSelectionMentions();
   const lastLoadedSourceKeyRef = useRef<string | null>(null);
   const activeSnapshotIdRef = useRef('');
   const hydratingFileKeysRef = useRef(new Set<string>());
@@ -130,12 +135,14 @@ export function ReviewPage() {
     reviewDraft.resetReviewDraftState();
     draftComposer.clearAll();
     reviewPublish.reset();
+    selectionMentions.reset();
     setSelectedLocalThreadId(null);
   }, [
     reviewState.data.snapshotId,
     reviewDraft.resetReviewDraftState,
     draftComposer.clearAll,
     reviewPublish.reset,
+    selectionMentions.reset,
   ]);
 
   useEffect(() => {
@@ -193,6 +200,16 @@ export function ReviewPage() {
     [selectedFileId, visibleDraftThreads],
   );
 
+  const selectedMentionThreads = useMemo(
+    () =>
+      selectionMentions.threads.filter(
+        (thread) =>
+          thread.selection.fileId === selectedFileId &&
+          thread.snapshotId === reviewState.data.snapshotId,
+      ),
+    [reviewState.data.snapshotId, selectedFileId, selectionMentions.threads],
+  );
+
   const overviewDraftThreads = useMemo(
     () => visibleDraftThreads.filter((thread) => thread.draft.resolvedLocation.kind === 'overview'),
     [visibleDraftThreads],
@@ -214,6 +231,17 @@ export function ReviewPage() {
 
     return counts;
   }, [visibleDraftThreads]);
+
+  const mentionCountByFileId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const thread of selectionMentions.threads) {
+      if (thread.snapshotId !== reviewState.data.snapshotId) {
+        continue;
+      }
+      counts.set(thread.selection.fileId, (counts.get(thread.selection.fileId) ?? 0) + 1);
+    }
+    return counts;
+  }, [reviewState.data.snapshotId, selectionMentions.threads]);
 
   useEffect(() => {
     if (!selectedFile || selectedFile.contentStatus !== 'idle') {
@@ -316,6 +344,19 @@ export function ReviewPage() {
     }
   }, [selectedFileId, selectedLocalThreadId, visibleDraftThreads]);
 
+  useEffect(() => {
+    const mentionThreadId = selectionMentions.selectedMentionThreadId;
+    if (!mentionThreadId) {
+      return;
+    }
+    const thread = selectionMentions.threads.find(
+      (candidate) => candidate.mentionThreadId === mentionThreadId,
+    );
+    if (thread && thread.selection.fileId !== selectedFileId) {
+      setSelectedFileId(thread.selection.fileId);
+    }
+  }, [selectedFileId, selectionMentions.selectedMentionThreadId, selectionMentions.threads]);
+
   const handleStartDraftReview = useCallback(async () => {
     if (!reviewState.data.snapshotId) {
       return;
@@ -379,6 +420,25 @@ export function ReviewPage() {
     [reviewState.createThreadOptimistic],
   );
 
+  const handleStartMention = useCallback(
+    (fileId: string, startLine: number, endLine: number, side: SplitSide, body: string) => {
+      const snapshotId = reviewState.data.snapshotId;
+      if (!snapshotId) {
+        return;
+      }
+      void selectionMentions.beginMention({
+        snapshotId,
+        reviewAgent,
+        fileId,
+        startLine,
+        endLine,
+        side,
+        body,
+      });
+    },
+    [reviewAgent, reviewState.data.snapshotId, selectionMentions.beginMention],
+  );
+
   const handleReply = useCallback(
     (threadId: string, body: string) => {
       reviewState.replyThreadOptimistic(threadId, body);
@@ -417,6 +477,33 @@ export function ReviewPage() {
       }
     },
     [visibleDraftThreads],
+  );
+
+  const handleSelectMentionThread = useCallback(
+    (mentionThreadId: string) => {
+      selectionMentions.selectThread(mentionThreadId);
+      const thread = selectionMentions.threads.find(
+        (candidate) => candidate.mentionThreadId === mentionThreadId,
+      );
+      if (thread) {
+        setSelectedFileId(thread.selection.fileId);
+      }
+    },
+    [selectionMentions],
+  );
+
+  const handlePromoteMentionThread = useCallback(
+    async (
+      mentionThreadId: string,
+      values: Parameters<typeof selectionMentions.promoteToDraft>[1],
+    ) => {
+      const draftThread = await selectionMentions.promoteToDraft(mentionThreadId, values);
+      if (draftThread) {
+        reviewDraft.addLocalThread(draftThread);
+        setSelectedLocalThreadId(draftThread.localThreadId);
+      }
+    },
+    [reviewDraft, selectionMentions],
   );
 
   const handleOpenPublishPanel = useCallback(() => {
@@ -593,6 +680,9 @@ export function ReviewPage() {
                           {(draftCountByFileId.get(file.fileId) ?? 0) > 0 ? (
                             <span>{draftCountByFileId.get(file.fileId)} drafts</span>
                           ) : null}
+                          {(mentionCountByFileId.get(file.fileId) ?? 0) > 0 ? (
+                            <span>{mentionCountByFileId.get(file.fileId)} mentions</span>
+                          ) : null}
                         </div>
                       </div>
                       <div className="shrink-0 text-right text-[11px]">
@@ -668,20 +758,70 @@ export function ReviewPage() {
               </div>
             ) : null}
 
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-white/10 bg-white/[0.03] px-4 py-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                  Diff Interaction
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Comment は local comment、Mention は agent 相談として扱います。
+                </p>
+              </div>
+              <div className="flex rounded border border-white/10 bg-black/20 p-1">
+                {(['comment', 'mention'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setInteractionMode(mode)}
+                    className={`rounded px-3 py-1.5 text-xs font-medium transition ${
+                      interactionMode === mode
+                        ? mode === 'mention'
+                          ? 'bg-emerald-400/20 text-emerald-100'
+                          : 'bg-cyan-400/20 text-cyan-100'
+                        : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    {mode === 'mention' ? 'Mention' : 'Comment'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <SelectionMentionSection
+              threads={selectedMentionThreads}
+              selectedMentionThreadId={selectionMentions.selectedMentionThreadId}
+              replyBodies={selectionMentions.replyBodies}
+              onSelectThread={handleSelectMentionThread}
+              onReplyBodyChange={selectionMentions.setReplyBody}
+              onSubmitReply={selectionMentions.replyToMention}
+              onPromote={handlePromoteMentionThread}
+              onRespondToPermission={selectionMentions.respondToPermission}
+            />
+
             {selectedFile ? (
               <DiffFilePane
                 key={selectedFile.fileId}
                 file={selectedFile}
                 remoteThreads={selectedFile.threads}
                 draftThreads={selectedDraftThreads}
+                mentionThreads={selectedMentionThreads}
+                interactionMode={interactionMode}
                 selectedDraftThreadId={selectedLocalThreadId}
+                selectedMentionThreadId={selectionMentions.selectedMentionThreadId}
                 draftReplyBodies={draftComposer.replyBodies}
+                mentionReplyBodies={selectionMentions.replyBodies}
                 onAddComment={handleAddComment}
+                onStartMention={handleStartMention}
                 onReply={handleReply}
                 onSelectDraftThread={handleSelectDraftThread}
+                onSelectMentionThread={handleSelectMentionThread}
                 onDraftReplyBodyChange={draftComposer.setReplyBody}
+                onMentionReplyBodyChange={selectionMentions.setReplyBody}
                 onReplyToDraftThread={handleReplyLocalThread}
+                onReplyToMentionThread={selectionMentions.replyToMention}
+                onPromoteMentionThread={handlePromoteMentionThread}
                 onRespondDraftThreadPermission={handleRespondThreadPermission}
+                onRespondMentionThreadPermission={selectionMentions.respondToPermission}
               />
             ) : (
               <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-slate-500">

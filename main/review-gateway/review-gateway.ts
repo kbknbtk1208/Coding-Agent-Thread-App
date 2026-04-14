@@ -3,18 +3,25 @@ import type {
   AwaitDraftReviewResultResult,
   AwaitDraftThreadReplyResultInput,
   AwaitDraftThreadReplyResultResult,
+  AwaitSelectionMentionResultInput,
+  AwaitSelectionMentionResultResult,
   BeginDraftReviewInput,
   BeginDraftReviewResult,
   BeginDraftThreadReplyInput,
   BeginDraftThreadReplyResult,
+  BeginSelectionMentionInput,
+  BeginSelectionMentionResult,
   CreateReviewThreadResult,
   HydrateReviewFileResult,
   LoadReviewSourceResult,
   PreparePublishDraftsResult,
+  PromoteSelectionMentionToDraftInput,
+  PromoteSelectionMentionToDraftResult,
   PublishDraftsResult,
   ReplyReviewThreadResult,
   UpdatePublishDraftsResult,
 } from '../../shared/contracts/review-ipc';
+import { randomUUID } from 'crypto';
 import type {
   ReviewAnchor,
   ReviewComment,
@@ -29,8 +36,11 @@ import type {
   ReviewLocalThread,
   ReviewRunRecord,
   ReviewSummaryDraft,
+  ReviewThreadDraft,
   ReviewThreadReplyRecord,
 } from '../../shared/domain/review-draft';
+import { createReviewLocalThread } from '../../shared/domain/review-draft';
+import type { ReviewMentionRecord, ReviewMentionThread } from '../../shared/domain/review-mention';
 import type { ReviewPublishDraft } from '../../shared/domain/review-publish';
 import type { AgentGateway } from '../agent-gateway/agent-gateway';
 import { adaptGitHubSnapshot } from './adapters/github-snapshot-adapter';
@@ -52,6 +62,8 @@ import { ReviewThreadReplyCoordinator } from './review-thread-reply-coordinator'
 import { ReviewAnchorValidator } from './review-anchor-validator';
 import { ReviewPublishDraftAssembler } from './review-publish-draft-assembler';
 import { ReviewPublishCoordinator } from './review-publish-coordinator';
+import { ReviewSelectionMentionCoordinator } from './review-selection-mention-coordinator';
+import { ReviewSelectionMentionStore } from './review-selection-mention-store';
 import { parseReviewSource } from './source-parser';
 
 interface ReviewSessionContext {
@@ -82,6 +94,7 @@ interface ReviewGatewayDependencies {
   hydrateFileContent?: typeof hydrateReviewFileContent;
   contextAssembler?: ReviewContextAssembler;
   draftStore?: ReviewDraftStore;
+  mentionStore?: ReviewSelectionMentionStore;
   resultNormalizer?: ReviewResultNormalizer;
   cwdResolver?: () => string;
   now?: () => string;
@@ -203,6 +216,8 @@ export class ReviewGateway {
   private readonly draftStore: ReviewDraftStore;
   private readonly reviewRunCoordinator: ReviewRunCoordinator | null;
   private readonly threadReplyCoordinator: ReviewThreadReplyCoordinator | null;
+  private readonly mentionStore: ReviewSelectionMentionStore;
+  private readonly selectionMentionCoordinator: ReviewSelectionMentionCoordinator | null;
   private readonly publishCoordinator: ReviewPublishCoordinator;
   private threadIdCounter = 0;
   private commentIdCounter = 0;
@@ -210,6 +225,9 @@ export class ReviewGateway {
   private readonly activeDraftThreadReplies = new Map<string, Promise<ReviewLocalThread>>();
   private readonly completedDraftThreadReplies = new Map<string, ReviewLocalThread>();
   private readonly draftThreadReplyRecords = new Map<string, ReviewThreadReplyRecord>();
+  private readonly activeSelectionMentions = new Map<string, Promise<ReviewMentionThread>>();
+  private readonly completedSelectionMentions = new Map<string, ReviewMentionThread>();
+  private readonly selectionMentionRecords = new Map<string, ReviewMentionRecord>();
 
   constructor(dependencies: ReviewGatewayDependencies = {}) {
     this.fetchImpl = dependencies.fetchImpl;
@@ -218,6 +236,7 @@ export class ReviewGateway {
     this.createGitLabClientFactory = dependencies.createGitLabClient ?? createGitLabReviewClient;
     this.hydrateFileContent = dependencies.hydrateFileContent ?? hydrateReviewFileContent;
     this.draftStore = dependencies.draftStore ?? new ReviewDraftStore();
+    this.mentionStore = dependencies.mentionStore ?? new ReviewSelectionMentionStore();
     this.reviewRunCoordinator = dependencies.agentGateway
       ? new ReviewRunCoordinator({
           agentGateway: dependencies.agentGateway,
@@ -231,6 +250,15 @@ export class ReviewGateway {
     this.threadReplyCoordinator = dependencies.agentGateway
       ? new ReviewThreadReplyCoordinator({
           agentGateway: dependencies.agentGateway,
+          draftStore: this.draftStore,
+          now: dependencies.now,
+          cwdResolver: dependencies.cwdResolver,
+        })
+      : null;
+    this.selectionMentionCoordinator = dependencies.agentGateway
+      ? new ReviewSelectionMentionCoordinator({
+          agentGateway: dependencies.agentGateway,
+          mentionStore: this.mentionStore,
           draftStore: this.draftStore,
           now: dependencies.now,
           cwdResolver: dependencies.cwdResolver,
@@ -515,6 +543,148 @@ export class ReviewGateway {
     );
   }
 
+  async beginSelectionMention(
+    input: BeginSelectionMentionInput,
+  ): Promise<BeginSelectionMentionResult> {
+    if (!this.selectionMentionCoordinator) {
+      throw new ReviewGatewayError(
+        'SNAPSHOT_NOT_FOUND',
+        'ReviewGateway is not configured with an AgentGateway.',
+      );
+    }
+
+    const session = this.requireSession(input.snapshotId);
+    const hydrateFile = async (fileId: string) => {
+      const result = await this.hydrateReviewFile(input.snapshotId, fileId);
+      session.snapshot = this.replaceSnapshotFile(session.snapshot, result.file);
+      this.sessions.set(input.snapshotId, session);
+      return result.file;
+    };
+    const latestSummary = this.resolveLatestSummary(input.snapshotId);
+
+    const begun = await this.selectionMentionCoordinator.beginSelectionMention({
+      snapshot: session.snapshot,
+      reviewAgent: input.reviewAgent,
+      fileId: input.fileId,
+      side: input.side,
+      startLine: input.startLine,
+      endLine: input.endLine,
+      body: input.body,
+      mentionThreadId: input.mentionThreadId,
+      cwd: input.cwd?.trim() || process.cwd(),
+      latestSummary,
+      hydrateFile,
+    });
+
+    this.selectionMentionRecords.set(begun.mention.mentionId, structuredClone(begun.mention));
+    const resultPromise = this.selectionMentionCoordinator
+      .awaitSelectionMentionResult({
+        mentionId: begun.mention.mentionId,
+        snapshotId: begun.mention.snapshotId,
+        mentionThreadId: begun.mention.mentionThreadId,
+        appSessionId: begun.mention.appSessionId,
+      })
+      .then((thread) => {
+        this.completedSelectionMentions.set(begun.mention.mentionId, structuredClone(thread));
+        return thread;
+      });
+    void resultPromise.catch(() => undefined);
+    this.activeSelectionMentions.set(begun.mention.mentionId, resultPromise);
+
+    return begun;
+  }
+
+  async awaitSelectionMentionResult(
+    input: AwaitSelectionMentionResultInput,
+  ): Promise<AwaitSelectionMentionResultResult> {
+    const resultPromise = this.activeSelectionMentions.get(input.mentionId);
+    if (resultPromise) {
+      try {
+        const thread = await resultPromise;
+        return { thread };
+      } finally {
+        this.activeSelectionMentions.delete(input.mentionId);
+      }
+    }
+
+    const completedThread = this.completedSelectionMentions.get(input.mentionId);
+    if (completedThread) {
+      return {
+        thread: structuredClone(completedThread),
+      };
+    }
+
+    const record = this.selectionMentionRecords.get(input.mentionId);
+    if (record) {
+      const thread = this.mentionStore.getThread(record.snapshotId, record.mentionThreadId);
+      if (thread) {
+        return { thread };
+      }
+    }
+
+    throw new ReviewGatewayError(
+      'THREAD_NOT_FOUND',
+      `Selection mention not found: ${input.mentionId}`,
+    );
+  }
+
+  promoteSelectionMentionToDraft(
+    input: PromoteSelectionMentionToDraftInput,
+  ): PromoteSelectionMentionToDraftResult {
+    this.requireSession(input.snapshotId);
+    const mentionThread = this.mentionStore.getThread(input.snapshotId, input.mentionThreadId);
+    if (!mentionThread) {
+      throw new ReviewGatewayError(
+        'THREAD_NOT_FOUND',
+        `Selection mention thread not found: ${input.mentionThreadId}`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const localThreadId = `local-review-draft-${randomUUID()}`;
+    const draft: ReviewThreadDraft = {
+      localThreadId,
+      snapshotId: input.snapshotId,
+      runId: `selection-mention:${input.mentionThreadId}`,
+      findingId: `selection-mention:${input.mentionThreadId}`,
+      source: 'selection-mention',
+      origin: {
+        kind: 'selection-mention',
+        mentionThreadId: input.mentionThreadId,
+      },
+      state: 'draft',
+      severity: input.severity,
+      category: input.category,
+      confidence: input.confidence,
+      title: input.title.trim(),
+      draftBody: input.body.trim(),
+      suggestion: input.suggestion?.trim() || undefined,
+      resolvedLocation: {
+        kind: 'diff',
+        fileId: mentionThread.selection.fileId,
+        filePath: mentionThread.selection.filePath,
+        startLine: mentionThread.selection.startLine,
+        endLine: mentionThread.selection.endLine,
+        side: mentionThread.selection.side,
+      },
+      anchor: structuredClone(mentionThread.selection.anchor),
+    };
+    const draftThread = createReviewLocalThread(draft, now);
+    this.draftStore.saveLocalThreads(input.snapshotId, [
+      ...this.draftStore.getLocalThreads(input.snapshotId),
+      draftThread,
+    ]);
+    this.mentionStore.markPromoted(input.snapshotId, input.mentionThreadId, localThreadId);
+
+    const updatedMentionThread =
+      this.mentionStore.getThread(input.snapshotId, input.mentionThreadId) ?? mentionThread;
+
+    return {
+      mentionThread: updatedMentionThread,
+      draftThread,
+    };
+  }
+
   preparePublishDrafts(snapshotId: string): PreparePublishDraftsResult {
     const session = this.requireSession(snapshotId);
     const localThreads = this.draftStore.getLocalThreads(snapshotId);
@@ -583,6 +753,14 @@ export class ReviewGateway {
 
   private resolveSummary(runId: string): ReviewSummaryDraft | null {
     const envelope = this.draftStore.getEnvelopeByRunId(runId);
+    if (!envelope || envelope.kind !== 'structured') {
+      return null;
+    }
+    return envelope.summary;
+  }
+
+  private resolveLatestSummary(snapshotId: string): ReviewSummaryDraft | null {
+    const envelope = this.draftStore.getLatestEnvelope(snapshotId);
     if (!envelope || envelope.kind !== 'structured') {
       return null;
     }

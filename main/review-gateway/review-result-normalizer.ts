@@ -91,6 +91,11 @@ export class ReviewResultNormalizer {
       runId,
       findingId: finding.findingId,
       source: 'ai-review',
+      origin: {
+        kind: 'review-run',
+        runId,
+        findingId: finding.findingId,
+      },
       state: 'draft',
       severity: finding.severity,
       category: finding.category,

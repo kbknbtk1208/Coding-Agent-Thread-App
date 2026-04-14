@@ -81,6 +81,10 @@ export type ReviewDraftAction =
       thread: ReviewLocalThread;
     }
   | {
+      type: 'ADD_LOCAL_THREAD';
+      thread: ReviewLocalThread;
+    }
+  | {
       type: 'FAIL_THREAD_REPLY';
       localThreadId: string;
       errorMessage: string;
@@ -257,6 +261,21 @@ export function reduceReviewDraftState(
           action.thread.localThreadId,
           () => action.thread,
         ),
+      };
+
+    case 'ADD_LOCAL_THREAD':
+      return {
+        ...state,
+        reviewStatus:
+          state.reviewStatus === 'idle' || state.reviewStatus === 'failed'
+            ? 'showing_local_threads'
+            : state.reviewStatus,
+        localThreads: [
+          ...state.localThreads.filter(
+            (thread) => thread.localThreadId !== action.thread.localThreadId,
+          ),
+          action.thread,
+        ],
       };
 
     case 'FAIL_THREAD_REPLY':

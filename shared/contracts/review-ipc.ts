@@ -8,11 +8,15 @@ import type {
 } from '../domain/review';
 import type {
   ReviewDraftEnvelope,
+  ReviewFindingCategory,
+  ReviewFindingConfidence,
+  ReviewFindingSeverity,
   ReviewLocalThread,
   ReviewRunRecord,
   ReviewThreadBinding,
   ReviewThreadReplyRecord,
 } from '../domain/review-draft';
+import type { ReviewMentionRecord, ReviewMentionThread } from '../domain/review-mention';
 import type { ReviewPublishDraft, ReviewPublishResult } from '../domain/review-publish';
 import type { AgentSessionSnapshot } from './agent-ipc';
 
@@ -25,6 +29,9 @@ export const REVIEW_IPC_CHANNELS = {
   awaitDraftReviewResult: 'review:await-draft-review-result',
   beginDraftThreadReply: 'review:begin-draft-thread-reply',
   awaitDraftThreadReplyResult: 'review:await-draft-thread-reply-result',
+  beginSelectionMention: 'review:begin-selection-mention',
+  awaitSelectionMentionResult: 'review:await-selection-mention-result',
+  promoteSelectionMentionToDraft: 'review:promote-selection-mention-to-draft',
   preparePublishDrafts: 'review:prepare-publish-drafts',
   updatePublishDrafts: 'review:update-publish-drafts',
   publishDrafts: 'review:publish-drafts',
@@ -109,6 +116,48 @@ export interface AwaitDraftThreadReplyResultInput {
 
 export interface AwaitDraftThreadReplyResultResult {
   thread: ReviewLocalThread;
+}
+
+export interface BeginSelectionMentionInput {
+  snapshotId: string;
+  reviewAgent: AgentKind;
+  fileId: string;
+  side: 'old' | 'new';
+  startLine: number;
+  endLine: number;
+  body: string;
+  mentionThreadId?: string;
+  cwd?: string;
+}
+
+export interface BeginSelectionMentionResult {
+  mention: ReviewMentionRecord;
+  thread: ReviewMentionThread;
+  session: AgentSessionSnapshot;
+}
+
+export interface AwaitSelectionMentionResultInput {
+  mentionId: string;
+}
+
+export interface AwaitSelectionMentionResultResult {
+  thread: ReviewMentionThread;
+}
+
+export interface PromoteSelectionMentionToDraftInput {
+  snapshotId: string;
+  mentionThreadId: string;
+  title: string;
+  body: string;
+  severity: ReviewFindingSeverity;
+  category: ReviewFindingCategory;
+  confidence: ReviewFindingConfidence;
+  suggestion?: string;
+}
+
+export interface PromoteSelectionMentionToDraftResult {
+  mentionThread: ReviewMentionThread;
+  draftThread: ReviewLocalThread;
 }
 
 export interface PreparePublishDraftsInput {

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useReducer, useRef } from 'react';
 import type { BeginDraftReviewInput } from '../../../shared/contracts/review-ipc';
-import type { ReviewRunRecord } from '../../../shared/domain/review-draft';
+import type { ReviewLocalThread, ReviewRunRecord } from '../../../shared/domain/review-draft';
 import {
   createInitialReviewDraftState,
   isReviewDraftRunning,
@@ -27,6 +27,7 @@ export interface UseReviewDraftReturn {
     requestId: string,
     actionId: string,
   ) => Promise<void>;
+  addLocalThread: (thread: ReviewLocalThread) => void;
   resetReviewDraftState: () => void;
 }
 
@@ -56,6 +57,10 @@ export function useReviewDraft(): UseReviewDraftReturn {
     resetThreadConversationState();
     dispatch({ type: 'RESET' });
   }, [cleanupSubscription, resetThreadConversationState]);
+
+  const addLocalThread = useCallback((thread: ReviewLocalThread) => {
+    dispatch({ type: 'ADD_LOCAL_THREAD', thread });
+  }, []);
 
   const startDraftReview = useCallback(
     async (input: BeginDraftReviewInput) => {
@@ -191,8 +196,16 @@ export function useReviewDraft(): UseReviewDraftReturn {
       startDraftReview,
       replyToLocalThread,
       respondToThreadPermission,
+      addLocalThread,
       resetReviewDraftState,
     }),
-    [replyToLocalThread, resetReviewDraftState, respondToThreadPermission, startDraftReview, state],
+    [
+      addLocalThread,
+      replyToLocalThread,
+      resetReviewDraftState,
+      respondToThreadPermission,
+      startDraftReview,
+      state,
+    ],
   );
 }
