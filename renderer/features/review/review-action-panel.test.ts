@@ -156,6 +156,21 @@ describe('ReviewActionPanel', () => {
     expect(html).not.toContain('stream:');
   });
 
+  it('renders the publish action when unpublished drafts remain', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        ReviewActionPanel,
+        createProps({
+          reviewStatus: 'showing_local_threads',
+          unpublishedDraftCount: 2,
+        }),
+      ),
+    );
+
+    expect(html).toContain('未投稿: 2 件');
+    expect(html).toContain('PR に投稿');
+  });
+
   it('omits the overview note when there are no overview conversations', () => {
     const html = renderToStaticMarkup(
       React.createElement(

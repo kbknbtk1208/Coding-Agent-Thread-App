@@ -618,7 +618,7 @@ export class ReviewPublishCoordinator {
       throw new ReviewGatewayError('FILE_NOT_FOUND', 'Publish draft file metadata is missing.');
     }
 
-    const startShaValue = context.snapshot.providerContext.anchorRefs['startSha'];
+    const startShaValue = context.snapshot.providerContext.anchorRefs['start_sha'];
     if (typeof startShaValue !== 'string' || !startShaValue.trim()) {
       throw new ReviewGatewayError(
         'REQUEST_FAILED',

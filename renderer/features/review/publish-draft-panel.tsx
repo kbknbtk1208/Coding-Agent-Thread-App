@@ -40,6 +40,7 @@ interface PublishDraftCardProps {
   draft: ReviewPublishDraft;
   files: ReviewSnapshotFile[];
   isSelected: boolean;
+  isPublishing: boolean;
   snapshotId: string;
   onToggleSelect: (id: string) => void;
   onDraftChange: (draft: ReviewPublishDraft, snapshotId: string) => void;
@@ -49,11 +50,12 @@ function PublishDraftCard({
   draft,
   files,
   isSelected,
+  isPublishing,
   snapshotId,
   onToggleSelect,
   onDraftChange,
 }: PublishDraftCardProps) {
-  const isLocked = draft.state === 'published' || draft.state === 'publishing';
+  const isLocked = isPublishing || draft.state === 'published' || draft.state === 'publishing';
   let selectedFile: ReviewSnapshotFile | null = null;
   if (draft.location.kind === 'diff') {
     const location = draft.location;
@@ -148,7 +150,7 @@ function PublishDraftCard({
     <section
       className={`rounded-2xl border p-4 transition ${
         isSelected ? 'border-cyan-400/30 bg-cyan-400/5' : 'border-white/10 bg-white/[0.03]'
-      } ${draft.state === 'published' ? 'opacity-60' : ''}`}
+      } ${draft.state === 'published' || isPublishing ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start gap-3">
         {draft.state !== 'published' ? (
@@ -320,7 +322,7 @@ export function PublishDraftPanel({
     <div
       className="fixed inset-0 z-50 flex items-start justify-end bg-black/50 backdrop-blur-sm"
       onClick={(event) => {
-        if (event.target === event.currentTarget) {
+        if (event.target === event.currentTarget && !isPublishing) {
           onClose();
         }
       }}
@@ -336,6 +338,7 @@ export function PublishDraftPanel({
           <button
             type="button"
             onClick={onClose}
+            disabled={isPublishing}
             className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/10 hover:text-white"
           >
             ✕
@@ -352,6 +355,7 @@ export function PublishDraftPanel({
                 draft={draft}
                 files={files}
                 isSelected={publishState.selectedDraftIds.includes(draft.publishDraftId)}
+                isPublishing={isPublishing}
                 snapshotId={snapshotId}
                 onToggleSelect={onToggleSelect}
                 onDraftChange={onDraftChange}

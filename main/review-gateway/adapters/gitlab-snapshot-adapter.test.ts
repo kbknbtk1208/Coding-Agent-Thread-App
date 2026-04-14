@@ -21,7 +21,7 @@ describe('adaptGitLabSnapshot', () => {
         iid: 1,
         title: 'Add session TTL and expiration support',
         description: 'Introduce time-based session validity.',
-        diff_refs: { base_sha: 'base-sha', head_sha: 'head-sha' },
+        diff_refs: { base_sha: 'base-sha', head_sha: 'head-sha', start_sha: 'start-sha' },
       },
       diffs: GITLAB_MOCK_DIFFS,
       discussions: [
@@ -51,5 +51,8 @@ describe('adaptGitLabSnapshot', () => {
     expect(snapshot.files.some((file) => file.changeType === 'renamed')).toBe(true);
     expect(snapshot.discussions.some((thread) => thread.location.kind === 'overview')).toBe(true);
     expect(snapshot.discussions.some((thread) => thread.location.kind === 'diff')).toBe(true);
+    expect(snapshot.providerContext.anchorRefs).toMatchObject({
+      start_sha: 'start-sha',
+    });
   });
 });

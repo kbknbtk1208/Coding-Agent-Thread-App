@@ -89,7 +89,9 @@ function createPublishDraft(overrides: Partial<ReviewPublishDraft> = {}): Review
   };
 }
 
-function createPublishedRemoteThread(): ReviewSnapshotThread {
+function createPublishedRemoteThread(
+  overrides: Partial<ReviewSnapshotThread> = {},
+): ReviewSnapshotThread {
   return {
     threadId: 'remote-thread-1',
     location: {
@@ -121,6 +123,7 @@ function createPublishedRemoteThread(): ReviewSnapshotThread {
       remoteCommentIds: ['comment-1'],
       anchorRefs: {},
     },
+    ...overrides,
   };
 }
 
@@ -239,8 +242,50 @@ describe('ReviewDraftStore', () => {
         state: 'published',
         lastError: null,
         publishedRemote: expect.objectContaining({
+          provider: 'github',
           remoteDiscussionId: 'discussion-1',
           remoteCommentIds: ['comment-1'],
+        }),
+      }),
+    ]);
+  });
+
+  it('infers gitlab provider when published remote thread ids come from gitlab discussions', () => {
+    const store = new ReviewDraftStore();
+    const initialDraft = createPublishDraft();
+
+    store.savePublishDrafts('snapshot-1', [initialDraft]);
+
+    store.markPublishResult('snapshot-1', {
+      snapshotId: 'snapshot-1',
+      attemptedCount: 1,
+      publishedCount: 1,
+      failedCount: 0,
+      items: [
+        {
+          publishDraftId: initialDraft.publishDraftId,
+          localThreadId: initialDraft.localThreadId,
+          status: 'published',
+          remoteThread: createPublishedRemoteThread({
+            threadId: 'gitlab-discussion-42',
+            providerContext: {
+              remoteDiscussionId: 'discussion-42',
+              remoteCommentIds: ['comment-42'],
+              anchorRefs: {},
+            },
+          }),
+        },
+      ],
+    });
+
+    expect(store.getPublishDrafts('snapshot-1')).toEqual([
+      expect.objectContaining({
+        publishDraftId: 'publish-1',
+        state: 'published',
+        publishedRemote: expect.objectContaining({
+          provider: 'gitlab',
+          remoteDiscussionId: 'discussion-42',
+          remoteCommentIds: ['comment-42'],
         }),
       }),
     ]);

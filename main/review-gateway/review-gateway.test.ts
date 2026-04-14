@@ -734,7 +734,12 @@ describe('ReviewGateway', () => {
         state: 'published',
       }),
     ]);
-    expect(gateway.preparePublishDrafts(snapshot.snapshotId).drafts).toEqual([]);
+    expect(gateway.preparePublishDrafts(snapshot.snapshotId).drafts).toEqual([
+      expect.objectContaining({
+        publishDraftId: draft.publishDraftId,
+        state: 'published',
+      }),
+    ]);
   });
 
   it('keeps failed publish drafts for retry after provider errors', async () => {

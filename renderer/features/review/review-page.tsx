@@ -437,10 +437,7 @@ export function ReviewPage() {
     [reviewPublish, reviewState],
   );
 
-  const unpublishedDraftCount = useMemo(
-    () => reviewPublish.publishState.drafts.filter((d) => d.state !== 'published').length,
-    [reviewPublish.publishState.drafts],
-  );
+  const unpublishedDraftCount = visibleDraftThreads.length;
 
   const reviewTitle = reviewState.data.title || 'Review Snapshot';
   const reviewDescription =

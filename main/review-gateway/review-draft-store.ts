@@ -7,6 +7,7 @@ import {
   type ReviewThreadDraft,
   type ReviewThreadMessage,
 } from '../../shared/domain/review-draft';
+import type { ReviewProvider } from '../../shared/domain/review';
 import type { ReviewPublishDraft, ReviewPublishResult } from '../../shared/domain/review-publish';
 
 interface SnapshotDraftState {
@@ -38,6 +39,10 @@ function createEmptyState(): SnapshotDraftState {
     localThreads: [],
     publishDrafts: [],
   };
+}
+
+function inferPublishedProvider(threadId: string): ReviewProvider {
+  return threadId.startsWith('gitlab-') ? 'gitlab' : 'github';
 }
 
 function cloneEnvelope(envelope: ReviewDraftEnvelope): ReviewDraftEnvelope {
@@ -289,9 +294,7 @@ export class ReviewDraftStore {
           lastError: null,
           publishedRemote: item.remoteThread
             ? {
-                provider: item.remoteThread.providerContext.remoteDiscussionId
-                  ? ('github' as const)
-                  : ('github' as const),
+                provider: inferPublishedProvider(item.remoteThread.threadId),
                 remoteDiscussionId: item.remoteThread.providerContext.remoteDiscussionId,
                 remoteCommentIds: item.remoteThread.providerContext.remoteCommentIds,
                 publishedAt: new Date().toISOString(),
