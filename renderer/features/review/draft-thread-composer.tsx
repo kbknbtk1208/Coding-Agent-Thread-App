@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ReviewLocalThread } from '../../../shared/domain/review-draft';
+import { reviewTheme } from './review-ui';
 
 export interface DraftThreadComposerProps {
   replyBody: string;
@@ -36,7 +37,7 @@ export function DraftThreadComposer({
     <div className="border-t border-white/10 pt-4">
       <label
         htmlFor={`reply-${thread.localThreadId}`}
-        className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
+        className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8b949e]"
       >
         Reply in thread
       </label>
@@ -69,10 +70,10 @@ export function DraftThreadComposer({
         }}
         placeholder="この finding に対する補足質問や確認事項を入力します。"
         disabled={thread.replyStatus === 'replying'}
-        className="mt-3 h-28 w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white outline-none transition focus:border-cyan-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+        className={`mt-3 h-28 w-full ${reviewTheme.textarea}`}
       />
       <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-[#8b949e]">
           他 thread の文脈は送らず、この finding の履歴だけで会話を継続します。
         </p>
         <button
@@ -86,7 +87,7 @@ export function DraftThreadComposer({
             onSubmitReply(thread.localThreadId, localReplyBody);
           }}
           disabled={thread.replyStatus === 'replying' || localReplyBody.trim().length === 0}
-          className="rounded-full bg-cyan-400/20 px-4 py-2 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-400/30 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+          className="rounded-full border border-[#479FFA]/20 bg-[#479FFA]/10 px-4 py-2 text-xs font-semibold text-[#dcecff] transition hover:bg-[#479FFA]/15 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-[#8b949e]"
         >
           {thread.replyStatus === 'replying' ? 'Replying…' : 'Send'}
         </button>

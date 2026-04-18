@@ -50,13 +50,13 @@ export const ListStack: FC<ListStackProps> = ({ items = ITEMS }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="h- w-full font-sans">
+    <div className="w-full font-sans">
       <div className="flex h-[400px] w-full flex-col items-center justify-center">
         <div className="relative flex h-full w-full flex-col items-center justify-center perspective-[1000px]">
           {items.map((item, i) => {
             return (
               <motion.div
-                className="bg-opacity-80 absolute flex w-[270px] items-center rounded-2xl bg-white px-3 py-3 shadow-[0px_0px_2px_rgba(0,0,0,0.1),0px_1px_4px_rgba(0,0,0,0.15)] backdrop-blur-2xl dark:border-gray-100 dark:bg-zinc-800"
+                className="absolute flex w-[270px] items-center rounded-lg border border-white/[0.16] bg-white/[0.08] px-3 py-3 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_18px_55px_rgba(0,0,0,0.34)] backdrop-blur-[34px]"
                 key={i}
                 animate={isExpanded ? 'expanded' : 'collapsed'}
                 style={{
@@ -79,16 +79,16 @@ export const ListStack: FC<ListStackProps> = ({ items = ITEMS }) => {
                 }}
               >
                 <div className="flex w-full items-center font-sans">
-                  <div key={i} className="flex w-full items-center gap-x-2 text-neutral-900">
-                    <div className="flex size-10 items-center justify-center rounded-md bg-black text-zinc-100 dark:bg-white dark:text-zinc-700">
+                  <div key={i} className="flex w-full items-center gap-x-2 text-white">
+                    <div className="flex size-10 items-center justify-center rounded-lg border border-[#FFA16C]/24 bg-[#FFA16C]/12 text-[#ffd9c0]">
                       <item.icon size={24} />
                     </div>
                     <div className="leading-tighter flex-1">
-                      <h3 className="text-sm text-zinc-900 dark:text-zinc-100">{item.title}</h3>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">{item.location}</p>
+                      <h3 className="text-sm text-white">{item.title}</h3>
+                      <p className="text-xs text-[#868F97]">{item.location}</p>
                     </div>
 
-                    <span className="leading-tighter mb-[2px] ml-5 self-end text-end text-xs text-zinc-500 dark:text-zinc-400">
+                    <span className="leading-tighter mb-[2px] ml-5 self-end text-end text-xs text-[#868F97]">
                       {item.date}
                     </span>
                   </div>
@@ -97,7 +97,7 @@ export const ListStack: FC<ListStackProps> = ({ items = ITEMS }) => {
             );
           })}
           <motion.div
-            className="absolute cursor-pointer rounded-2xl border border-gray-100 bg-white px-4 py-2 text-neutral-900 shadow-sm"
+            className="absolute cursor-pointer rounded-lg border border-white/[0.16] bg-white/[0.08] px-4 py-2 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-[28px] transition hover:bg-white/[0.12]"
             animate={{
               y: isExpanded
                 ? (items.length - 1) * (CARD_HEIGHT + GAP) + CARD_HEIGHT + GAP

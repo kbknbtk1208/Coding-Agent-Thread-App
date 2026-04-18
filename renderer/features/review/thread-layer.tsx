@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ReviewAnchor, ReviewThread } from '../../../shared/domain/review';
+import { reviewTheme } from './review-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Anchor label helpers                                               */
@@ -24,11 +25,11 @@ function getAnchorLabel(anchor: ReviewAnchor): string {
 function getAnchorBadgeClass(kind: ReviewAnchor['kind']): string {
   switch (kind) {
     case 'line':
-      return 'bg-slate-500/20 text-slate-400';
+      return 'border border-[#479FFA]/20 bg-[#479FFA]/10 text-[#dcecff]';
     case 'range':
-      return 'bg-purple-500/20 text-purple-400';
+      return 'border border-[#FFA16C]/20 bg-[#FFA16C]/10 text-[#ffd9c0]';
     case 'file':
-      return 'bg-yellow-500/20 text-yellow-400';
+      return 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
   }
 }
 
@@ -62,7 +63,7 @@ export function ThreadLayer({ threads, onReply }: ThreadLayerProps) {
   };
 
   return (
-    <div className="border-l-2 border-cyan-400/30 bg-white/[0.03] px-4 py-3">
+    <div className="border-l-2 border-[#479FFA]/30 bg-white/[0.03] px-4 py-3">
       {threads.map((thread) => (
         <div key={thread.threadId} className="mb-3 last:mb-0">
           <div className="mb-1 flex items-center gap-1.5">
@@ -80,12 +81,12 @@ export function ThreadLayer({ threads, onReply }: ThreadLayerProps) {
           {thread.comments.map((comment) => (
             <div key={comment.commentId} className="mb-2 last:mb-0">
               <div className="flex items-center gap-2 text-xs">
-                <span className="font-semibold text-cyan-300">{comment.author}</span>
-                <span className="text-slate-500">
+                <span className="font-semibold text-[#479FFA]">{comment.author}</span>
+                <span className="text-[#8b949e]">
                   {new Date(comment.createdAt).toLocaleDateString()}
                 </span>
               </div>
-              <p className="mt-1 text-sm leading-relaxed text-slate-300">{comment.body}</p>
+              <p className="mt-1 text-sm leading-relaxed text-[#d0d5db]">{comment.body}</p>
             </div>
           ))}
 
@@ -99,12 +100,12 @@ export function ThreadLayer({ threads, onReply }: ThreadLayerProps) {
                   if (e.key === 'Enter') handleSubmitReply(thread.threadId);
                 }}
                 placeholder="Reply..."
-                className="flex-1 rounded border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:border-cyan-400/50 focus:outline-none"
+                className={reviewTheme.fieldCompact + ' flex-1'}
                 autoFocus
               />
               <button
                 onClick={() => handleSubmitReply(thread.threadId)}
-                className="rounded bg-cyan-400/20 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-cyan-400/30"
+                className="rounded-[10px] border border-[#479FFA]/20 bg-[#479FFA]/10 px-3 py-1.5 text-xs font-medium text-[#dcecff] hover:bg-[#479FFA]/15"
               >
                 Send
               </button>
@@ -113,7 +114,7 @@ export function ThreadLayer({ threads, onReply }: ThreadLayerProps) {
                   setReplyingTo(null);
                   setReplyText('');
                 }}
-                className="rounded px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                className={reviewTheme.secondaryButton}
               >
                 Cancel
               </button>
@@ -121,7 +122,7 @@ export function ThreadLayer({ threads, onReply }: ThreadLayerProps) {
           ) : (
             <button
               onClick={() => handleStartReply(thread.threadId)}
-              className="mt-1 text-xs text-slate-500 hover:text-cyan-300"
+              className="mt-1 text-xs text-[#8b949e] hover:text-[#479FFA]"
             >
               Reply
             </button>

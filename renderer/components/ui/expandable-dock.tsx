@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, ReactNode, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +38,23 @@ const ExpandableDock = ({ headerContent, children, className }: ExpandableDockPr
 
   const isCollapsed = animationStage === 'collapsed';
   const isExpanded = animationStage === 'fullyExpanded';
+  const toggleDock = () => {
+    if (isCollapsed) {
+      handleExpand();
+      return;
+    }
+
+    handleCollapse();
+  };
+
+  const handleHeaderKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    event.preventDefault();
+    toggleDock();
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -55,8 +72,8 @@ const ExpandableDock = ({ headerContent, children, className }: ExpandableDockPr
         ref={containerRef}
         initial={{
           width: 'min(90vw, 360px)',
-          height: 68,
-          borderRadius: 999,
+          height: 64,
+          borderRadius: 8,
         }}
         animate={{
           width:
@@ -67,9 +84,9 @@ const ExpandableDock = ({ headerContent, children, className }: ExpandableDockPr
             animationStage === 'collapsed' ||
             animationStage === 'widthExpanding' ||
             animationStage === 'widthCollapsing'
-              ? 68
+              ? 64
               : 'min(80vh, 500px)',
-          borderRadius: isCollapsed ? 999 : 20,
+          borderRadius: 8,
         }}
         transition={{
           width: { duration: 0.45, ease: [0.4, 0, 0.2, 1] },
@@ -77,13 +94,29 @@ const ExpandableDock = ({ headerContent, children, className }: ExpandableDockPr
           borderRadius: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
         }}
         className={cn(
-          'bg-white dark:bg-black backdrop-blur-md shadow-2xl overflow-hidden flex flex-col-reverse mx-auto',
+          'relative mx-auto flex flex-col-reverse overflow-hidden border border-white/[0.16] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-42px_86px_rgba(0,0,0,0.34),0_28px_90px_rgba(0,0,0,0.48)] backdrop-blur-[48px]',
           className,
         )}
       >
         <div
-          onClick={isCollapsed ? handleExpand : handleCollapse}
-          className="flex items-center gap-4 px-4 sm:px-6 py-4 text-white w-full h-17 whitespace-nowrap cursor-pointer border-t border-gray-800 shrink-0"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(155deg,rgba(255,255,255,0.18)_0%,rgba(255,255,255,0.07)_34%,rgba(255,255,255,0.025)_62%,rgba(0,0,0,0.22)_100%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-4 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.58),transparent)]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] [background-size:42px_42px]"
+        />
+        <div
+          onClick={toggleDock}
+          onKeyDown={handleHeaderKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-expanded={isExpanded}
+          className="relative z-10 flex h-16 w-full shrink-0 cursor-pointer items-center gap-4 border-t border-white/[0.12] bg-black/[0.14] px-4 py-4 text-white outline-none transition hover:bg-white/[0.08] focus-visible:bg-white/[0.1] sm:px-6"
         >
           {headerContent}
         </div>
@@ -93,9 +126,9 @@ const ExpandableDock = ({ headerContent, children, className }: ExpandableDockPr
             height: isExpanded ? 'auto' : 0,
           }}
           transition={{ duration: 0.3 }}
-          className="p-4 sm:p-6 flex-1 flex flex-col overflow-hidden"
+          className="relative z-10 flex flex-1 flex-col overflow-hidden bg-black/[0.08] p-4 sm:p-6"
         >
-          <div className="overflow-y-hidden overflow-x-auto scrollbar-none">{children}</div>
+          <div className="fey-scrollbar overflow-y-hidden overflow-x-auto">{children}</div>
         </motion.div>
       </motion.div>
     </div>

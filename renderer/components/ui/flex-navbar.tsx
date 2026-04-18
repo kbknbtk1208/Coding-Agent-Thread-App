@@ -103,7 +103,7 @@ export function FlexNavbar({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/45 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/42 backdrop-blur-[10px]"
             onClick={handleToggle}
           />
         ) : null}
@@ -117,32 +117,32 @@ export function FlexNavbar({
                 width: expandedWidth,
                 maxWidth: expandedMaxWidth,
                 minHeight: isMobile ? expandedHeightMobile : expandedHeight,
-                borderRadius: '1rem',
+                borderRadius: '8px',
               }
             : {
                 width: collapsedWidth,
                 maxWidth: collapsedMaxWidth,
                 height: collapsedHeight,
-                borderRadius: '999px',
+                borderRadius: '8px',
               }
         }
         transition={{ duration: animationDuration, ease: animationEasing }}
-        className="fixed left-1/2 top-4 z-50 -translate-x-1/2 overflow-hidden border border-white/10 bg-white/92 shadow-[0_30px_90px_rgba(2,8,23,0.24)] backdrop-blur-xl dark:bg-black/88"
+        className="fixed left-1/2 top-4 z-50 -translate-x-1/2 overflow-hidden border border-white/[0.16] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-34px_76px_rgba(0,0,0,0.32),0_30px_90px_rgba(0,0,0,0.48)] backdrop-blur-[44px]"
       >
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(155deg,rgba(255,255,255,0.17)_0%,rgba(255,255,255,0.06)_42%,rgba(0,0,0,0.24)_100%)]" />
+        <div className="pointer-events-none absolute inset-x-5 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.55),transparent)]" />
         <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-white">
-              {logo ?? <span className="text-xs font-semibold tracking-[0.28em]">CA</span>}
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.14] bg-white/[0.09] text-[#FFA16C]">
+              {logo ?? <span className="text-xs font-semibold">CA</span>}
             </div>
-            <span className="text-sm font-semibold tracking-[0.22em] text-slate-900 dark:text-white">
-              {brandName}
-            </span>
+            <span className="text-sm font-semibold text-white">{brandName}</span>
           </div>
 
           <button
             type="button"
             onClick={handleToggle}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-black/8 bg-black/4 text-slate-700 transition hover:bg-black/8 dark:border-white/10 dark:bg-white/6 dark:text-slate-200"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.14] bg-white/[0.08] text-white transition hover:bg-white/[0.12]"
             aria-label={isExpanded ? 'Close navigation' : 'Open navigation'}
           >
             {isExpanded ? (
@@ -164,22 +164,20 @@ export function FlexNavbar({
             >
               <div className="grid gap-8 md:grid-cols-[0.95fr_1.05fr]">
                 <div className="flex flex-col gap-5">
-                  <p className="max-w-sm text-sm leading-7 text-slate-500 dark:text-slate-400">
-                    {tagline}
-                  </p>
+                  <p className="max-w-sm text-sm leading-7 text-[#868F97]">{tagline}</p>
                   <div className="flex flex-col gap-3">
                     {navLinks.map((link) => (
                       <a
                         key={link.label}
                         href={link.href}
-                        className="text-2xl font-semibold tracking-tight text-slate-950 transition hover:text-slate-600 dark:text-white dark:hover:text-slate-300"
+                        className="text-2xl font-semibold text-white transition hover:text-[#FFA16C]"
                         onClick={handleToggle}
                       >
                         {link.label}
                       </a>
                     ))}
                   </div>
-                  <div className="flex items-center justify-between pt-3 text-xs uppercase tracking-[0.26em] text-slate-400">
+                  <div className="flex items-center justify-between pt-3 text-xs uppercase text-[#868F97]">
                     <span>{launchText}</span>
                     <span>PoC Surface</span>
                   </div>
@@ -189,7 +187,7 @@ export function FlexNavbar({
                   <button
                     type="button"
                     onClick={handleMediaClick}
-                    className="group relative overflow-hidden rounded-[22px] border border-black/8 bg-slate-100 text-left dark:border-white/10 dark:bg-slate-900"
+                    className="group relative overflow-hidden rounded-lg border border-white/[0.14] bg-white/[0.06] text-left"
                   >
                     {media.type === 'video' ? (
                       <video
@@ -208,12 +206,12 @@ export function FlexNavbar({
                         className="aspect-video w-full object-cover"
                       />
                     )}
-                    <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/10 to-transparent" />
+                    <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/10 to-transparent" />
                     <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                      <div className="rounded-full border border-white/20 bg-white/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white backdrop-blur">
+                      <div className="rounded-lg border border-white/20 bg-white/12 px-4 py-2 text-xs font-semibold uppercase text-white backdrop-blur">
                         {mediaButtonText}
                       </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur transition group-hover:scale-105">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white backdrop-blur transition group-hover:scale-105">
                         {media.link ? (
                           <ExternalLink className="h-4 w-4" />
                         ) : (
@@ -222,7 +220,7 @@ export function FlexNavbar({
                       </div>
                     </div>
                   </button>
-                  <p className="text-sm leading-7 text-slate-500 dark:text-slate-400">
+                  <p className="text-sm leading-7 text-[#868F97]">
                     Flexible disclosure style navigation for launch notes, product tours, and
                     media-driven landing sections.
                   </p>

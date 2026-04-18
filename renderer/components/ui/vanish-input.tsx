@@ -48,11 +48,11 @@ export function VanishInput({ placeholders, onSubmit, className }: VanishInputPr
     <form
       onSubmit={handleSubmit}
       className={cn(
-        'glass-panel flex flex-col gap-3 rounded-[1.8rem] p-3 sm:flex-row sm:items-center',
+        'fey-panel flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center',
         className,
       )}
     >
-      <div className="relative min-h-[3.5rem] flex-1 overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/35 px-5 py-3">
+      <div className="relative min-h-[3.5rem] flex-1 overflow-hidden rounded-lg border border-white/[0.08] bg-black/45 px-5 py-3">
         <AnimatePresence mode="wait">
           {!value && !vanishingText ? (
             <motion.span
@@ -61,7 +61,7 @@ export function VanishInput({ placeholders, onSubmit, className }: VanishInputPr
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-sm text-slate-400"
+              className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-sm text-[#868F97]"
             >
               {placeholders[placeholderIndex]}
             </motion.span>
@@ -86,7 +86,7 @@ export function VanishInput({ placeholders, onSubmit, className }: VanishInputPr
               animate={{ opacity: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.72, ease: 'easeOut' }}
-              className="pointer-events-none absolute inset-y-0 left-5 flex items-center pr-6 text-base text-cyan-100"
+              className="pointer-events-none absolute inset-y-0 left-5 flex items-center pr-6 text-base text-[#FFA16C]"
             >
               {vanishingText.split('').map((character, index) => (
                 <motion.span
@@ -114,7 +114,7 @@ export function VanishInput({ placeholders, onSubmit, className }: VanishInputPr
 
       <button
         type="submit"
-        className="inline-flex h-14 items-center justify-center rounded-[1.35rem] bg-[linear-gradient(135deg,#67e8f9_0%,#f9a8d4_48%,#fde68a_100%)] px-6 text-sm font-semibold text-slate-950 transition-transform duration-200 hover:scale-[1.01]"
+        className="inline-flex h-14 items-center justify-center rounded-lg bg-[#FFA16C] px-6 text-sm font-semibold text-black transition-colors duration-200 hover:bg-[#ffb98d]"
       >
         スレッドを開始
       </button>

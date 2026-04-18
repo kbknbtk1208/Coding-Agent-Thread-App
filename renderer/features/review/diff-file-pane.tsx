@@ -114,13 +114,13 @@ function getChangeTypeLabel(changeType: NormalizedDiffFile['changeType']): strin
 function getChangeTypeBadgeClass(changeType: NormalizedDiffFile['changeType']): string {
   switch (changeType) {
     case 'added':
-      return 'bg-green-500/20 text-green-400';
+      return 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
     case 'deleted':
-      return 'bg-red-500/20 text-red-400';
+      return 'border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 text-[#ffd9d9]';
     case 'renamed':
-      return 'bg-blue-500/20 text-blue-400';
+      return 'border border-[#479FFA]/20 bg-[#479FFA]/10 text-[#dcecff]';
     case 'modified':
-      return 'bg-yellow-500/20 text-yellow-400';
+      return 'border border-[#FFA16C]/20 bg-[#FFA16C]/10 text-[#ffd9c0]';
   }
 }
 
@@ -276,7 +276,7 @@ function MentionThreadLayer({
   }
 
   return (
-    <div className="border-l-2 border-emerald-300/40 bg-emerald-400/[0.05] px-4 py-3">
+    <div className="border-l-2 border-[#4EBE96]/40 bg-[#4EBE96]/[0.05] px-4 py-3">
       <div className="space-y-3">
         {threads.map((thread) => (
           <MentionThreadCard
@@ -1144,11 +1144,11 @@ export function DiffFilePane({
     if (file.contentStatus === 'loading') {
       return (
         <div className="px-4 py-8">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-5">
+          <div className="rounded-[12px] border border-white/10 bg-white/[0.02] px-4 py-5">
             <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
             <div className="mt-3 h-3 w-full animate-pulse rounded bg-white/5" />
             <div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-white/5" />
-            <p className="mt-4 text-sm text-slate-500">差分本文を取得しています...</p>
+            <p className="mt-4 text-sm text-[#8b949e]">差分本文を取得しています...</p>
           </div>
         </div>
       );
@@ -1157,7 +1157,7 @@ export function DiffFilePane({
     if (file.contentStatus === 'idle') {
       return (
         <div className="px-4 py-8">
-          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-slate-500">
+          <div className="rounded-[12px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-[#8b949e]">
             ファイルを選択すると差分本文を取得します。
           </div>
         </div>
@@ -1167,7 +1167,7 @@ export function DiffFilePane({
     if (file.isBinary) {
       return (
         <div className="px-4 py-8">
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-5 text-sm text-amber-100">
+          <div className="rounded-[12px] border border-[#FFA16C]/20 bg-[#FFA16C]/10 px-4 py-5 text-sm text-[#ffd9c0]">
             Binary file のため、本文プレビューは表示できません。
           </div>
         </div>
@@ -1176,7 +1176,7 @@ export function DiffFilePane({
 
     return (
       <div className="px-4 py-8">
-        <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-5 text-sm text-red-100">
+        <div className="rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-4 py-5 text-sm text-[#ffd9d9]">
           {file.isLargeDiff
             ? 'Large diff のため本文取得に失敗したか、provider 側で差分展開が制限されています。'
             : '差分本文の取得に失敗しました。'}
@@ -1186,35 +1186,35 @@ export function DiffFilePane({
   };
 
   return (
-    <div className="mb-4 overflow-hidden rounded-lg border border-white/10">
+    <div className="mb-4 overflow-hidden rounded-[12px] border border-white/10 bg-white/[0.02]">
       {/* File header */}
-      <div className="flex items-center gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-2.5">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-white/[0.04] px-4 py-2.5">
         <span
-          className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${getChangeTypeBadgeClass(file.changeType)}`}
+          className={`rounded-[8px] px-2 py-0.5 text-[10px] font-semibold uppercase ${getChangeTypeBadgeClass(file.changeType)}`}
         >
           {getChangeTypeLabel(file.changeType)}
         </span>
-        <span className="text-sm font-medium text-slate-200">
+        <span className="text-sm font-medium text-[#f8f7f4]">
           {file.oldFilePath && file.changeType === 'renamed'
             ? `${file.oldFilePath} → ${file.filePath}`
             : file.filePath}
         </span>
         <span className="ml-auto flex items-center gap-2 text-xs">
-          <span className="text-green-400">+{file.additions}</span>
-          <span className="text-red-400">-{file.deletions}</span>
+          <span className="text-[#4EBE96]">+{file.additions}</span>
+          <span className="text-[#FF5C5C]">-{file.deletions}</span>
         </span>
         {(remoteThreads.length > 0 || draftThreads.length > 0) && (
-          <span className="rounded-full bg-cyan-400/10 px-2 py-0.5 text-[10px] text-cyan-300">
+          <span className="rounded-full border border-[#479FFA]/20 bg-[#479FFA]/10 px-2 py-0.5 text-[10px] text-[#dcecff]">
             {remoteThreads.length} remote / {draftThreads.length} draft
           </span>
         )}
         {mentionThreads.length > 0 ? (
-          <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">
+          <span className="rounded-full border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] text-[#d7f5e8]">
             {mentionThreads.length} mention
           </span>
         ) : null}
         {interactionMode === 'mention' ? (
-          <span className="rounded-full border border-emerald-300/20 px-2 py-0.5 text-[10px] text-emerald-100">
+          <span className="rounded-full border border-[#4EBE96]/20 px-2 py-0.5 text-[10px] text-[#d7f5e8]">
             mention mode
           </span>
         ) : null}
@@ -1222,7 +1222,7 @@ export function DiffFilePane({
         {diffFileInstance && (
           <button
             onClick={handleToggleExpandAll}
-            className="rounded px-2 py-0.5 text-[10px] font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+            className="rounded-[8px] px-2 py-0.5 text-[10px] font-medium text-[#8b949e] transition hover:bg-white/5 hover:text-white"
             title={hasSomeLineCollapsed ? 'Expand all hidden lines' : 'Collapse non-diff lines'}
           >
             {hasSomeLineCollapsed ? 'Expand all' : 'Collapse'}
@@ -1230,7 +1230,7 @@ export function DiffFilePane({
         )}
       </div>
       {rangeError ? (
-        <div className="border-b border-amber-300/20 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+        <div className="border-b border-[#FFA16C]/20 bg-[#FFA16C]/10 px-4 py-2 text-xs text-[#ffd9c0]">
           {rangeError}
         </div>
       ) : null}
@@ -1263,12 +1263,12 @@ export function DiffFilePane({
       ) : file.isLargeDiff && !expanded ? (
         <div className="flex items-center justify-center px-4 py-8">
           <div className="text-center">
-            <p className="mb-2 text-sm text-slate-400">
+            <p className="mb-2 text-sm text-[#8b949e]">
               Large diff — {file.additions + file.deletions} lines changed
             </p>
             <button
               onClick={() => setExpanded(true)}
-              className="rounded-full bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-300 transition hover:bg-cyan-400/20"
+              className="rounded-full border border-[#479FFA]/20 bg-[#479FFA]/10 px-4 py-2 text-sm font-medium text-[#dcecff] transition hover:bg-[#479FFA]/15"
             >
               Load diff
             </button>
@@ -1333,7 +1333,7 @@ export function DiffFilePane({
           />
         </div>
       ) : expanded ? (
-        <div className="px-4 py-6 text-center text-sm text-slate-500">Failed to render diff</div>
+        <div className="px-4 py-6 text-center text-sm text-[#8b949e]">Failed to render diff</div>
       ) : null}
     </div>
   );

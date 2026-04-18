@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/domain/review-draft';
 import type { ReviewMentionThread } from '../../../shared/domain/review-mention';
 import { MentionThreadHistory } from './mention-thread-history';
+import { reviewTheme } from './review-ui';
 import {
   SESSION_STATUS_LABELS,
   SESSION_STATUS_STYLES,
@@ -67,7 +68,7 @@ function MentionSessionStream({
   const session = thread.activeSession;
   if (!session) {
     return thread.lastError ? (
-      <div className="rounded border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+      <div className="rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-4 py-3 text-sm text-[#ffd9d9]">
         {thread.lastError}
       </div>
     ) : null;
@@ -100,18 +101,18 @@ function MentionSessionStream({
   }
 
   return (
-    <div className="space-y-3 rounded border border-white/10 bg-black/20 p-4">
+    <div className="space-y-3 rounded-[12px] border border-white/10 bg-black/30 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={`rounded-full border px-3 py-1 text-[11px] font-medium ${SESSION_STATUS_STYLES[session.status]}`}
         >
           {SESSION_STATUS_LABELS[session.status]}
         </span>
-        <span className="text-xs text-slate-500">session: {session.appSessionId}</span>
+        <span className="text-xs text-[#8b949e]">session: {session.appSessionId}</span>
       </div>
 
       {thread.lastError ? (
-        <div className="rounded border border-rose-400/20 bg-rose-400/10 px-3 py-3 text-sm text-rose-100">
+        <div className="rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-3 py-3 text-sm text-[#ffd9d9]">
           {thread.lastError}
         </div>
       ) : null}
@@ -137,7 +138,7 @@ function MentionSessionStream({
             turn={latestTurn}
           />
         ) : latestTurn.response ? (
-          renderStreamingRichText(latestTurn.response, 'text-sm leading-7 text-slate-200')
+          renderStreamingRichText(latestTurn.response, 'text-sm leading-7 text-[#d0d5db]')
         ) : waitingText ? (
           renderWaitingResponse(waitingText)
         ) : null
@@ -182,9 +183,9 @@ export function MentionThreadCard({
   return (
     <article
       ref={containerRef}
-      className={`rounded border p-4 transition ${
+      className={`rounded-[12px] border p-4 transition ${
         isSelected
-          ? 'border-emerald-300/30 bg-emerald-400/10'
+          ? 'border-[#4EBE96]/30 bg-[#4EBE96]/10'
           : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'
       }`}
     >
@@ -194,20 +195,14 @@ export function MentionThreadCard({
         className="w-full text-left"
       >
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
-            Mention
-          </span>
-          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-300">
-            {thread.reviewAgent}
-          </span>
+          <span className={reviewTheme.chipSuccess}>Mention</span>
+          <span className={reviewTheme.chip}>{thread.reviewAgent}</span>
           {thread.replyStatus !== 'idle' ? (
-            <span className="rounded-full bg-cyan-400/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-200">
-              {thread.replyStatus}
-            </span>
+            <span className={reviewTheme.chipInfo}>{thread.replyStatus}</span>
           ) : null}
         </div>
-        <p className="mt-3 text-sm font-semibold text-white">{thread.messages[0]?.body}</p>
-        <p className="mt-2 text-xs text-slate-500">{formatSelection(thread)}</p>
+        <p className="mt-3 text-sm font-semibold text-[#f8f7f4]">{thread.messages[0]?.body}</p>
+        <p className="mt-2 text-xs text-[#8b949e]">{formatSelection(thread)}</p>
       </button>
 
       {isSelected ? (
@@ -221,14 +216,14 @@ export function MentionThreadCard({
               onChange={(e) => onReplyBodyChange(thread.mentionThreadId, e.target.value)}
               rows={3}
               placeholder="追加で質問..."
-              className="w-full resize-none rounded border border-white/10 bg-black/20 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-emerald-300/50 focus:outline-none"
+              className={reviewTheme.textarea}
             />
             <div className="flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setIsPromoteOpen((prev) => !prev)}
                 disabled={thread.promotedDraftThreadId !== null}
-                className="rounded border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10 disabled:opacity-40"
+                className={reviewTheme.secondaryButton}
               >
                 指摘草案へ昇格
               </button>
@@ -236,7 +231,7 @@ export function MentionThreadCard({
                 type="button"
                 disabled={!replyBody.trim() || thread.replyStatus === 'replying'}
                 onClick={() => onSubmitReply(thread.mentionThreadId, replyBody)}
-                className="rounded bg-emerald-400/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-400/30 disabled:opacity-40"
+                className="rounded-[10px] border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-3 py-1.5 text-xs font-medium text-[#d7f5e8] hover:bg-[#4EBE96]/15 disabled:opacity-40"
               >
                 Ask Follow-up
               </button>
@@ -244,23 +239,23 @@ export function MentionThreadCard({
           </div>
 
           {isPromoteOpen ? (
-            <div className="space-y-3 rounded border border-white/10 bg-black/20 p-4">
+            <div className="space-y-3 rounded-[12px] border border-white/10 bg-black/30 p-4">
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-emerald-300/50 focus:outline-none"
+                className={reviewTheme.field}
               />
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={5}
-                className="w-full resize-none rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-emerald-300/50 focus:outline-none"
+                className={reviewTheme.textarea}
               />
               <div className="grid gap-2 sm:grid-cols-3">
                 <select
                   value={severity}
                   onChange={(e) => setSeverity(e.target.value as ReviewFindingSeverity)}
-                  className="rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className={reviewTheme.fieldCompact}
                 >
                   <option value="high">high</option>
                   <option value="medium">medium</option>
@@ -269,7 +264,7 @@ export function MentionThreadCard({
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value as ReviewFindingCategory)}
-                  className="rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className={reviewTheme.fieldCompact}
                 >
                   <option value="correctness">correctness</option>
                   <option value="tests">tests</option>
@@ -282,7 +277,7 @@ export function MentionThreadCard({
                 <select
                   value={confidence}
                   onChange={(e) => setConfidence(e.target.value as ReviewFindingConfidence)}
-                  className="rounded border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className={reviewTheme.fieldCompact}
                 >
                   <option value="high">high</option>
                   <option value="medium">medium</option>
@@ -293,7 +288,7 @@ export function MentionThreadCard({
                 <button
                   type="button"
                   onClick={() => setIsPromoteOpen(false)}
-                  className="rounded px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                  className={reviewTheme.secondaryButton}
                 >
                   Cancel
                 </button>
@@ -310,7 +305,7 @@ export function MentionThreadCard({
                     });
                     setIsPromoteOpen(false);
                   }}
-                  className="rounded bg-emerald-400/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-400/30 disabled:opacity-40"
+                  className="rounded-[10px] border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-3 py-1.5 text-xs font-medium text-[#d7f5e8] hover:bg-[#4EBE96]/15 disabled:opacity-40"
                 >
                   Draft に追加
                 </button>

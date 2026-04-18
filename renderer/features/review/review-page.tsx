@@ -17,6 +17,7 @@ import {
 } from './review-source';
 import { ReviewSourceSelector } from './review-source-selector';
 import { SelectionMentionSection } from './selection-mention-section';
+import { reviewTheme } from './review-ui';
 import { useDraftComposerState } from './use-draft-composer-state';
 import { useReviewData } from './use-review-data';
 import { useReviewDraft } from './use-review-draft';
@@ -534,318 +535,319 @@ export function ReviewPage() {
   const overviewConversationCount = overviewThreads.length + overviewDraftThreads.length;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-950 text-white">
-      <header className="border-b border-white/10 bg-slate-950/90 backdrop-blur">
-        <div className="flex flex-col gap-4 px-5 py-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => {
-                void router.push('/home');
-              }}
-              className="text-sm text-slate-400 transition hover:text-white"
-            >
-              ← Home
-            </button>
-            <div className="h-4 w-px bg-white/10" />
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold">{reviewTitle}</h1>
-              <p className="mt-1 text-xs text-slate-500">
-                {hasLoadedReview
-                  ? `${reviewState.data.files.length} files / ${overviewConversationCount} overview conversations`
-                  : 'GitHub / GitLab の PR・MR URL を入力して読み込みます。'}
-              </p>
-            </div>
-            {hasLoadedReview ? (
-              <a
-                href={reviewState.data.providerContext.reviewUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-auto rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
-              >
-                Open source
-              </a>
-            ) : null}
-          </div>
-
-          <ReviewSourceSelector
-            provider={provider}
-            host={host}
-            reviewUrl={reviewUrl}
-            loading={loading}
-            error={validationError ?? error}
-            onProviderChange={handleProviderSwitch}
-            onHostChange={(value) => {
-              setHost(value);
-              setValidationError(null);
-            }}
-            onReviewUrlChange={(value) => {
-              setReviewUrl(value);
-              setValidationError(null);
-            }}
-            onSubmit={handleLoad}
-          />
-
-          {hasLoadedReview ? (
-            <>
-              <ReviewActionPanel
-                reviewStatus={reviewDraft.reviewDraftState.reviewStatus}
-                reviewAgent={reviewAgent}
-                instructions={reviewInstructions}
-                disabled={!hasLoadedReview}
-                running={reviewDraft.isRunning}
-                executionError={reviewDraft.reviewDraftState.errorMessage}
-                onReviewAgentChange={setReviewAgent}
-                onInstructionsChange={setReviewInstructions}
-                onSubmit={handleStartDraftReview}
-                pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
-                session={reviewDraft.reviewDraftState.activeRunSession}
-                latestRun={reviewDraft.reviewDraftState.latestRun}
-                summary={reviewDraft.reviewDraftState.summary}
-                fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
-                fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
-                threadCount={visibleDraftThreads.length}
-                overviewConversationCount={overviewConversationCount}
-                unpublishedDraftCount={unpublishedDraftCount}
-                isPublishing={reviewPublish.publishState.publishStatus === 'publishing'}
-                publishError={
-                  reviewPublish.publishState.publishStatus === 'failed'
-                    ? reviewPublish.publishState.errorMessage
-                    : null
-                }
-                onOpenPublishPanel={handleOpenPublishPanel}
-              />
-              {reviewState.data.snapshotId != null && (
-                <PublishDraftPanel
-                  publishState={reviewPublish.publishState}
-                  files={reviewState.data.files}
-                  snapshotId={reviewState.data.snapshotId}
-                  onClose={reviewPublish.closePanel}
-                  onToggleSelect={reviewPublish.toggleDraftSelection}
-                  onDraftChange={reviewPublish.updateDraft}
-                  onConfirmPublish={handleConfirmPublish}
-                />
-              )}
-            </>
-          ) : null}
-        </div>
-      </header>
-
-      {hasLoadedReview ? (
-        <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
-          <aside className="w-full shrink-0 border-b border-white/10 bg-white/[0.02] xl:w-[300px] xl:border-b-0 xl:border-r">
-            <div className="max-h-[240px] overflow-y-auto p-3 xl:max-h-none xl:h-full">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Files
-                </span>
-                <span className="text-xs text-slate-500">{reviewState.data.files.length}</span>
-              </div>
-
-              <div className="space-y-1.5">
-                {reviewState.data.files.map((file) => {
-                  const isActive = file.fileId === selectedFileId;
-
-                  return (
-                    <button
-                      key={file.fileId}
-                      onClick={() => {
-                        setSelectedFileId(file.fileId);
-                        const nextThread = visibleDraftThreads.find(
-                          (thread) =>
-                            thread.draft.resolvedLocation.kind === 'diff' &&
-                            thread.draft.resolvedLocation.fileId === file.fileId,
-                        );
-                        if (nextThread) {
-                          setSelectedLocalThreadId(nextThread.localThreadId);
-                        }
-                      }}
-                      className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
-                        isActive
-                          ? 'border-cyan-400/30 bg-cyan-400/10 text-white'
-                          : 'border-transparent bg-white/[0.03] text-slate-300 hover:border-white/10 hover:bg-white/[0.05]'
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">
-                          {file.oldFilePath && file.changeType === 'renamed'
-                            ? `${file.oldFilePath} → ${file.filePath}`
-                            : file.filePath}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                          <span>{file.changeType}</span>
-                          <span>{getFileStatusLabel(file.contentStatus, file.isBinary)}</span>
-                          {file.threads.length > 0 ? (
-                            <span>{file.threads.length} remote</span>
-                          ) : null}
-                          {(draftCountByFileId.get(file.fileId) ?? 0) > 0 ? (
-                            <span>{draftCountByFileId.get(file.fileId)} drafts</span>
-                          ) : null}
-                          {(mentionCountByFileId.get(file.fileId) ?? 0) > 0 ? (
-                            <span>{mentionCountByFileId.get(file.fileId)} mentions</span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right text-[11px]">
-                        <div className="text-green-400">+{file.additions}</div>
-                        <div className="text-red-400">-{file.deletions}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </aside>
-
-          <main
-            className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5"
-            style={{ overflowAnchor: 'auto', scrollBehavior: 'auto' }}
-          >
-            <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03]">
+    <div className={reviewTheme.shell}>
+      <div className={reviewTheme.backdrop} aria-hidden="true" />
+      <div className={reviewTheme.page}>
+        <header className={reviewTheme.header}>
+          <div className="flex flex-col gap-4 px-5 py-4">
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                type="button"
-                onClick={() => setIsDescriptionOpen((prev) => !prev)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-white/[0.02]"
+                onClick={() => {
+                  void router.push('/home');
+                }}
+                className="text-sm text-[#b3b9c2] transition hover:text-[#FFA16C]"
               >
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-                    Description
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {isDescriptionOpen ? 'クリックで閉じる' : 'クリックで表示'}
-                  </p>
-                </div>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="shrink-0 text-slate-400 transition-transform duration-200"
-                  style={{
-                    transform: isDescriptionOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                  }}
-                  aria-hidden="true"
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
+                ← Home
               </button>
-              {isDescriptionOpen ? (
-                <div className="border-t border-white/10 px-4 py-4">
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">
-                    {reviewDescription}
-                  </p>
-                </div>
+              <div className="h-4 w-px bg-white/10" />
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-semibold text-[#f8f7f4]">{reviewTitle}</h1>
+                <p className="mt-1 text-xs text-[#8b949e]">
+                  {hasLoadedReview
+                    ? `${reviewState.data.files.length} files / ${overviewConversationCount} overview conversations`
+                    : 'GitHub / GitLab の PR・MR URL を入力して読み込みます。'}
+                </p>
+              </div>
+              {hasLoadedReview ? (
+                <a
+                  href={reviewState.data.providerContext.reviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto rounded-full border border-[#479FFA]/20 bg-[#479FFA]/10 px-3 py-1.5 text-xs text-[#dcecff] transition hover:border-[#479FFA]/35 hover:bg-[#479FFA]/15 hover:text-white"
+                >
+                  Open source
+                </a>
               ) : null}
             </div>
 
-            <OverviewDraftThreadSection
-              threads={overviewDraftThreads}
-              selectedLocalThreadId={selectedLocalThreadId}
-              replyBodies={draftComposer.replyBodies}
-              onSelectThread={handleSelectDraftThread}
-              onReplyBodyChange={draftComposer.setReplyBody}
-              onSubmitReply={handleReplyLocalThread}
-              onRespondToPermission={handleRespondThreadPermission}
+            <ReviewSourceSelector
+              provider={provider}
+              host={host}
+              reviewUrl={reviewUrl}
+              loading={loading}
+              error={validationError ?? error}
+              onProviderChange={handleProviderSwitch}
+              onHostChange={(value) => {
+                setHost(value);
+                setValidationError(null);
+              }}
+              onReviewUrlChange={(value) => {
+                setReviewUrl(value);
+                setValidationError(null);
+              }}
+              onSubmit={handleLoad}
             />
 
-            {overviewThreads.length > 0 ? (
-              <div className="mb-4">
-                <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
-              </div>
+            {hasLoadedReview ? (
+              <>
+                <ReviewActionPanel
+                  reviewStatus={reviewDraft.reviewDraftState.reviewStatus}
+                  reviewAgent={reviewAgent}
+                  instructions={reviewInstructions}
+                  disabled={!hasLoadedReview}
+                  running={reviewDraft.isRunning}
+                  executionError={reviewDraft.reviewDraftState.errorMessage}
+                  onReviewAgentChange={setReviewAgent}
+                  onInstructionsChange={setReviewInstructions}
+                  onSubmit={handleStartDraftReview}
+                  pendingSessionId={reviewDraft.reviewDraftState.activeRunSessionId}
+                  session={reviewDraft.reviewDraftState.activeRunSession}
+                  latestRun={reviewDraft.reviewDraftState.latestRun}
+                  summary={reviewDraft.reviewDraftState.summary}
+                  fallbackRichText={reviewDraft.reviewDraftState.fallbackRichText}
+                  fallbackReason={reviewDraft.reviewDraftState.fallbackReason}
+                  threadCount={visibleDraftThreads.length}
+                  overviewConversationCount={overviewConversationCount}
+                  unpublishedDraftCount={unpublishedDraftCount}
+                  isPublishing={reviewPublish.publishState.publishStatus === 'publishing'}
+                  publishError={
+                    reviewPublish.publishState.publishStatus === 'failed'
+                      ? reviewPublish.publishState.errorMessage
+                      : null
+                  }
+                  onOpenPublishPanel={handleOpenPublishPanel}
+                />
+                {reviewState.data.snapshotId != null && (
+                  <PublishDraftPanel
+                    publishState={reviewPublish.publishState}
+                    files={reviewState.data.files}
+                    snapshotId={reviewState.data.snapshotId}
+                    onClose={reviewPublish.closePanel}
+                    onToggleSelect={reviewPublish.toggleDraftSelection}
+                    onDraftChange={reviewPublish.updateDraft}
+                    onConfirmPublish={handleConfirmPublish}
+                  />
+                )}
+              </>
             ) : null}
-
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-white/10 bg-white/[0.03] px-4 py-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Diff Interaction
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Comment は local comment、Mention は agent 相談として扱います。
-                </p>
-              </div>
-              <div className="flex rounded border border-white/10 bg-black/20 p-1">
-                {(['comment', 'mention'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setInteractionMode(mode)}
-                    className={`rounded px-3 py-1.5 text-xs font-medium transition ${
-                      interactionMode === mode
-                        ? mode === 'mention'
-                          ? 'bg-emerald-400/20 text-emerald-100'
-                          : 'bg-cyan-400/20 text-cyan-100'
-                        : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                    }`}
-                  >
-                    {mode === 'mention' ? 'Mention' : 'Comment'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <SelectionMentionSection
-              threads={selectedMentionThreads}
-              selectedMentionThreadId={selectionMentions.selectedMentionThreadId}
-              replyBodies={selectionMentions.replyBodies}
-              onSelectThread={handleSelectMentionThread}
-              onReplyBodyChange={selectionMentions.setReplyBody}
-              onSubmitReply={selectionMentions.replyToMention}
-              onPromote={handlePromoteMentionThread}
-              onRespondToPermission={selectionMentions.respondToPermission}
-            />
-
-            {selectedFile ? (
-              <DiffFilePane
-                key={selectedFile.fileId}
-                file={selectedFile}
-                remoteThreads={selectedFile.threads}
-                draftThreads={selectedDraftThreads}
-                mentionThreads={selectedMentionThreads}
-                interactionMode={interactionMode}
-                selectedDraftThreadId={selectedLocalThreadId}
-                selectedMentionThreadId={selectionMentions.selectedMentionThreadId}
-                draftReplyBodies={draftComposer.replyBodies}
-                mentionReplyBodies={selectionMentions.replyBodies}
-                onAddComment={handleAddComment}
-                onStartMention={handleStartMention}
-                onReply={handleReply}
-                onSelectDraftThread={handleSelectDraftThread}
-                onSelectMentionThread={handleSelectMentionThread}
-                onDraftReplyBodyChange={draftComposer.setReplyBody}
-                onMentionReplyBodyChange={selectionMentions.setReplyBody}
-                onReplyToDraftThread={handleReplyLocalThread}
-                onReplyToMentionThread={selectionMentions.replyToMention}
-                onPromoteMentionThread={handlePromoteMentionThread}
-                onRespondDraftThreadPermission={handleRespondThreadPermission}
-                onRespondMentionThreadPermission={selectionMentions.respondToPermission}
-              />
-            ) : (
-              <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-8 text-center text-sm text-slate-500">
-                表示するファイルがありません。
-              </div>
-            )}
-          </main>
-        </div>
-      ) : (
-        <main className="flex flex-1 items-center justify-center p-6">
-          <div className="max-w-xl rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
-              Real Review Snapshot
-            </p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">
-              Review URL を入力して diff を読み込みます
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-400">
-              左側の file list にはメタデータだけを先に出し、本文は選択ファイルごとに lazy hydrate
-              します。review 結果は compact panel に、thread 会話は main content に表示します。
-            </p>
           </div>
-        </main>
-      )}
+        </header>
+
+        {hasLoadedReview ? (
+          <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+            <aside className="w-full shrink-0 border-b border-white/10 bg-white/[0.02] xl:w-[300px] xl:border-b-0 xl:border-r">
+              <div className="max-h-[240px] overflow-y-auto p-3 xl:max-h-none xl:h-full">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#8b949e]">
+                    Files
+                  </span>
+                  <span className="text-xs text-[#8b949e]">{reviewState.data.files.length}</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {reviewState.data.files.map((file) => {
+                    const isActive = file.fileId === selectedFileId;
+
+                    return (
+                      <button
+                        key={file.fileId}
+                        onClick={() => {
+                          setSelectedFileId(file.fileId);
+                          const nextThread = visibleDraftThreads.find(
+                            (thread) =>
+                              thread.draft.resolvedLocation.kind === 'diff' &&
+                              thread.draft.resolvedLocation.fileId === file.fileId,
+                          );
+                          if (nextThread) {
+                            setSelectedLocalThreadId(nextThread.localThreadId);
+                          }
+                        }}
+                        className={`flex w-full items-start gap-3 rounded-[12px] border px-3 py-2.5 text-left transition ${
+                          isActive
+                            ? 'border-[#FFA16C]/30 bg-[#FFA16C]/10 text-white'
+                            : 'border-transparent bg-white/[0.03] text-[#d0d5db] hover:border-white/10 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-[#f8f7f4]">
+                            {file.oldFilePath && file.changeType === 'renamed'
+                              ? `${file.oldFilePath} → ${file.filePath}`
+                              : file.filePath}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[#8b949e]">
+                            <span>{file.changeType}</span>
+                            <span>{getFileStatusLabel(file.contentStatus, file.isBinary)}</span>
+                            {file.threads.length > 0 ? (
+                              <span>{file.threads.length} remote</span>
+                            ) : null}
+                            {(draftCountByFileId.get(file.fileId) ?? 0) > 0 ? (
+                              <span>{draftCountByFileId.get(file.fileId)} drafts</span>
+                            ) : null}
+                            {(mentionCountByFileId.get(file.fileId) ?? 0) > 0 ? (
+                              <span>{mentionCountByFileId.get(file.fileId)} mentions</span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-[11px]">
+                          <div className="text-[#4EBE96]">+{file.additions}</div>
+                          <div className="text-[#FF5C5C]">-{file.deletions}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </aside>
+
+            <main
+              className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5"
+              style={{ overflowAnchor: 'auto', scrollBehavior: 'auto' }}
+            >
+              <div className={`mb-4 ${reviewTheme.surface}`}>
+                <button
+                  type="button"
+                  onClick={() => setIsDescriptionOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-white/[0.02]"
+                >
+                  <div className="min-w-0">
+                    <p className={reviewTheme.headerLabel}>Description</p>
+                    <p className="mt-1 text-xs text-[#8b949e]">
+                      {isDescriptionOpen ? 'クリックで閉じる' : 'クリックで表示'}
+                    </p>
+                  </div>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0 text-[#8b949e] transition-transform duration-200"
+                    style={{
+                      transform: isDescriptionOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    }}
+                    aria-hidden="true"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                {isDescriptionOpen ? (
+                  <div className="border-t border-white/10 px-4 py-4">
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-[#d0d5db]">
+                      {reviewDescription}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              <OverviewDraftThreadSection
+                threads={overviewDraftThreads}
+                selectedLocalThreadId={selectedLocalThreadId}
+                replyBodies={draftComposer.replyBodies}
+                onSelectThread={handleSelectDraftThread}
+                onReplyBodyChange={draftComposer.setReplyBody}
+                onSubmitReply={handleReplyLocalThread}
+                onRespondToPermission={handleRespondThreadPermission}
+              />
+
+              {overviewThreads.length > 0 ? (
+                <div className="mb-4">
+                  <OverviewDiscussionPanel threads={overviewThreads} onReply={handleReply} />
+                </div>
+              ) : null}
+
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div>
+                  <p className={reviewTheme.headerLabel}>Diff Interaction</p>
+                  <p className="mt-1 text-xs text-[#8b949e]">
+                    Comment は local comment、Mention は agent 相談として扱います。
+                  </p>
+                </div>
+                <div className="flex rounded-[10px] border border-white/10 bg-black/30 p-1">
+                  {(['comment', 'mention'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setInteractionMode(mode)}
+                      className={`rounded-[8px] px-3 py-1.5 text-xs font-medium transition ${
+                        interactionMode === mode
+                          ? mode === 'mention'
+                            ? 'border border-[#4EBE96]/30 bg-[#4EBE96]/12 text-[#d7f5e8]'
+                            : 'border border-[#FFA16C]/30 bg-[#FFA16C]/12 text-[#ffd9c0]'
+                          : 'text-[#8b949e] hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      {mode === 'mention' ? 'Mention' : 'Comment'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <SelectionMentionSection
+                threads={selectedMentionThreads}
+                selectedMentionThreadId={selectionMentions.selectedMentionThreadId}
+                replyBodies={selectionMentions.replyBodies}
+                onSelectThread={handleSelectMentionThread}
+                onReplyBodyChange={selectionMentions.setReplyBody}
+                onSubmitReply={selectionMentions.replyToMention}
+                onPromote={handlePromoteMentionThread}
+                onRespondToPermission={selectionMentions.respondToPermission}
+              />
+
+              {selectedFile ? (
+                <DiffFilePane
+                  key={selectedFile.fileId}
+                  file={selectedFile}
+                  remoteThreads={selectedFile.threads}
+                  draftThreads={selectedDraftThreads}
+                  mentionThreads={selectedMentionThreads}
+                  interactionMode={interactionMode}
+                  selectedDraftThreadId={selectedLocalThreadId}
+                  selectedMentionThreadId={selectionMentions.selectedMentionThreadId}
+                  draftReplyBodies={draftComposer.replyBodies}
+                  mentionReplyBodies={selectionMentions.replyBodies}
+                  onAddComment={handleAddComment}
+                  onStartMention={handleStartMention}
+                  onReply={handleReply}
+                  onSelectDraftThread={handleSelectDraftThread}
+                  onSelectMentionThread={handleSelectMentionThread}
+                  onDraftReplyBodyChange={draftComposer.setReplyBody}
+                  onMentionReplyBodyChange={selectionMentions.setReplyBody}
+                  onReplyToDraftThread={handleReplyLocalThread}
+                  onReplyToMentionThread={selectionMentions.replyToMention}
+                  onPromoteMentionThread={handlePromoteMentionThread}
+                  onRespondDraftThreadPermission={handleRespondThreadPermission}
+                  onRespondMentionThreadPermission={selectionMentions.respondToPermission}
+                />
+              ) : (
+                <div
+                  className={`${reviewTheme.surfaceDashed} px-4 py-8 text-center text-sm text-[#8b949e]`}
+                >
+                  表示するファイルがありません。
+                </div>
+              )}
+            </main>
+          </div>
+        ) : (
+          <main className="flex flex-1 items-center justify-center p-6">
+            <div className="max-w-xl rounded-[16px] border border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#479FFA]">
+                Real Review Snapshot
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold text-[#f8f7f4]">
+                Review URL を入力して diff を読み込みます
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-[#b3b9c2]">
+                左側の file list にはメタデータだけを先に出し、本文は選択ファイルごとに lazy hydrate
+                します。review 結果は compact panel に、thread 会話は main content に表示します。
+              </p>
+            </div>
+          </main>
+        )}
+      </div>
     </div>
   );
 }

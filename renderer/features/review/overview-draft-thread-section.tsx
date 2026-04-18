@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { ReviewLocalThread } from '../../../shared/domain/review-draft';
 import { DraftThreadCard } from './draft-thread-card';
+import { reviewTheme } from './review-ui';
 
 interface OverviewDraftThreadSectionProps {
   threads: ReviewLocalThread[];
@@ -32,18 +33,16 @@ export function OverviewDraftThreadSection({
   }
 
   return (
-    <section className="mb-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+    <section className={`mb-4 overflow-hidden ${reviewTheme.surface}`}>
       <div className="border-b border-white/10 px-4 py-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-white">Overview Findings</h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <h2 className={reviewTheme.title}>Overview Findings</h2>
+            <p className="mt-1 text-xs text-[#8b949e]">
               diff にアンカーできない finding の会話を main content 側で扱います。
             </p>
           </div>
-          <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">
-            {sortedThreads.length} drafts
-          </span>
+          <span className={reviewTheme.pillAccent}>{sortedThreads.length} drafts</span>
         </div>
       </div>
 

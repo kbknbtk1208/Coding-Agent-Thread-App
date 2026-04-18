@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import { PlusIcon } from 'lucide-react';
 import { BsFileTextFill } from 'react-icons/bs';
@@ -47,10 +47,6 @@ export const FloatingDisclosure = ({ items }: FloatingDisclosureProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [ref, bounds] = useMeasure({ offsetSize: true });
 
-  useEffect(() => {
-    console.log(bounds);
-  }, [isOpen, bounds]);
-
   return (
     <MotionConfig
       transition={{
@@ -61,9 +57,9 @@ export const FloatingDisclosure = ({ items }: FloatingDisclosureProps) => {
     >
       <motion.div
         className={cn(
-          'flex items-center justify-center overflow-hidden rounded-3xl bg-[rgb(241,236,231)] shadow-[0_0_0_1px_rgba(0,0,0,0.01),0_1px_2px_-1px_rgba(0,0,0,0.01),0_2px_4px_0_rgba(0,0,0,0.01)] transition-colors duration-400 ease-out dark:bg-neutral-700',
+          'flex items-center justify-center overflow-hidden rounded-lg border border-white/[0.16] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-24px_54px_rgba(0,0,0,0.28),0_22px_70px_rgba(0,0,0,0.4)] backdrop-blur-[38px] transition-colors duration-400 ease-out',
           {
-            'border border-black/5 bg-neutral-50 dark:border-white/5 dark:bg-neutral-900': isOpen,
+            'bg-white/[0.1]': isOpen,
           },
         )}
         animate={{
@@ -73,8 +69,10 @@ export const FloatingDisclosure = ({ items }: FloatingDisclosureProps) => {
       >
         <AnimatePresence mode="popLayout">
           {isOpen && (
-            <motion.div
-              className="absolute z-10 flex cursor-pointer items-center gap-2 rounded-2xl border bg-[#F1ECE7] px-4 py-1.5 dark:border-white/5 dark:bg-neutral-900"
+            <motion.button
+              type="button"
+              aria-label="Close floating disclosure"
+              className="absolute z-10 flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.16] bg-white/[0.1] px-4 py-1.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-[32px]"
               initial={{
                 opacity: 0,
                 filter: 'blur(8px)',
@@ -107,17 +105,19 @@ export const FloatingDisclosure = ({ items }: FloatingDisclosureProps) => {
             >
               <PlusIcon
                 className={cn(
-                  'rotate-0 text-neutral-500 transition-transform duration-300 ease-in-out',
+                  'rotate-0 text-[#FFA16C] transition-transform duration-300 ease-in-out',
                   isOpen && 'rotate-45',
                 )}
               />
-            </motion.div>
+            </motion.button>
           )}
         </AnimatePresence>
         <div ref={ref} className={cn('p-2')}>
           <AnimatePresence mode="popLayout" initial={false}>
             {!isOpen ? (
-              <motion.div
+              <motion.button
+                type="button"
+                aria-label="Open floating disclosure"
                 key="close"
                 className="shrink-0 cursor-pointer px-6"
                 initial={{ opacity: 0 }}
@@ -129,14 +129,14 @@ export const FloatingDisclosure = ({ items }: FloatingDisclosureProps) => {
                 }}
                 onClick={() => setIsOpen(!isOpen)}
               >
-                <PlusIcon className="h-6 w-6 text-neutral-500 dark:text-neutral-100" />
-              </motion.div>
+                <PlusIcon className="h-6 w-6 text-[#FFA16C]" />
+              </motion.button>
             ) : (
               <motion.div key="open" className="flex shrink-0 flex-col gap-3">
                 {items.map((item) => (
                   <motion.div
                     key={item.title}
-                    className="flex flex-1 shrink-0 cursor-pointer items-center gap-2 rounded-xl p-1 hover:bg-[#f9f6f4] dark:hover:bg-white/5"
+                    className="flex flex-1 shrink-0 cursor-pointer items-center gap-2 rounded-lg p-1 hover:bg-white/[0.07]"
                     initial={{
                       opacity: 0,
                       filter: 'blur(4px)',
@@ -161,17 +161,13 @@ export const FloatingDisclosure = ({ items }: FloatingDisclosureProps) => {
                       damping: 20,
                     }}
                   >
-                    <div className="shrink-0 rounded-lg bg-[#F1ECE7] p-2 dark:bg-neutral-700">
-                      <item.icon className="h-5 w-5 text-neutral-500 dark:text-neutral-100" />
+                    <div className="shrink-0 rounded-lg border border-white/[0.14] bg-white/[0.09] p-2 text-[#FFA16C]">
+                      <item.icon className="h-5 w-5" />
                     </div>
 
                     <div className="flex w-52 flex-col leading-none text-nowrap">
-                      <p className="font-semibold text-zinc-700 dark:text-neutral-100">
-                        {item.title}
-                      </p>
-                      <span className="text-sm text-zinc-500 dark:text-neutral-400">
-                        {item.description}
-                      </span>
+                      <p className="font-semibold text-white">{item.title}</p>
+                      <span className="text-sm text-[#868F97]">{item.description}</span>
                     </div>
                   </motion.div>
                 ))}

@@ -4,6 +4,15 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --fey-black: #000000;
+    --fey-ink: #ffffff;
+    --fey-muted: #868f97;
+    --fey-orange: #ffa16c;
+    --fey-green: #4ebe96;
+    --fey-red: #ff5c5c;
+    --fey-blue: #479ffa;
+    --fey-border: rgba(255, 255, 255, 0.08);
+    --fey-surface: rgba(255, 255, 255, 0.055);
   }
 
   * {
@@ -11,16 +20,14 @@
   }
 
   html {
-    background: #04070a;
+    background: var(--fey-black);
   }
 
   body {
     @apply text-white;
     margin: 0;
     min-height: 100vh;
-    background:
-      radial-gradient(circle at top, rgba(103, 232, 249, 0.08), transparent 32%),
-      linear-gradient(180deg, #081116 0%, #04070a 100%);
+    background: var(--fey-black);
     font-family: "Aptos", "Segoe UI Variable Text", "Yu Gothic UI", sans-serif;
   }
 
@@ -30,7 +37,7 @@
   }
 
   ::selection {
-    background: rgba(103, 232, 249, 0.28);
+    background: rgb(97 102 220 / 32%);
     color: white;
   }
 }
@@ -45,37 +52,123 @@
 
   /* Dark theme overrides for @git-diff-view */
   [data-theme="dark"] {
-    --diff-border--: rgba(255, 255, 255, 0.1);
-    --diff-plain-content--: #04070a;
-    --diff-expand-content--: #081116;
-    --diff-plain-lineNumber--: #081116;
-    --diff-expand-lineNumber--: #081116;
-    --diff-plain-lineNumber-color--: #6b7280;
-    --diff-expand-lineNumber-color--: #6b7280;
-    --diff-add-content--: rgba(16, 185, 129, 0.08);
-    --diff-del-content--: rgba(239, 68, 68, 0.08);
-    --diff-add-lineNumber--: rgba(16, 185, 129, 0.15);
-    --diff-del-lineNumber--: rgba(239, 68, 68, 0.15);
-    --diff-add-content-highlight--: rgba(16, 185, 129, 0.2);
-    --diff-del-content-highlight--: rgba(239, 68, 68, 0.2);
-    --diff-hunk-content--: rgba(103, 232, 249, 0.06);
-    --diff-hunk-lineNumber--: rgba(103, 232, 249, 0.12);
-    --diff-hunk-lineNumber-hover--: #22d3ee;
-    --diff-hunk-content-color--: #67e8f9;
-    --diff-add-widget--: #22d3ee;
-    --diff-add-widget-color--: #04070a;
-    --diff-empty-content--: #0a0f14;
+    --diff-border--: rgba(255, 255, 255, 0.08);
+    --diff-plain-content--: #030303;
+    --diff-expand-content--: #080808;
+    --diff-plain-lineNumber--: #080808;
+    --diff-expand-lineNumber--: #080808;
+    --diff-plain-lineNumber-color--: #868f97;
+    --diff-expand-lineNumber-color--: #868f97;
+    --diff-add-content--: rgba(78, 190, 150, 0.1);
+    --diff-del-content--: rgba(255, 92, 92, 0.1);
+    --diff-add-lineNumber--: rgba(78, 190, 150, 0.16);
+    --diff-del-lineNumber--: rgba(255, 92, 92, 0.16);
+    --diff-add-content-highlight--: rgba(78, 190, 150, 0.24);
+    --diff-del-content-highlight--: rgba(255, 92, 92, 0.22);
+    --diff-hunk-content--: rgba(255, 161, 108, 0.07);
+    --diff-hunk-lineNumber--: rgba(255, 161, 108, 0.12);
+    --diff-hunk-lineNumber-hover--: #ffa16c;
+    --diff-hunk-content-color--: #ffa16c;
+    --diff-add-widget--: #479ffa;
+    --diff-add-widget-color--: #000000;
+    --diff-empty-content--: #050505;
   }
 
   .glass-panel {
-    backdrop-filter: blur(22px);
+    backdrop-filter: blur(28px);
     background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.14) 0%,
-      rgba(255, 255, 255, 0.06) 100%
+      176.83deg,
+      rgba(19, 19, 19, 0.92) 24.95%,
+      rgba(12, 12, 12, 0.88) 50.08%,
+      rgba(3, 3, 3, 0.94) 88.5%
     );
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 22px 80px rgba(2, 8, 23, 0.34);
+    border: 1px solid var(--fey-border);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      inset 0 -32px 72px rgba(0, 0, 0, 0.28);
+  }
+
+  .fey-page {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 34rem), #000000;
+    color: var(--fey-ink);
+  }
+
+  .fey-page::before {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    content: "";
+    background-image:
+      radial-gradient(circle at 17% 23%, rgba(255, 255, 255, 0.16) 0 0.7px, transparent 0.9px),
+      radial-gradient(circle at 73% 41%, rgba(255, 255, 255, 0.12) 0 0.6px, transparent 0.85px),
+      radial-gradient(circle at 43% 79%, rgba(255, 255, 255, 0.1) 0 0.55px, transparent 0.8px),
+      repeating-linear-gradient(
+        97deg,
+        rgba(255, 255, 255, 0.018) 0,
+        rgba(255, 255, 255, 0.018) 1px,
+        transparent 1px,
+        transparent 7px
+      );
+    background-size:
+      19px 19px,
+      23px 23px,
+      29px 29px,
+      13px 13px;
+    opacity: 0.14;
+    mix-blend-mode: screen;
+  }
+
+  .fey-page::after {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    content: "";
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 120px 120px;
+    opacity: 0.08;
+    mask-image: linear-gradient(180deg, black, transparent 70%);
+  }
+
+  .fey-panel {
+    backdrop-filter: blur(32px);
+    background: linear-gradient(176.83deg, #131313 24.95%, #0c0c0c 50.08%, #030303 88.5%);
+    border: 1px solid var(--fey-border);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      inset 0 -26px 64px rgba(0, 0, 0, 0.36);
+  }
+
+  .fey-hairline {
+    border-color: var(--fey-border);
+  }
+
+  .fey-display {
+    font-family: "Georgia", "Yu Mincho", "Hiragino Mincho ProN", serif;
+  }
+
+  .fey-muted {
+    color: var(--fey-muted);
+  }
+
+  .fey-chip {
+    border: 1px solid var(--fey-border);
+    background: rgba(255, 255, 255, 0.055);
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .fey-action {
+    background: var(--fey-orange);
+    color: #000000;
+  }
+
+  .fey-scrollbar {
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    scrollbar-width: thin;
   }
 
   .text-shimmer {
@@ -83,8 +176,8 @@
       115deg,
       rgba(255, 255, 255, 0.42) 10%,
       rgba(255, 255, 255, 0.96) 34%,
-      rgba(103, 232, 249, 0.9) 48%,
-      rgba(249, 168, 212, 0.82) 62%,
+      rgba(255, 161, 108, 0.9) 48%,
+      rgba(134, 143, 151, 0.82) 62%,
       rgba(255, 255, 255, 0.56) 78%
     );
     background-size: 220% 100%;

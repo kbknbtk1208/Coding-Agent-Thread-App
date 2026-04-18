@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/domain/review-draft';
 import type { ReviewMentionThread } from '../../../shared/domain/review-mention';
 import { MentionThreadCard } from './mention-thread-card';
+import { reviewTheme } from './review-ui';
 
 interface PromoteDraftValues {
   title: string;
@@ -42,19 +43,17 @@ export function SelectionMentionSection({
   }
 
   return (
-    <section className="mb-4 rounded border border-emerald-300/20 bg-emerald-400/[0.04] p-4">
+    <section className="mb-4 rounded-[12px] border border-[#4EBE96]/20 bg-[#4EBE96]/[0.06] p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#d7f5e8]">
             Selection Mentions
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-[#8b949e]">
             選択範囲に紐づく local-only の相談 thread です。
           </p>
         </div>
-        <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-200">
-          {threads.length}
-        </span>
+        <span className={reviewTheme.pillSuccess}>{threads.length}</span>
       </div>
       <div className="space-y-3">
         {threads.map((thread) => (

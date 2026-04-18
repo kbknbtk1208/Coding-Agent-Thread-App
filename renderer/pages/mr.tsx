@@ -6,7 +6,7 @@ export default function MrPage() {
   return (
     <React.Fragment>
       <Head>
-        <title>Merge Request Review</title>
+        <title>Fey Review Console | MR</title>
       </Head>
       <ReviewPage />
     </React.Fragment>

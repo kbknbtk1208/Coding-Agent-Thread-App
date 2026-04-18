@@ -15,7 +15,6 @@ import {
 
 import { AuroraBackground } from '../components/ui/aurora-background';
 import { ShimmerText } from '../components/ui/shimmer-text';
-import { TextEffect } from '../components/ui/text-effect';
 import { VanishInput } from '../components/ui/vanish-input';
 import { ActivitiesCard } from '../components/ui/activities-card';
 import { CommitGraph, type Commit } from '../components/commit-graph';
@@ -114,8 +113,8 @@ function Card({
   className?: string;
 }) {
   return (
-    <section className={`glass-panel rounded-[1.8rem] p-5 ${className}`}>
-      <p className="mb-4 text-xs uppercase tracking-[0.3em] text-cyan-100/55">{title}</p>
+    <section className={`fey-panel rounded-lg p-5 ${className}`}>
+      <p className="mb-4 text-xs uppercase text-[#FFA16C]/75">{title}</p>
       {children}
     </section>
   );
@@ -195,28 +194,28 @@ export default function UiComponentPage() {
   const dockItems: DockItemData[] = [
     {
       id: 1,
-      icon: <Bot className="h-5 w-5 text-cyan-200" />,
+      icon: <Bot className="h-5 w-5 text-[#479FFA]" />,
       label: 'Codex',
       description: 'Run',
       onClick: () => setPrompt('Codex を再実行する。'),
     },
     {
       id: 2,
-      icon: <Command className="h-5 w-5 text-amber-200" />,
+      icon: <Command className="h-5 w-5 text-[#FFA16C]" />,
       label: 'Palette',
       description: 'Open',
       onClick: () => setPrompt('command palette を開く。'),
     },
     {
       id: 3,
-      icon: <FolderGit2 className="h-5 w-5 text-emerald-200" />,
+      icon: <FolderGit2 className="h-5 w-5 text-[#4EBE96]" />,
       label: 'Tree',
       description: 'Files',
       onClick: () => setPrompt('folder tree を同期する。'),
     },
     {
       id: 4,
-      icon: <SendHorizontal className="h-5 w-5 text-pink-200" />,
+      icon: <SendHorizontal className="h-5 w-5 text-[#FF5C5C]" />,
       label: 'Reply',
       description: 'Post',
       onClick: () => setPrompt('返信候補を投稿する。'),
@@ -250,21 +249,19 @@ export default function UiComponentPage() {
         <main className="mx-auto flex min-h-screen w-full max-w-[96rem] flex-col px-5 py-10 sm:px-8">
           <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-5">
-              <p className="glass-panel inline-flex rounded-full px-4 py-3 text-xs font-semibold uppercase tracking-[0.32em] text-cyan-100">
-                UI Library Wave 3
+              <p className="fey-chip inline-flex rounded-lg px-4 py-3 text-xs font-semibold uppercase text-[#FFA16C]">
+                Review Interface System
               </p>
-              <TextEffect
-                as="h1"
-                text="Third Batch Installed"
-                className="text-5xl font-semibold tracking-[-0.06em] text-white sm:text-6xl"
-              />
+              <h1 className="fey-display text-5xl font-semibold text-white/90 sm:text-6xl">
+                Fey-grade Review Console
+              </h1>
               <ShimmerText
-                text="asanshay / jalco / uitripled 系をこのページへ集約"
+                text="Deep black, high-density, glass-lined surfaces for agent review workflows"
                 className="block max-w-3xl text-lg leading-8 sm:text-xl"
               />
-              <p className="max-w-3xl text-base leading-8 text-slate-300">
-                第三陣は morphing text、commit graph、morphing button を追加しました。
-                第二陣のギャラリーはそのまま残し、下段でまとめて比較できます。
+              <p className="max-w-3xl text-base leading-8 text-[#868F97]">
+                レビュー支援 UI を黒基調の金融端末として再構成します。差分、thread、 agent action
+                を同じ濃度の surface に載せ、意味色だけを控えめに残します。
               </p>
               <VanishInput
                 placeholders={[
@@ -279,13 +276,13 @@ export default function UiComponentPage() {
             </div>
             <Card title="Prompt State">
               <div className="space-y-4">
-                <div className="rounded-[1.4rem] border border-cyan-200/12 bg-white/8 px-5 py-4 text-sm leading-7 text-cyan-50">
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.055] px-5 py-4 text-sm leading-7 text-white/88">
                   {prompt}
                 </div>
-                <ul className="space-y-2 text-sm leading-7 text-slate-300">
-                  <li>第三陣は見出し、履歴、アクション導線の 3 系統を追加。</li>
-                  <li>生成ファイルは `renderer` 配下へ寄せて参照経路を統一。</li>
-                  <li>fixed overlay は selector から個別に有効化。</li>
+                <ul className="space-y-2 text-sm leading-7 text-[#868F97]">
+                  <li>深い黒、1px 境界、blur surface を共通の視覚言語にします。</li>
+                  <li>成長は green、risk は red、action は blue、注目は orange に限定します。</li>
+                  <li>固定 overlay は selector から個別に有効化します。</li>
                 </ul>
               </div>
             </Card>
@@ -298,10 +295,10 @@ export default function UiComponentPage() {
                   {morphingLabels.map((label, index) => (
                     <span
                       key={label}
-                      className={`rounded-full px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] ${
+                      className={`rounded-lg px-3 py-2 text-[11px] font-semibold uppercase ${
                         morphingIndex === index
-                          ? 'bg-cyan-300 text-slate-950'
-                          : 'border border-white/10 bg-white/6 text-slate-300'
+                          ? 'bg-[#FFA16C] text-black'
+                          : 'border border-white/[0.08] bg-white/[0.055] text-[#868F97]'
                       }`}
                     >
                       {label}
@@ -309,32 +306,39 @@ export default function UiComponentPage() {
                   ))}
                 </div>
                 <div className="min-h-[96px]">
-                  <MorphingText
-                    as="h2"
-                    className="text-4xl font-semibold tracking-[-0.06em] text-white sm:text-5xl"
-                  >
+                  <MorphingText as="h2" className="text-4xl font-semibold text-white sm:text-5xl">
                     {morphingLabels[morphingIndex]}
                   </MorphingText>
                 </div>
-                <p className="text-sm leading-7 text-slate-300">
+                <p className="text-sm leading-7 text-[#868F97]">
                   差し替える文字列だけで状態名の見せ方を切り替えられるので、 review-assistant の
                   phase ラベルや agent status にそのまま転用できます。
                 </p>
               </div>
             </Card>
             <Card title="Commit Graph">
-              <CommitGraph commits={previewCommits} className="bg-black/25" />
+              <CommitGraph
+                commits={previewCommits}
+                className="border-white/[0.08] bg-black/45 text-white"
+              />
             </Card>
             <Card title="Native Morphing Button">
-              <div className="relative min-h-[300px] overflow-hidden rounded-[1.6rem] border border-white/10 bg-linear-to-br from-emerald-300/20 via-cyan-300/10 to-slate-950 p-6">
+              <div className="relative min-h-[300px] overflow-hidden rounded-lg border border-white/[0.08] bg-[linear-gradient(176.83deg,#131313_24.95%,#0C0C0C_50.08%,#030303_88.5%)] p-6">
+                <div className="pointer-events-none absolute bottom-0 right-0 h-32 w-56 opacity-35">
+                  <div className="absolute bottom-5 right-8 grid grid-cols-7 gap-1.5">
+                    {Array.from({ length: 28 }).map((_, index) => (
+                      <span
+                        key={index}
+                        className="h-1.5 w-5 rounded-[2px] bg-white/[0.16] shadow-[0_0_12px_rgba(255,255,255,0.22)]"
+                      />
+                    ))}
+                  </div>
+                  <div className="absolute bottom-0 right-0 h-20 w-56 bg-[radial-gradient(ellipse_at_bottom_right,rgba(255,161,108,0.22),transparent_62%)]" />
+                </div>
                 <div className="max-w-[16rem] space-y-3">
-                  <p className="text-xs uppercase tracking-[0.28em] text-emerald-100/65">
-                    quick actions
-                  </p>
-                  <h3 className="text-3xl font-semibold tracking-[-0.05em] text-white">
-                    Review Desk
-                  </h3>
-                  <p className="text-sm leading-7 text-slate-300">
+                  <p className="text-xs uppercase text-[#FFA16C]/70">quick actions</p>
+                  <h3 className="text-3xl font-semibold text-white">Review Desk</h3>
+                  <p className="text-sm leading-7 text-[#868F97]">
                     FAB を展開して Codex 実行、Diff 表示、Thread 昇格を即時に切り替える想定です。
                   </p>
                 </div>
@@ -347,7 +351,7 @@ export default function UiComponentPage() {
             <Card title="Activities Card">
               <div className="flex justify-center">
                 <ActivitiesCard
-                  headerIcon={<Activity className="h-6 w-6 text-slate-700 dark:text-slate-200" />}
+                  headerIcon={<Activity className="h-6 w-6 text-[#FFA16C]" />}
                   title="Review Timeline"
                   subtitle="PR #128 discussion"
                   activities={[
@@ -425,8 +429,8 @@ export default function UiComponentPage() {
                     {
                       id: 1,
                       content: (
-                        <div className="flex h-full flex-col justify-end bg-linear-to-br from-cyan-300/70 via-sky-300/30 to-slate-950 p-6 text-slate-950">
-                          <p className="text-xs uppercase tracking-[0.28em]">Codex</p>
+                        <div className="flex h-full flex-col justify-end bg-[linear-gradient(176.83deg,#242424_24.95%,#111_55%,#030303_88.5%)] p-6 text-white">
+                          <p className="text-xs uppercase text-[#479FFA]">Codex</p>
                           <h3 className="mt-3 text-2xl font-semibold">Review Summary</h3>
                         </div>
                       ),
@@ -434,8 +438,8 @@ export default function UiComponentPage() {
                     {
                       id: 2,
                       content: (
-                        <div className="flex h-full flex-col justify-end bg-linear-to-br from-pink-300/70 via-rose-300/30 to-slate-950 p-6 text-slate-950">
-                          <p className="text-xs uppercase tracking-[0.28em]">Copilot</p>
+                        <div className="flex h-full flex-col justify-end bg-[linear-gradient(176.83deg,#211411_24.95%,#120C0A_55%,#030303_88.5%)] p-6 text-white">
+                          <p className="text-xs uppercase text-[#FFA16C]">Copilot</p>
                           <h3 className="mt-3 text-2xl font-semibold">Draft Threads</h3>
                         </div>
                       ),
@@ -443,8 +447,8 @@ export default function UiComponentPage() {
                     {
                       id: 3,
                       content: (
-                        <div className="flex h-full flex-col justify-end bg-linear-to-br from-amber-300/70 via-orange-300/30 to-slate-950 p-6 text-slate-950">
-                          <p className="text-xs uppercase tracking-[0.28em]">Human</p>
+                        <div className="flex h-full flex-col justify-end bg-[linear-gradient(176.83deg,#11201A_24.95%,#0B130F_55%,#030303_88.5%)] p-6 text-white">
+                          <p className="text-xs uppercase text-[#4EBE96]">Human</p>
                           <h3 className="mt-3 text-2xl font-semibold">Decision</h3>
                         </div>
                       ),
@@ -470,16 +474,13 @@ export default function UiComponentPage() {
               </FolderTree.Root>
             </Card>
             <Card title="Glass">
-              <div className="relative flex min-h-[240px] items-center justify-center overflow-hidden rounded-[1.6rem] bg-linear-to-br from-cyan-300/20 via-white/5 to-pink-300/12">
+              <div className="relative flex min-h-[240px] items-center justify-center overflow-hidden rounded-lg border border-white/[0.08] bg-black">
+                <div className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:radial-gradient(circle_at_17%_23%,rgba(255,255,255,0.16)_0_0.7px,transparent_0.9px),radial-gradient(circle_at_73%_41%,rgba(255,255,255,0.12)_0_0.6px,transparent_0.85px),radial-gradient(circle_at_43%_79%,rgba(255,255,255,0.1)_0_0.55px,transparent_0.8px)] [background-size:19px_19px,23px_23px,29px_29px] [mix-blend-mode:screen]" />
                 <Glass width="min(100%, 320px)" height={170} className="p-6">
                   <div className="flex h-full flex-col justify-between">
-                    <p className="text-xs uppercase tracking-[0.28em] text-slate-900/60">
-                      reviewer note
-                    </p>
-                    <h3 className="text-2xl font-semibold text-slate-950">
-                      Reply candidate approved
-                    </h3>
-                    <p className="text-sm leading-7 text-slate-800/80">
+                    <p className="text-xs uppercase text-black/60">reviewer note</p>
+                    <h3 className="text-2xl font-semibold text-black">Reply candidate approved</h3>
+                    <p className="text-sm leading-7 text-black/70">
                       draft thread をそのまま PR コメントへ昇格できます。
                     </p>
                   </div>
@@ -521,9 +522,9 @@ export default function UiComponentPage() {
                       (item, index) => (
                         <div
                           key={item}
-                          className={`flex h-[280px] w-[320px] shrink-0 flex-col justify-end rounded-[2rem] p-6 text-slate-950 shadow-[0_20px_50px_rgba(2,8,23,0.24)] ${['bg-linear-to-br from-cyan-300/70 via-sky-300/30 to-slate-950', 'bg-linear-to-br from-pink-300/70 via-rose-300/30 to-slate-950', 'bg-linear-to-br from-amber-300/70 via-orange-300/30 to-slate-950', 'bg-linear-to-br from-emerald-300/70 via-lime-300/30 to-slate-950'][index]}`}
+                          className={`flex h-[280px] w-[320px] shrink-0 flex-col justify-end rounded-lg border border-white/[0.08] p-6 text-white ${['bg-[linear-gradient(176.83deg,#171717_24.95%,#0C0C0C_50.08%,#030303_88.5%)]', 'bg-[linear-gradient(176.83deg,#1A120E_24.95%,#0F0B08_50.08%,#030303_88.5%)]', 'bg-[linear-gradient(176.83deg,#1A0E0E_24.95%,#100707_50.08%,#030303_88.5%)]', 'bg-[linear-gradient(176.83deg,#0F1B16_24.95%,#09110D_50.08%,#030303_88.5%)]'][index]}`}
                         >
-                          <p className="text-xs uppercase tracking-[0.28em]">horizontal state</p>
+                          <p className="text-xs uppercase text-[#FFA16C]">horizontal state</p>
                           <h3 className="mt-3 text-2xl font-semibold">{item}</h3>
                         </div>
                       ),
@@ -531,8 +532,8 @@ export default function UiComponentPage() {
                   </ScrollXCarouselWrap>
                 </ScrollXCarouselContainer>
                 <ScrollXCarouselProgress
-                  className="mt-8 h-1 rounded-full bg-white/10"
-                  progressStyle="h-full rounded-full bg-linear-to-r from-cyan-300 via-white to-pink-300"
+                  className="mt-8 h-1 rounded-lg bg-white/10"
+                  progressStyle="h-full rounded-lg bg-[#FFA16C]"
                 />
               </ScrollXCarousel>
             </Card>
@@ -542,19 +543,19 @@ export default function UiComponentPage() {
                 className="min-h-[360px]"
               >
                 <div className="grid gap-4">
-                  <div className="rounded-[1.4rem] border border-white/10 bg-black/25 p-5">
+                  <div className="rounded-lg border border-white/[0.08] bg-black/35 p-5">
                     <h3 className="text-2xl font-semibold text-white">Draft Threads</h3>
-                    <p className="mt-3 text-sm leading-7 text-slate-300">
+                    <p className="mt-3 text-sm leading-7 text-[#868F97]">
                       PR comment 化待ちの候補を thread 単位で保持します。
                     </p>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-[1.2rem] border border-white/10 bg-white/6 p-4">
-                      <p className="text-sm text-slate-400">Pending</p>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.055] p-4">
+                      <p className="text-sm text-[#868F97]">Pending</p>
                       <p className="mt-2 text-3xl font-semibold text-white">04</p>
                     </div>
-                    <div className="rounded-[1.2rem] border border-white/10 bg-white/6 p-4">
-                      <p className="text-sm text-slate-400">Accepted</p>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.055] p-4">
+                      <p className="text-sm text-[#868F97]">Accepted</p>
                       <p className="mt-2 text-3xl font-semibold text-white">09</p>
                     </div>
                   </div>
@@ -563,7 +564,7 @@ export default function UiComponentPage() {
             </Card>
           </section>
 
-          <section className="mt-8 rounded-[1.8rem] border border-white/10 bg-black/20 p-5">
+          <section className="fey-panel mt-8 rounded-lg p-5">
             <div className="flex flex-wrap gap-3">
               {[
                 ['none', 'Overlay Off'],
@@ -576,18 +577,18 @@ export default function UiComponentPage() {
                   key={id}
                   type="button"
                   onClick={() => setOverlay(id as OverlayDemo)}
-                  className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${overlay === id ? 'border-cyan-200/30 bg-cyan-300 text-slate-950' : 'border-white/12 bg-white/6 text-white hover:bg-white/10'}`}
+                  className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${overlay === id ? 'border-[#FFA16C]/40 bg-[#FFA16C] text-black' : 'border-white/[0.08] bg-white/[0.055] text-white hover:bg-white/[0.08]'}`}
                 >
                   {label}
                 </button>
               ))}
             </div>
             {overlay === 'island' ? (
-              <div className="mt-6 overflow-hidden rounded-[1.6rem] border border-white/10 bg-white p-2 text-slate-950">
+              <div className="mt-6 overflow-hidden rounded-lg border border-white/[0.08] bg-white p-2 text-black">
                 <ScrollIsland topics={topics} />
               </div>
             ) : (
-              <p className="mt-6 text-sm leading-7 text-slate-400">
+              <p className="mt-6 text-sm leading-7 text-[#868F97]">
                 {overlay === 'none'
                   ? 'overlay demo は現在オフです。'
                   : `${overlay} を有効化しました。固定配置でページに重なります。`}
@@ -621,7 +622,7 @@ export default function UiComponentPage() {
               headerContent={
                 <div className="flex w-full items-center justify-between text-white">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.26em] text-slate-400">dock</p>
+                    <p className="text-xs uppercase text-[#FFA16C]">dock</p>
                     <p className="mt-1 text-sm font-semibold">Review Actions</p>
                   </div>
                   <span>+</span>
@@ -632,7 +633,7 @@ export default function UiComponentPage() {
                 {['Run Codex', 'Compare Copilot', 'Promote Threads', 'Open Docs'].map((item) => (
                   <div
                     key={item}
-                    className="w-[220px] shrink-0 rounded-[1.4rem] border border-white/10 bg-white/6 p-5 text-white"
+                    className="w-[220px] shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.055] p-5 text-white"
                   >
                     {item}
                   </div>

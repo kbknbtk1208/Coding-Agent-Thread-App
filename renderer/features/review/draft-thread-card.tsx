@@ -3,15 +3,16 @@ import type { ReviewLocalThread } from '../../../shared/domain/review-draft';
 import { DraftThreadHistory } from './draft-thread-history';
 import { DraftThreadComposer } from './draft-thread-composer';
 import { InlineThreadSessionStream } from './inline-thread-session-stream';
+import { reviewTheme } from './review-ui';
 
 function getSeverityBadgeClass(severity: ReviewLocalThread['draft']['severity']): string {
   switch (severity) {
     case 'high':
-      return 'bg-red-500/15 text-red-200';
+      return 'border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 text-[#ffd9d9]';
     case 'medium':
-      return 'bg-amber-500/15 text-amber-200';
+      return 'border border-[#FFA16C]/20 bg-[#FFA16C]/10 text-[#ffd9c0]';
     case 'low':
-      return 'bg-emerald-500/15 text-emerald-200';
+      return 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
   }
 }
 
@@ -95,9 +96,9 @@ export function DraftThreadCard({
   return (
     <article
       ref={containerRef}
-      className={`rounded-2xl border p-4 transition ${
+      className={`rounded-[12px] border p-4 transition ${
         isSelected
-          ? 'border-fuchsia-300/30 bg-fuchsia-500/10'
+          ? 'border-[#FFA16C]/30 bg-[#FFA16C]/10'
           : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'
       }`}
     >
@@ -107,42 +108,32 @@ export function DraftThreadCard({
         className="w-full text-left"
       >
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-fuchsia-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-200">
-            Draft
-          </span>
+          <span className={reviewTheme.chipAccent}>Draft</span>
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${getSeverityBadgeClass(thread.draft.severity)}`}
           >
             {thread.draft.severity}
           </span>
-          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-300">
-            {thread.draft.category}
-          </span>
-          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-400">
-            {thread.draft.confidence}
-          </span>
+          <span className={reviewTheme.chip}>{thread.draft.category}</span>
+          <span className={reviewTheme.chip}>{thread.draft.confidence}</span>
           {thread.replyStatus === 'replying' ? (
-            <span className="rounded-full bg-cyan-400/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-200">
-              replying
-            </span>
+            <span className={reviewTheme.chipInfo}>replying</span>
           ) : null}
           {thread.replyStatus === 'failed' ? (
-            <span className="rounded-full bg-rose-400/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-rose-200">
-              failed
-            </span>
+            <span className={reviewTheme.chipDanger}>failed</span>
           ) : null}
         </div>
 
         <div className="mt-3">
-          <h3 className="text-sm font-semibold text-white">{thread.draft.title}</h3>
+          <h3 className="text-sm font-semibold text-[#f8f7f4]">{thread.draft.title}</h3>
           {isSelected ? (
-            <p className="mt-2 text-xs text-slate-500">{formatResolvedLocation(thread)}</p>
+            <p className="mt-2 text-xs text-[#8b949e]">{formatResolvedLocation(thread)}</p>
           ) : (
             <>
-              <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+              <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-[#d0d5db]">
                 {thread.draft.draftBody}
               </p>
-              <p className="mt-3 text-xs text-slate-500">{formatResolvedLocation(thread)}</p>
+              <p className="mt-3 text-xs text-[#8b949e]">{formatResolvedLocation(thread)}</p>
             </>
           )}
         </div>
@@ -151,14 +142,14 @@ export function DraftThreadCard({
       {isSelected ? (
         <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
           {thread.draft.resolvedLocation.kind === 'overview' && thread.draft.debugDowngrade ? (
-            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-left text-xs text-amber-100">
-              <p className="font-semibold uppercase tracking-[0.18em] text-amber-200">
+            <div className="rounded-[12px] border border-[#479FFA]/20 bg-[#479FFA]/10 px-3 py-3 text-left text-xs text-[#dcecff]">
+              <p className="font-semibold uppercase tracking-[0.18em] text-[#dcecff]">
                 Debug: diff to overview fallback
               </p>
               <p className="mt-2">
                 {getDebugDowngradeReasonLabel(thread.draft.debugDowngrade.reason)}
               </p>
-              <p className="mt-2 font-mono text-[11px] text-amber-200/90">
+              <p className="mt-2 font-mono text-[11px] text-[#ffd9c0]/90">
                 requested diff: {formatDebugRequestedLocation(thread.draft.debugDowngrade)}
               </p>
             </div>

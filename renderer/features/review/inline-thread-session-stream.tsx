@@ -20,10 +20,10 @@ function hasSavedAgentReply(thread: ReviewLocalThread): boolean {
 
 function renderThreadResponse(response: string, responseMode: 'richText' | 'structured') {
   if (responseMode === 'richText') {
-    return renderStreamingRichText(response, 'text-sm leading-7 text-slate-200');
+    return renderStreamingRichText(response, 'text-sm leading-7 text-[#d0d5db]');
   }
 
-  return <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-200">{response}</pre>;
+  return <pre className="whitespace-pre-wrap text-sm leading-7 text-[#d0d5db]">{response}</pre>;
 }
 
 export interface InlineThreadSessionStreamProps {
@@ -39,7 +39,7 @@ export function InlineThreadSessionStream({
 
   if (!session) {
     return thread.lastError ? (
-      <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+      <div className="rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-4 py-3 text-sm text-[#ffd9d9]">
         {thread.lastError}
       </div>
     ) : null;
@@ -85,11 +85,11 @@ export function InlineThreadSessionStream({
         >
           {SESSION_STATUS_LABELS[session.status]}
         </span>
-        <span className="text-xs text-slate-500">session: {session.appSessionId}</span>
+        <span className="text-xs text-[#8b949e]">session: {session.appSessionId}</span>
       </div>
 
       {thread.lastError ? (
-        <div className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-3 text-sm text-rose-100">
+        <div className="rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-3 py-3 text-sm text-[#ffd9d9]">
           {thread.lastError}
         </div>
       ) : null}

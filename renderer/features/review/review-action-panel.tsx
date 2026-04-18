@@ -9,6 +9,7 @@ import { SessionEventPanel } from '../../components/session-event-panel';
 import type { ReviewDraftReviewStatus } from './review-draft-state';
 import { ReviewExecutionBar } from './review-execution-bar';
 import { ReviewSummaryPanel } from './review-summary-panel';
+import { reviewTheme } from './review-ui';
 
 interface ReviewActionPanelIdleProps {
   reviewAgent: AgentKind;
@@ -96,7 +97,7 @@ export function ReviewActionPanel({
 
   if (reviewStatus === 'drafting_review') {
     return (
-      <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <section className={`${reviewTheme.surface} p-4`}>
         <div className="max-h-[400px] overflow-y-auto">
           <SessionEventPanel pendingSessionId={pendingSessionId} session={session} />
         </div>
@@ -105,7 +106,7 @@ export function ReviewActionPanel({
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+    <section className={`${reviewTheme.surface} overflow-hidden`}>
       <ReviewSummaryPanel
         status={reviewStatus}
         latestRun={latestRun}
@@ -117,7 +118,7 @@ export function ReviewActionPanel({
       />
 
       {overviewConversationCount > 0 ? (
-        <div className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">
+        <div className="border-t border-white/10 px-4 py-3 text-xs text-[#8b949e]">
           Overview conversation は main content 側で表示しています。
         </div>
       ) : null}
@@ -126,15 +127,15 @@ export function ReviewActionPanel({
         <div className="border-t border-white/10 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs text-slate-300">未投稿: {draftCount} 件</p>
+              <p className="text-xs text-[#d0d5db]">未投稿: {draftCount} 件</p>
               {publishFailure ? (
-                <p className="mt-0.5 text-xs text-red-400">{publishFailure}</p>
+                <p className="mt-0.5 text-xs text-[#FF5C5C]">{publishFailure}</p>
               ) : null}
             </div>
             <button
               onClick={openPublishPanel}
               disabled={publishing}
-              className="shrink-0 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-cyan-400 disabled:opacity-50"
+              className="shrink-0 rounded-[10px] bg-[#FFA16C] px-3 py-1.5 text-xs font-semibold text-black hover:bg-[#ffb98d] disabled:opacity-50"
             >
               {publishing ? '投稿中…' : 'PR に投稿'}
             </button>

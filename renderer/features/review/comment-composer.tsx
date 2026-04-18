@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SplitSide } from '@git-diff-view/react';
+import { reviewTheme } from './review-ui';
 
 interface CommentComposerProps {
   startLine: number | null;
@@ -34,8 +35,8 @@ export function CommentComposer({
   };
 
   return (
-    <div className="border-l-2 border-cyan-400/50 bg-white/[0.03] px-4 py-3">
-      <div className="mb-2 text-xs text-slate-500">
+    <div className="border-l-2 border-[#479FFA]/50 bg-white/[0.03] px-4 py-3">
+      <div className="mb-2 text-xs text-[#8b949e]">
         {isRange
           ? `Comment on lines ${startLine}-${endLine} (${sideLabel} side)`
           : `Comment on line ${endLine} (${sideLabel} side)`}
@@ -45,20 +46,20 @@ export function CommentComposer({
         onChange={(e) => setText(e.target.value)}
         placeholder="Write a comment..."
         rows={3}
-        className="w-full resize-none rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-cyan-400/50 focus:outline-none"
+        className={reviewTheme.textarea}
         autoFocus
       />
       <div className="mt-2 flex justify-end gap-2">
         <button
           onClick={onClose}
-          className="rounded px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+          className="rounded-[8px] px-3 py-1.5 text-xs text-[#8b949e] hover:text-white"
         >
           Cancel
         </button>
         <button
           onClick={handleSubmit}
           disabled={!text.trim()}
-          className="rounded bg-cyan-400/20 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-cyan-400/30 disabled:opacity-40"
+          className="rounded-[10px] border border-[#479FFA]/20 bg-[#479FFA]/10 px-3 py-1.5 text-xs font-medium text-[#dcecff] hover:bg-[#479FFA]/15 disabled:opacity-40"
         >
           Add Comment
         </button>

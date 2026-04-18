@@ -7,6 +7,7 @@ import type {
   ReviewSummaryDraft,
 } from '../../../shared/domain/review-draft';
 import type { ReviewDraftReviewStatus } from './review-draft-state';
+import { reviewTheme } from './review-ui';
 
 interface ReviewSummaryPanelProps {
   status: ReviewDraftReviewStatus;
@@ -62,7 +63,7 @@ export function ReviewSummaryPanel({
     : 'no run';
 
   return (
-    <section className="border-b border-white/10 px-4 py-4">
+    <section className={`${reviewTheme.surfaceSoft} border-b border-white/10 px-4 py-4`}>
       <button
         type="button"
         className="flex w-full items-start justify-between gap-3 text-left"
@@ -70,16 +71,12 @@ export function ReviewSummaryPanel({
         aria-expanded={isOpen}
       >
         <div>
-          <h2 className="text-sm font-semibold text-white">Review Summary</h2>
-          {!isOpen && <p className="mt-1 text-xs text-slate-500">{runLabel}</p>}
+          <h2 className={reviewTheme.title}>Review Summary</h2>
+          {!isOpen && <p className="mt-1 text-xs text-[#8b949e]">{runLabel}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {isOpen && (
-            <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">
-              {runLabel}
-            </span>
-          )}
-          <span className="text-slate-500" aria-hidden>
+          {isOpen && <span className={reviewTheme.pill}>{runLabel}</span>}
+          <span className="text-[#8b949e]" aria-hidden>
             {isOpen ? '▲' : '▼'}
           </span>
         </div>
@@ -87,49 +84,49 @@ export function ReviewSummaryPanel({
 
       {isOpen && (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-400">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</div>
-              <div className="mt-1 font-medium text-slate-200">{status}</div>
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[#b3b9c2]">
+            <div className="rounded-[10px] border border-white/10 bg-white/[0.03] px-3 py-2">
+              <div className={reviewTheme.headerLabel}>Status</div>
+              <div className="mt-1 font-medium text-[#f8f7f4]">{status}</div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Findings</div>
-              <div className="mt-1 font-medium text-slate-200">{threadCount}</div>
+            <div className="rounded-[10px] border border-white/10 bg-white/[0.03] px-3 py-2">
+              <div className={reviewTheme.headerLabel}>Findings</div>
+              <div className="mt-1 font-medium text-[#f8f7f4]">{threadCount}</div>
             </div>
           </div>
 
           {error ? (
-            <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-100">
+            <div className="mt-4 rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-4 py-3 text-sm text-[#ffd9d9]">
               {error}
             </div>
           ) : null}
 
           {summary ? (
             <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3">
-                <p className="text-sm font-semibold text-cyan-100">{summary.headline}</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">
+              <div className="rounded-[12px] border border-[#FFA16C]/20 bg-[#FFA16C]/10 px-4 py-3">
+                <p className="text-sm font-semibold text-[#ffd9c0]">{summary.headline}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#d0d5db]">
                   {summary.overview}
                 </p>
               </div>
 
               <div className="grid gap-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
+                <div className="rounded-[12px] border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#d7f5e8]">
                     Positives
                   </p>
-                  <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-300">
+                  <ul className="mt-2 space-y-2 text-sm leading-6 text-[#d0d5db]">
                     {summary.positives.map((item) => (
                       <li key={item}>• {item}</li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300">
+                <div className="rounded-[12px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ffd9d9]">
                     Risks
                   </p>
-                  <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-300">
+                  <ul className="mt-2 space-y-2 text-sm leading-6 text-[#d0d5db]">
                     {summary.risks.map((item) => (
                       <li key={item}>• {item}</li>
                     ))}
@@ -141,16 +138,16 @@ export function ReviewSummaryPanel({
 
           {hasFallback ? (
             <div className="mt-4 space-y-3">
-              <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+              <div className="rounded-[12px] border border-[#479FFA]/20 bg-[#479FFA]/10 px-4 py-3 text-sm text-[#dcecff]">
                 structured 化に失敗したため inline draft は生成していません。reason:{' '}
                 {getFallbackReasonLabel(fallbackReason)}
               </div>
               {fallbackRichText ? (
-                <div className="prose prose-invert max-w-none rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
+                <div className="prose prose-invert max-w-none rounded-[12px] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{fallbackRichText}</ReactMarkdown>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-slate-400">
+                <div className="rounded-[12px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-[#8b949e]">
                   fallback の raw rich text は空でした。
                 </div>
               )}
@@ -158,7 +155,7 @@ export function ReviewSummaryPanel({
           ) : null}
 
           {!hasResult ? (
-            <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm text-slate-500">
+            <div className="mt-4 rounded-[12px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm text-[#8b949e]">
               review を実行すると headline、overview、AI draft findings をここへ表示します。
             </div>
           ) : null}

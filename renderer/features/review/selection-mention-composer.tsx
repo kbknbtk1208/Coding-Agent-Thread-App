@@ -1,5 +1,6 @@
 import { SplitSide } from '@git-diff-view/react';
 import React, { useState } from 'react';
+import { reviewTheme } from './review-ui';
 
 interface SelectionMentionComposerProps {
   startLine: number;
@@ -32,8 +33,8 @@ export function SelectionMentionComposer({
   };
 
   return (
-    <div className="border-l-2 border-emerald-300/50 bg-emerald-400/[0.06] px-4 py-3">
-      <div className="mb-2 text-xs text-emerald-100">
+    <div className="border-l-2 border-[#4EBE96]/50 bg-[#4EBE96]/[0.06] px-4 py-3">
+      <div className="mb-2 text-xs text-[#d7f5e8]">
         Ask agent about {lineLabel} ({sideLabel} side)
       </div>
       <textarea
@@ -41,14 +42,14 @@ export function SelectionMentionComposer({
         onChange={(e) => setText(e.target.value)}
         placeholder="この範囲について質問..."
         rows={3}
-        className="w-full resize-none rounded border border-white/10 bg-black/20 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-emerald-300/50 focus:outline-none"
+        className={reviewTheme.textarea}
         autoFocus
       />
       <div className="mt-2 flex justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="rounded px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+          className="rounded-[8px] px-3 py-1.5 text-xs text-[#8b949e] hover:text-white"
         >
           Cancel
         </button>
@@ -56,7 +57,7 @@ export function SelectionMentionComposer({
           type="button"
           onClick={handleSubmit}
           disabled={!text.trim() || disabled}
-          className="rounded bg-emerald-400/20 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-400/30 disabled:opacity-40"
+          className="rounded-[10px] border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-3 py-1.5 text-xs font-medium text-[#d7f5e8] hover:bg-[#4EBE96]/15 disabled:opacity-40"
         >
           Ask Agent
         </button>

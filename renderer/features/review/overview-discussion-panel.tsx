@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { ReviewSnapshotThread } from '../../../shared/domain/review';
+import { reviewTheme } from './review-ui';
 
 interface OverviewDiscussionPanelProps {
   threads: ReviewSnapshotThread[];
@@ -41,24 +42,22 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
   };
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+    <section className={`${reviewTheme.surface} overflow-hidden`}>
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-white">Overview Discussion</h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <h2 className={reviewTheme.title}>Overview Discussion</h2>
+            <p className="mt-1 text-xs text-[#8b949e]">
               diff にアンカーされていないコメントを表示します。
             </p>
           </div>
-          <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">
-            {sortedThreads.length} threads
-          </span>
+          <span className={reviewTheme.pillInfo}>{sortedThreads.length} threads</span>
         </div>
       </div>
 
       <div className="px-4 py-4">
         {sortedThreads.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm text-slate-500">
+          <div className="rounded-[12px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm text-[#8b949e]">
             overview discussion はまだありません。
           </div>
         ) : (
@@ -66,32 +65,24 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
             {sortedThreads.map((thread) => (
               <section
                 key={thread.threadId}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                className="rounded-[12px] border border-white/10 bg-white/[0.03] p-4"
               >
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300">
-                    Overview
-                  </span>
+                  <span className={reviewTheme.chipAccent}>Overview</span>
                   {thread.isResolved ? (
-                    <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] text-green-300">
-                      Resolved
-                    </span>
+                    <span className={reviewTheme.chipSuccess}>Resolved</span>
                   ) : null}
-                  {thread.isOutdated ? (
-                    <span className="rounded-full bg-slate-500/20 px-2 py-0.5 text-[10px] text-slate-300">
-                      Outdated
-                    </span>
-                  ) : null}
+                  {thread.isOutdated ? <span className={reviewTheme.chip}>Outdated</span> : null}
                 </div>
 
                 <div className="space-y-3">
                   {thread.comments.map((comment) => (
                     <article key={comment.commentId} className="space-y-1">
                       <div className="flex items-center gap-2 text-xs">
-                        <span className="font-semibold text-cyan-300">{comment.author}</span>
-                        <span className="text-slate-500">{formatTimestamp(comment.createdAt)}</span>
+                        <span className="font-semibold text-[#479FFA]">{comment.author}</span>
+                        <span className="text-[#8b949e]">{formatTimestamp(comment.createdAt)}</span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-[#d0d5db]">
                         {comment.body}
                       </p>
                     </article>
@@ -105,7 +96,7 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
                       onChange={(event) => setReplyText(event.target.value)}
                       rows={3}
                       placeholder="返信を書く..."
-                      className="w-full resize-none rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-cyan-400/50 focus:outline-none"
+                      className={reviewTheme.textarea}
                       autoFocus
                     />
                     <div className="flex justify-end gap-2">
@@ -115,7 +106,7 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
                           setReplyingTo(null);
                           setReplyText('');
                         }}
-                        className="rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                        className={reviewTheme.secondaryButton}
                       >
                         Cancel
                       </button>
@@ -123,7 +114,7 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
                         type="button"
                         onClick={() => handleReplySubmit(thread.threadId)}
                         disabled={!replyText.trim()}
-                        className="rounded-lg bg-cyan-400/20 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-cyan-400/30 disabled:opacity-40"
+                        className="rounded-[10px] border border-[#479FFA]/20 bg-[#479FFA]/10 px-3 py-1.5 text-xs font-medium text-[#dcecff] hover:bg-[#479FFA]/15 disabled:opacity-40"
                       >
                         Reply
                       </button>
@@ -136,7 +127,7 @@ export function OverviewDiscussionPanel({ threads, onReply }: OverviewDiscussion
                       setReplyingTo(thread.threadId);
                       setReplyText('');
                     }}
-                    className="mt-4 text-xs text-slate-500 hover:text-cyan-300"
+                    className="mt-4 text-xs text-[#8b949e] hover:text-[#479FFA]"
                   >
                     Reply
                   </button>
