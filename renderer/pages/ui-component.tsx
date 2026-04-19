@@ -22,6 +22,7 @@ import { CommandSearch, type CommandItem } from '../components/ui/command-search
 import { CreateNewDisclosure } from '../components/ui/create-new-disclosure';
 import ExpandableCards from '../components/ui/expandable-cards';
 import ExpandableDock from '../components/ui/expandable-dock';
+import { AnimatedProfileMenu } from '../components/ui/animated-profile-menu';
 import { FeedbackComponent } from '../components/ui/feedback';
 import { FlexNavbar } from '../components/ui/flex-navbar';
 import { FloatingDisclosure, items as floatingItems } from '../components/ui/floating-disclosure';
@@ -31,6 +32,16 @@ import { ListStack } from '../components/ui/list-stack';
 import { MacOSSidebar } from '../components/ui/macos-sidebar';
 import MagicDock, { type DockItemData } from '../components/ui/magicdock';
 import MorphingText from '../components/ui/morphing-text';
+import {
+  MorphingDialog,
+  MorphingDialogClose,
+  MorphingDialogContainer,
+  MorphingDialogContent,
+  MorphingDialogDescription,
+  MorphingDialogTitle,
+  MorphingDialogTrigger,
+} from '../components/motion-primitives/morphing-dialog';
+import { CommentThread } from '../components/ui/comment-thread';
 import { ScrollIsland, type Topic } from '../components/ui/scroll-island';
 import {
   NativeMorphingButton,
@@ -243,7 +254,7 @@ export default function UiComponentPage() {
   return (
     <React.Fragment>
       <Head>
-        <title>Coding Agent Thread App | UI Component Wave 3</title>
+        <title>Coding Agent Thread App | UI Component Wave 4</title>
       </Head>
       <AuroraBackground className="min-h-screen">
         <main className="mx-auto flex min-h-screen w-full max-w-[96rem] flex-col px-5 py-10 sm:px-8">
@@ -286,6 +297,88 @@ export default function UiComponentPage() {
                 </ul>
               </div>
             </Card>
+          </section>
+
+          <section className="mt-8 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+            <div className="space-y-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-[#FFA16C]">fourth wave</p>
+              <CommentThread />
+            </div>
+            <div className="space-y-6">
+              <div className="rounded-lg border border-white/[0.12] bg-[linear-gradient(176.83deg,#141414_24.95%,#0b0b0b_50.08%,#030303_88.5%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <p className="text-xs uppercase tracking-[0.18em] text-[#FFA16C]">
+                  animated profile menu
+                </p>
+                <div className="mt-4 flex justify-start">
+                  <AnimatedProfileMenu />
+                </div>
+                <p className="mt-4 text-sm leading-7 text-[#868F97]">
+                  アカウントと通知の入り口を、黒基調の浮遊メニューとしてまとめています。
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-white/[0.12] bg-[linear-gradient(176.83deg,#141414_24.95%,#0b0b0b_50.08%,#030303_88.5%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <p className="text-xs uppercase tracking-[0.18em] text-[#FFA16C]">
+                  morphing dialog
+                </p>
+                <MorphingDialog>
+                  <div className="mt-4">
+                    <MorphingDialogTrigger className="w-full">
+                      <div className="flex items-center justify-between rounded-lg border border-white/[0.12] bg-white/[0.06] px-4 py-3 text-left transition hover:bg-white/[0.08]">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white">Open review gate</p>
+                          <p className="mt-1 text-xs text-[#868F97]">
+                            summary / diff / action / status
+                          </p>
+                        </div>
+                        <span className="rounded-lg border border-[#FFA16C]/30 bg-[#FFA16C] px-2.5 py-1 text-xs font-semibold text-black">
+                          Open
+                        </span>
+                      </div>
+                    </MorphingDialogTrigger>
+                  </div>
+                  <MorphingDialogContainer>
+                    <MorphingDialogContent className="w-[min(92vw,760px)]">
+                      <div className="relative p-5 sm:p-6">
+                        <MorphingDialogClose />
+                        <MorphingDialogTitle className="pr-10 text-2xl font-semibold text-white">
+                          Review Gate
+                        </MorphingDialogTitle>
+                        <MorphingDialogDescription className="mt-2 text-sm leading-7 text-[#868F97]">
+                          thread summary と agent action を 1 枚に集約して、切り替えを短くします。
+                        </MorphingDialogDescription>
+                        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                          <div className="rounded-lg border border-white/[0.08] bg-white/[0.05] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.14em] text-[#FFA16C]">
+                              summary
+                            </p>
+                            <p className="mt-3 text-sm leading-7 text-[#d7d7d7]">
+                              変更点を短くまとめ、レビューの入口だけを残します。
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-white/[0.08] bg-white/[0.05] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.14em] text-[#479FFA]">
+                              actions
+                            </p>
+                            <p className="mt-3 text-sm leading-7 text-[#d7d7d7]">
+                              Codex / Copilot / human のアクションを同じ深さに揃えます。
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-white/[0.08] bg-white/[0.05] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.14em] text-[#4EBE96]">
+                              status
+                            </p>
+                            <p className="mt-3 text-sm leading-7 text-[#d7d7d7]">
+                              accept, revise, follow-up の三択を明確にします。
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </MorphingDialogContent>
+                  </MorphingDialogContainer>
+                </MorphingDialog>
+              </div>
+            </div>
           </section>
 
           <section className="mt-8 grid gap-6 xl:grid-cols-[0.85fr_1.3fr_0.85fr]">
