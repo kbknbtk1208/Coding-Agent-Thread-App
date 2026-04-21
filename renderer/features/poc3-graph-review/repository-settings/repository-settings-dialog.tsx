@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { FolderOpen, Plus, RefreshCw, Save, TestTube2, X } from 'lucide-react';
+import { FolderOpen, Pencil, Plus, RefreshCw, Save, TestTube2, X } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import type {
@@ -24,12 +24,13 @@ interface RepositorySettingsDialogProps {
 interface ProviderDraft {
   draftId: string;
   repositoryProviderId?: string;
+  layoutId: string;
   kind: RepositoryProviderKind;
-  displayName: string;
   baseUrl: string;
   token: string;
   hasToken: boolean;
   isDefaultForKind: boolean;
+  isEditing: boolean;
   message: string | null;
   error: string | null;
   busy: boolean;
@@ -58,15 +59,20 @@ function defaultBaseUrl(kind: RepositoryProviderKind): string {
   return kind === 'github' ? 'https://github.com' : 'https://gitlab.com';
 }
 
-function newProviderDraft(): ProviderDraft {
+function providerAddLayoutId(index: number): string {
+  return `poc3-provider-add-${index}`;
+}
+
+function newProviderDraft(index: number): ProviderDraft {
   return {
     draftId: createDraftId('provider'),
+    layoutId: providerAddLayoutId(index),
     kind: 'github',
-    displayName: 'GitHub.com',
     baseUrl: 'https://github.com',
     token: '',
     hasToken: false,
     isDefaultForKind: true,
+    isEditing: true,
     message: null,
     error: null,
     busy: false,
@@ -93,12 +99,13 @@ function providerToDraft(provider: PublicRepositoryProvider): ProviderDraft {
   return {
     draftId: provider.repositoryProviderId,
     repositoryProviderId: provider.repositoryProviderId,
+    layoutId: `poc3-provider-card-${provider.repositoryProviderId}`,
     kind: provider.kind,
-    displayName: provider.displayName,
     baseUrl: provider.baseUrl,
     token: '',
     hasToken: provider.hasToken,
     isDefaultForKind: provider.isDefaultForKind,
+    isEditing: false,
     message: null,
     error: null,
     busy: false,
@@ -133,6 +140,23 @@ function getAutoWorktreePath(localClonePath: string): string {
     return `${trimmed}_worktree`;
   }
   return `${trimmed.slice(0, index)}${separator}${trimmed.slice(index + 1)}_worktree`;
+}
+
+function hostLabelFromBaseUrl(baseUrl: string): string {
+  try {
+    return new URL(baseUrl.trim()).hostname.toLowerCase();
+  } catch {
+    return baseUrl.trim();
+  }
+}
+
+function providerDisplayName(draft: Pick<ProviderDraft, 'kind' | 'baseUrl'>): string {
+  return hostLabelFromBaseUrl(draft.baseUrl) || (draft.kind === 'github' ? 'GitHub' : 'GitLab');
+}
+
+function providerOptionLabel(provider: Pick<PublicRepositoryProvider, 'kind' | 'baseUrl'>): string {
+  const host = hostLabelFromBaseUrl(provider.baseUrl);
+  return host ? `${provider.kind} / ${host}` : provider.kind;
 }
 
 function resolutionText(resolution: ResolveRepositoryProviderResult | null): string {
@@ -175,7 +199,7 @@ export { SETTINGS_LAYOUT_ID };
 export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDialogProps) {
   const [providers, setProviders] = useState<PublicRepositoryProvider[]>([]);
   const [profiles, setProfiles] = useState<RepositoryProfile[]>([]);
-  const [providerDrafts, setProviderDrafts] = useState<ProviderDraft[]>([newProviderDraft()]);
+  const [providerDrafts, setProviderDrafts] = useState<ProviderDraft[]>([]);
   const [profileDrafts, setProfileDrafts] = useState<ProfileDraft[]>([newProfileDraft()]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -193,7 +217,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
       ]);
       setProviders(providerResult.providers);
       setProfiles(profileResult.profiles);
-      setProviderDrafts([...providerResult.providers.map(providerToDraft), newProviderDraft()]);
+      setProviderDrafts(providerResult.providers.map(providerToDraft));
       setProfileDrafts([...profileResult.profiles.map(profileToDraft), newProfileDraft()]);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Repository settings を読み込めません。');
@@ -203,7 +227,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   const reloadProviders = async () => {
     const providerResult = await window.poc3GraphReviewApi.listRepositoryProviders();
     setProviders(providerResult.providers);
-    setProviderDrafts([...providerResult.providers.map(providerToDraft), newProviderDraft()]);
+    setProviderDrafts(providerResult.providers.map(providerToDraft));
   };
 
   useEffect(() => {
@@ -255,7 +279,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
         provider: {
           repositoryProviderId: draft.repositoryProviderId,
           kind: draft.kind,
-          displayName: draft.displayName,
+          displayName: providerDisplayName(draft),
           baseUrl: draft.baseUrl,
           token: draft.token,
           isDefaultForKind: draft.isDefaultForKind,
@@ -278,7 +302,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
         provider: {
           repositoryProviderId: draft.repositoryProviderId,
           kind: draft.kind,
-          displayName: draft.displayName,
+          displayName: providerDisplayName(draft),
           baseUrl: draft.baseUrl,
           token: draft.token,
           isDefaultForKind: draft.isDefaultForKind,
@@ -436,7 +460,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
         <>
           <motion.div
             key="poc3-settings-backdrop"
-            className="fixed inset-0 z-[60] bg-black/72 backdrop-blur-[10px]"
+            className="fixed inset-0 z-[60] bg-black/24 backdrop-blur-[6px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -450,14 +474,20 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="poc3-repository-settings-title"
-                className="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-[#131313]/85 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-34px_70px_rgba(0,0,0,0.32)] backdrop-blur-[6px]"
+                className="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-[#131313]/35 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-34px_70px_rgba(0,0,0,0.2)] backdrop-blur-[16px]"
               >
                 <DialogHeader onClose={onClose} />
                 <div className="space-y-6 p-5">
                   {loadError ? <Message tone="error">{loadError}</Message> : null}
                   <ProviderSection
                     drafts={providerDrafts}
-                    onAdd={() => setProviderDrafts((current) => [...current, newProviderDraft()])}
+                    onAdd={() =>
+                      setProviderDrafts((current) =>
+                        current.some((draft) => !draft.repositoryProviderId)
+                          ? current
+                          : [...current, newProviderDraft(current.length)],
+                      )
+                    }
                     onChange={updateProviderDraft}
                     onSave={(draft) => void saveProvider(draft)}
                     onTest={(draft) => void testProvider(draft)}
@@ -486,7 +516,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
 
 function DialogHeader({ onClose }: { onClose: () => void }) {
   return (
-    <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/[0.06] bg-[#131313]/82 px-5 py-4 shadow-[0_16px_34px_rgba(0,0,0,0.24)] backdrop-blur-[14px]">
+    <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/[0.06] bg-[#131313]/38 px-5 py-4 shadow-[0_16px_34px_rgba(0,0,0,0.2)] backdrop-blur-[18px]">
       <div>
         <h2 id="poc3-repository-settings-title" className="text-xl font-semibold text-white">
           Repository settings
@@ -521,71 +551,125 @@ interface ProviderSectionProps {
 }
 
 function ProviderSection({ drafts, onAdd, onChange, onSave, onTest }: ProviderSectionProps) {
+  const hasUnsavedDraft = drafts.some((draft) => !draft.repositoryProviderId);
+  const addLayoutId = providerAddLayoutId(drafts.length);
+
   return (
     <section className="space-y-3">
-      <SectionHeader title="Provider" buttonLabel="Provider" onAdd={onAdd} />
-      <div className="space-y-3">
+      <SectionTitle title="Provider" />
+      <motion.div layout className="space-y-3">
         {drafts.map((draft) => (
-          <div key={draft.draftId} className={`${FEY_GLASS_CARD_CLASS} p-4`}>
-            <div className="grid gap-3 lg:grid-cols-[140px_1fr_1fr_1fr_auto]">
-              <ProviderKindPicker
-                value={draft.kind}
-                onChange={(kind) =>
-                  onChange(draft.draftId, {
-                    kind,
-                    baseUrl: defaultBaseUrl(kind),
-                    displayName: kind === 'github' ? 'GitHub' : 'GitLab',
-                  })
-                }
-              />
-              <TextInput
-                value={draft.displayName}
-                placeholder="GitHub.com"
-                onChange={(value) => onChange(draft.draftId, { displayName: value })}
-              />
-              <TextInput
-                value={draft.baseUrl}
-                placeholder={defaultBaseUrl(draft.kind)}
-                onChange={(value) => onChange(draft.draftId, { baseUrl: value })}
-              />
-              <TextInput
-                value={draft.token}
-                type="password"
-                placeholder={draft.hasToken ? '保存済み。変更時のみ入力' : 'Access token'}
-                onChange={(value) => onChange(draft.draftId, { token: value })}
-              />
-              <div className="flex gap-2">
-                <IconButton
-                  label="Test provider"
-                  disabled={draft.busy}
-                  onClick={() => onTest(draft)}
-                >
-                  <TestTube2 className="h-4 w-4" aria-hidden="true" />
-                </IconButton>
-                <PrimaryIconButton
-                  label="Save provider"
-                  disabled={draft.busy}
-                  onClick={() => onSave(draft)}
-                >
-                  <Save className="h-4 w-4" aria-hidden="true" />
-                </PrimaryIconButton>
+          <motion.div
+            key={draft.draftId}
+            layout
+            layoutId={draft.layoutId}
+            className={`${FEY_GLASS_CARD_CLASS} p-4`}
+            transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+          >
+            {draft.isEditing ? (
+              <>
+                <div className="grid items-center gap-3 lg:grid-cols-[150px_minmax(220px,1.4fr)_minmax(220px,1.2fr)_auto]">
+                  <ProviderKindPicker
+                    value={draft.kind}
+                    onChange={(kind) =>
+                      onChange(draft.draftId, {
+                        kind,
+                        baseUrl: defaultBaseUrl(kind),
+                      })
+                    }
+                  />
+                  <TextInput
+                    value={draft.baseUrl}
+                    placeholder={defaultBaseUrl(draft.kind)}
+                    onChange={(value) => onChange(draft.draftId, { baseUrl: value })}
+                  />
+                  <TextInput
+                    value={draft.token}
+                    type="password"
+                    placeholder={draft.hasToken ? '保存済み。変更時のみ入力' : 'Access token'}
+                    onChange={(value) => onChange(draft.draftId, { token: value })}
+                  />
+                  <div className="flex gap-2">
+                    <IconButton
+                      label="Test provider"
+                      disabled={
+                        draft.busy ||
+                        !draft.baseUrl.trim() ||
+                        (!draft.hasToken && !draft.token.trim())
+                      }
+                      onClick={() => onTest(draft)}
+                    >
+                      <TestTube2 className="h-4 w-4" aria-hidden="true" />
+                    </IconButton>
+                    <PrimaryIconButton
+                      label="Save provider"
+                      disabled={
+                        draft.busy ||
+                        !draft.baseUrl.trim() ||
+                        (!draft.hasToken && !draft.token.trim())
+                      }
+                      onClick={() => onSave(draft)}
+                    >
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                    </PrimaryIconButton>
+                  </div>
+                </div>
+                <RowMessage error={draft.error} message={draft.message} />
+              </>
+            ) : (
+              <div className="grid items-center gap-3 lg:grid-cols-[150px_minmax(220px,1.4fr)_minmax(220px,1.2fr)_auto]">
+                <p className="min-w-0 text-sm font-medium text-white lg:col-span-2">
+                  <span className="truncate">
+                    {draft.kind === 'github' ? 'GitHub' : 'GitLab'}(
+                    {hostLabelFromBaseUrl(draft.baseUrl)})
+                  </span>
+                </p>
+                <p className="text-sm text-[#a8b0b8]">
+                  {draft.hasToken ? 'Token 保存済み' : 'Token 未設定'}
+                </p>
+                <div className="flex gap-2">
+                  <IconButton
+                    label="Edit provider"
+                    onClick={() =>
+                      onChange(draft.draftId, { isEditing: true, error: null, message: null })
+                    }
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                  </IconButton>
+                </div>
               </div>
-            </div>
-            <label className="mt-3 flex items-center gap-2 text-xs text-[#a8b0b8]">
-              <input
-                type="checkbox"
-                checked={draft.isDefaultForKind}
-                onChange={(event) =>
-                  onChange(draft.draftId, { isDefaultForKind: event.target.checked })
-                }
-              />
-              この provider kind の default にする
-            </label>
-            <RowMessage error={draft.error} message={draft.message} />
-          </div>
+            )}
+          </motion.div>
         ))}
-      </div>
+        {!hasUnsavedDraft ? <ProviderAddButton layoutId={addLayoutId} onClick={onAdd} /> : null}
+      </motion.div>
     </section>
+  );
+}
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <div>
+      <h3 className="text-base font-semibold text-white">{title}</h3>
+    </div>
+  );
+}
+
+function ProviderAddButton({ layoutId, onClick }: { layoutId: string; onClick: () => void }) {
+  return (
+    <div className="flex min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-white/[0.12] bg-black/[0.08]">
+      <motion.button
+        type="button"
+        layout
+        layoutId={layoutId}
+        onClick={onClick}
+        className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.12] px-4 text-sm font-medium text-white transition hover:border-[#d8e071]/35"
+        transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+      >
+        <Plus className="h-4 w-4" aria-hidden="true" />
+        Provider
+      </motion.button>
+    </div>
   );
 }
 
@@ -693,7 +777,7 @@ function RepositoryDraftRow({
             <option value="">Provider を選択</option>
             {selectableProviders.map((provider) => (
               <option key={provider.repositoryProviderId} value={provider.repositoryProviderId}>
-                {provider.displayName}
+                {providerOptionLabel(provider)}
               </option>
             ))}
           </select>
@@ -903,7 +987,7 @@ function IconButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="rounded-lg border border-white/[0.12] px-3 py-2 text-sm text-white transition hover:border-[#479ffa]/35 disabled:opacity-50"
+      className="flex h-10 items-center justify-center rounded-lg border border-white/[0.12] px-3 text-sm text-white transition hover:border-[#479ffa]/35 disabled:opacity-50"
     >
       {children}
     </button>
@@ -917,7 +1001,7 @@ function PrimaryIconButton(props: Parameters<typeof IconButton>[0]) {
       aria-label={props.label}
       disabled={props.disabled}
       onClick={props.onClick}
-      className="rounded-lg bg-[#d8e071] px-3 py-2 text-sm font-semibold text-black transition hover:bg-[#eef49a] disabled:opacity-50"
+      className="flex h-10 items-center justify-center rounded-lg bg-[#d8e071] px-3 text-sm font-semibold text-black transition hover:bg-[#eef49a] disabled:opacity-50"
     >
       {props.children}
     </button>
