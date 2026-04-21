@@ -41,6 +41,23 @@ import {
   type UpdatePublishDraftsInput,
   type UpdatePublishDraftsResult,
 } from '../shared/contracts/review-ipc';
+import {
+  type BrowseDirectoryInput,
+  type BrowseDirectoryResult,
+  type ListRepositoryProfilesResult,
+  type ListRepositoryProvidersResult,
+  POC3_GRAPH_REVIEW_IPC_CHANNELS,
+  type ResolveRepositoryProviderInput,
+  type ResolveRepositoryProviderResult,
+  type SaveRepositoryProfileInput,
+  type SaveRepositoryProfileResult,
+  type SaveRepositoryProviderInput,
+  type SaveRepositoryProviderResult,
+  type TestRepositoryProviderInput,
+  type TestRepositoryProviderResult,
+  type ValidateRepositoryProfileInput,
+  type ValidateRepositoryProfileResult,
+} from '../shared/poc3-contracts/graph-review-ipc';
 
 const handler = {
   send(channel: string, value: unknown) {
@@ -145,10 +162,47 @@ const reviewApi = {
   },
 };
 
+const poc3GraphReviewApi = {
+  listRepositoryProviders(): Promise<ListRepositoryProvidersResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listRepositoryProviders);
+  },
+  saveRepositoryProvider(
+    input: SaveRepositoryProviderInput,
+  ): Promise<SaveRepositoryProviderResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.saveRepositoryProvider, input);
+  },
+  testRepositoryProvider(
+    input: TestRepositoryProviderInput,
+  ): Promise<TestRepositoryProviderResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.testRepositoryProvider, input);
+  },
+  listRepositoryProfiles(): Promise<ListRepositoryProfilesResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listRepositoryProfiles);
+  },
+  resolveRepositoryProvider(
+    input: ResolveRepositoryProviderInput,
+  ): Promise<ResolveRepositoryProviderResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveRepositoryProvider, input);
+  },
+  validateRepositoryProfile(
+    input: ValidateRepositoryProfileInput,
+  ): Promise<ValidateRepositoryProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.validateRepositoryProfile, input);
+  },
+  saveRepositoryProfile(input: SaveRepositoryProfileInput): Promise<SaveRepositoryProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.saveRepositoryProfile, input);
+  },
+  browseDirectory(input: BrowseDirectoryInput): Promise<BrowseDirectoryResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.browseDirectory, input);
+  },
+};
+
 contextBridge.exposeInMainWorld('ipc', handler);
 contextBridge.exposeInMainWorld('agentApi', agentApi);
 contextBridge.exposeInMainWorld('reviewApi', reviewApi);
+contextBridge.exposeInMainWorld('poc3GraphReviewApi', poc3GraphReviewApi);
 
 export type IpcHandler = typeof handler;
 export type AgentApi = typeof agentApi;
 export type ReviewApi = typeof reviewApi;
+export type Poc3GraphReviewApi = typeof poc3GraphReviewApi;

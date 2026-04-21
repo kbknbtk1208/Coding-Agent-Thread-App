@@ -31,6 +31,8 @@ import { AgentGateway } from './agent-gateway/agent-gateway';
 import { SqliteSessionStore } from './agent-gateway/session-store';
 import { createWindow } from './helpers';
 import { loadMainEnvironment } from './load-main-environment';
+import { GraphReviewGateway } from './poc3-graph-review/graph-review-gateway';
+import { registerPoc3GraphReviewIpc } from './poc3-graph-review/ipc';
 import { ReviewGateway } from './review-gateway/review-gateway';
 
 loadMainEnvironment();
@@ -121,6 +123,7 @@ if (isProd) {
   });
 
   const reviewGateway = new ReviewGateway({ agentGateway: gateway });
+  const graphReviewGateway = new GraphReviewGateway(app.getPath('userData'));
 
   ipcMain.handle(REVIEW_IPC_CHANNELS.loadReviewSource, (_event, input: LoadReviewSourceInput) => {
     return reviewGateway.loadReviewSource(input.source);
@@ -218,8 +221,11 @@ if (isProd) {
     return reviewGateway.publishDrafts(input.snapshotId, input.publishDraftIds);
   });
 
+  registerPoc3GraphReviewIpc(graphReviewGateway, () => mainWindow);
+
   app.on('before-quit', () => {
     void gateway.dispose();
+    graphReviewGateway.dispose();
   });
 
   app.on('activate', () => {
