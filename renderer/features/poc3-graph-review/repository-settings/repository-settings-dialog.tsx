@@ -1,6 +1,6 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, type Variants } from 'framer-motion';
 import { ChevronDown, FolderOpen, Pencil, Plus, Save, TestTube2, X } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
@@ -16,6 +16,20 @@ const SETTINGS_LAYOUT_ID = 'poc3-repository-settings-surface';
 const DIALOG_BLUR_EXIT_MS = 360;
 const FEY_GLASS_CARD_CLASS =
   'rounded-2xl border border-white/[0.08] bg-[#131313]/85 shadow-[0_0_44px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.14),inset_0_-26px_46px_rgba(0,0,0,0.34)] backdrop-blur-[6px]';
+const LIST_ITEM_EASE = [0.4, 0, 0.2, 1] as const;
+const LIST_ITEM_ENTRY_DELAY = 0.33;
+const LIST_ITEM_MOTION_VARIANTS: Variants = {
+  hidden: { opacity: 0, x: -18 },
+  visible: (index: unknown) => ({
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.28,
+      ease: LIST_ITEM_EASE,
+      delay: LIST_ITEM_ENTRY_DELAY + (typeof index === 'number' ? index : 0) * 0.04,
+    },
+  }),
+};
 
 interface RepositorySettingsDialogProps {
   open: boolean;
@@ -341,7 +355,11 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   };
 
   const saveProvider = async (draft: ProviderDraft) => {
-    updateProviderDraft(draft.draftId, { busy: true, error: null, message: null });
+    updateProviderDraft(draft.draftId, {
+      busy: true,
+      error: null,
+      message: null,
+    });
     try {
       await window.poc3GraphReviewApi.saveRepositoryProvider({
         provider: {
@@ -364,7 +382,11 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   };
 
   const testProvider = async (draft: ProviderDraft) => {
-    updateProviderDraft(draft.draftId, { busy: true, error: null, message: null });
+    updateProviderDraft(draft.draftId, {
+      busy: true,
+      error: null,
+      message: null,
+    });
     try {
       const response = await window.poc3GraphReviewApi.testRepositoryProvider({
         provider: {
@@ -456,7 +478,11 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   });
 
   const validateProfile = async (draft: ProfileDraft) => {
-    updateProfileDraft(draft.draftId, { busy: true, error: null, message: null });
+    updateProfileDraft(draft.draftId, {
+      busy: true,
+      error: null,
+      message: null,
+    });
     try {
       const repositoryProviderId = await ensureProviderForDraft(draft);
       const response = await window.poc3GraphReviewApi.validateRepositoryProfile({
@@ -479,7 +505,11 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   };
 
   const saveProfile = async (draft: ProfileDraft) => {
-    updateProfileDraft(draft.draftId, { busy: true, error: null, message: null });
+    updateProfileDraft(draft.draftId, {
+      busy: true,
+      error: null,
+      message: null,
+    });
     try {
       const repositoryProviderId = await ensureProviderForDraft(draft);
       const validation = await window.poc3GraphReviewApi.validateRepositoryProfile({
@@ -654,13 +684,20 @@ function ProviderSection({ drafts, onAdd, onChange, onSave, onTest }: ProviderSe
     <section className="space-y-3">
       <SectionTitle title="Provider" />
       <motion.div layout className="space-y-3">
-        {drafts.map((draft) => (
+        {drafts.map((draft, index) => (
           <motion.div
             key={draft.draftId}
             layout
             layoutId={draft.layoutId}
+            {...(draft.repositoryProviderId
+              ? {
+                  custom: index,
+                  variants: LIST_ITEM_MOTION_VARIANTS,
+                  initial: 'hidden',
+                  animate: 'visible',
+                }
+              : {})}
             className={`${FEY_GLASS_CARD_CLASS} p-4`}
-            transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
           >
             {draft.isEditing ? (
               <>
@@ -727,7 +764,11 @@ function ProviderSection({ drafts, onAdd, onChange, onSave, onTest }: ProviderSe
                   <IconButton
                     label="Edit provider"
                     onClick={() =>
-                      onChange(draft.draftId, { isEditing: true, error: null, message: null })
+                      onChange(draft.draftId, {
+                        isEditing: true,
+                        error: null,
+                        message: null,
+                      })
                     }
                   >
                     <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -802,10 +843,11 @@ function RepositorySection({
         <Message tone="info">Repository を登録する前に Provider を追加してください。</Message>
       ) : null}
       <motion.div layout className="space-y-3">
-        {drafts.map((draft) => (
+        {drafts.map((draft, index) => (
           <RepositoryDraftRow
             key={draft.draftId}
             draft={draft}
+            index={index}
             providerById={providerById}
             onChange={onChange}
             onResolve={onResolve}
@@ -822,6 +864,7 @@ function RepositorySection({
 
 interface RepositoryDraftRowProps {
   draft: ProfileDraft;
+  index: number;
   providerById: Map<string, PublicRepositoryProvider>;
   onChange: (draftId: string, patch: Partial<ProfileDraft>) => void;
   onResolve: (draft: ProfileDraft) => void;
@@ -832,6 +875,7 @@ interface RepositoryDraftRowProps {
 
 function RepositoryDraftRow({
   draft,
+  index,
   providerById,
   onChange,
   onResolve,
@@ -859,8 +903,15 @@ function RepositoryDraftRow({
     <motion.div
       layout
       layoutId={draft.layoutId}
+      {...(draft.repositoryProfileId
+        ? {
+            custom: index,
+            variants: LIST_ITEM_MOTION_VARIANTS,
+            initial: 'hidden',
+            animate: 'visible',
+          }
+        : {})}
       className={`${FEY_GLASS_CARD_CLASS} p-4`}
-      transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
     >
       {draft.isEditing ? (
         <>
@@ -930,7 +981,11 @@ function RepositoryDraftRow({
           <div className="mt-4">
             <button
               type="button"
-              onClick={() => onChange(draft.draftId, { showSetupScript: !draft.showSetupScript })}
+              onClick={() =>
+                onChange(draft.draftId, {
+                  showSetupScript: !draft.showSetupScript,
+                })
+              }
               className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.12] px-3 text-sm text-white transition hover:border-[#d8e071]/35"
             >
               <motion.span
@@ -952,7 +1007,9 @@ function RepositoryDraftRow({
                   <textarea
                     value={draft.setupScriptText}
                     onChange={(event) =>
-                      onChange(draft.draftId, { setupScriptText: event.target.value })
+                      onChange(draft.draftId, {
+                        setupScriptText: event.target.value,
+                      })
                     }
                     className="mt-3 min-h-[92px] w-full resize-y rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2 text-sm leading-6 text-white outline-none transition placeholder:text-[#68717b] focus:border-[#d8e071]/45"
                     placeholder={'npm install;\nnpx prisma generate;'}
