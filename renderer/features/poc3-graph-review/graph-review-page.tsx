@@ -1,19 +1,35 @@
 'use client';
 
 import { LayoutGroup } from 'framer-motion';
-import { GitPullRequest, Network, Settings } from 'lucide-react';
+import { GitPullRequest, Network, Play, Settings } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Poc3AnimatedProfileMenu } from './components/animated-profile-menu';
 import {
   RepositorySettingsDialog,
   SETTINGS_LAYOUT_ID,
 } from './repository-settings/repository-settings-dialog';
+import {
+  CREATE_WORKSPACE_LAYOUT_ID,
+  CreateWorkspaceDialog,
+} from './workspace-create/create-workspace-dialog';
+import { useWorkspaceCreationJobs } from './workspace-create/use-workspace-creation-jobs';
+import { WorkspaceCreationStack } from './workspace-create/workspace-creation-stack';
 
 export function GraphReviewPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const { jobs, toggleExpanded, dismissJob } = useWorkspaceCreationJobs();
 
   const menuItems = useMemo(
     () => [
+      {
+        id: 'create-workspace',
+        icon: Play,
+        title: 'Create Workspace',
+        description: 'PR / MR から Review Workspace を作成',
+        layoutId: CREATE_WORKSPACE_LAYOUT_ID,
+        onSelect: () => setCreateOpen(true),
+      },
       {
         id: 'repository-settings',
         icon: Settings,
@@ -90,9 +106,10 @@ export function GraphReviewPage() {
                 <div className="flex items-start gap-3">
                   <GitPullRequest className="mt-0.5 h-5 w-5 text-[#d8e071]" aria-hidden="true" />
                   <div>
-                    <p className="text-sm font-medium text-white">Repository settings から開始</p>
+                    <p className="text-sm font-medium text-white">メニューから Workspace を作成</p>
                     <p className="mt-1 text-sm leading-6 text-[#a8b0b8]">
-                      左下のメニューを開き、Repository settings を選択してください。
+                      左下のメニューを開き、Create Workspace を選択すると PR / MR URL から Review
+                      Workspace を作成できます。
                     </p>
                   </div>
                 </div>
@@ -101,8 +118,18 @@ export function GraphReviewPage() {
           </section>
         </main>
 
+        <WorkspaceCreationStack
+          jobs={jobs}
+          onToggleExpand={toggleExpanded}
+          onDismiss={dismissJob}
+        />
         <Poc3AnimatedProfileMenu items={menuItems} />
         <RepositorySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <CreateWorkspaceDialog
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onStarted={() => setCreateOpen(false)}
+        />
       </div>
     </LayoutGroup>
   );

@@ -1,6 +1,8 @@
 import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'electron';
 import type {
   BrowseDirectoryInput,
+  CreateReviewWorkspaceInput,
+  ResolveReviewWorkspaceTargetInput,
   SaveRepositoryProfileInput,
   SaveRepositoryProviderInput,
   TestRepositoryProviderInput,
@@ -75,4 +77,22 @@ export function registerPoc3GraphReviewIpc(
       };
     },
   );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveReviewWorkspaceTarget,
+    (_event, input: ResolveReviewWorkspaceTargetInput) => {
+      return gateway.resolveReviewWorkspaceTarget(input.reviewUrl);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.createReviewWorkspace,
+    (_event, input: CreateReviewWorkspaceInput) => {
+      return { job: gateway.createReviewWorkspace(input) };
+    },
+  );
+
+  ipcMain.handle(POC3_GRAPH_REVIEW_IPC_CHANNELS.listWorkspaceCreationJobs, () => {
+    return { jobs: gateway.listWorkspaceCreationJobs() };
+  });
 }

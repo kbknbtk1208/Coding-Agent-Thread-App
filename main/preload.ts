@@ -44,11 +44,16 @@ import {
 import {
   type BrowseDirectoryInput,
   type BrowseDirectoryResult,
+  type CreateReviewWorkspaceInput,
+  type CreateReviewWorkspaceResult,
   type ListRepositoryProfilesResult,
   type ListRepositoryProvidersResult,
+  type ListWorkspaceCreationJobsResult,
   POC3_GRAPH_REVIEW_IPC_CHANNELS,
   type ResolveRepositoryProviderInput,
   type ResolveRepositoryProviderResult,
+  type ResolveReviewWorkspaceTargetInput,
+  type ResolveReviewWorkspaceTargetResult,
   type SaveRepositoryProfileInput,
   type SaveRepositoryProfileResult,
   type SaveRepositoryProviderInput,
@@ -57,6 +62,7 @@ import {
   type TestRepositoryProviderResult,
   type ValidateRepositoryProfileInput,
   type ValidateRepositoryProfileResult,
+  type WorkspaceCreationEvent,
 } from '../shared/poc3-contracts/graph-review-ipc';
 
 const handler = {
@@ -194,6 +200,28 @@ const poc3GraphReviewApi = {
   },
   browseDirectory(input: BrowseDirectoryInput): Promise<BrowseDirectoryResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.browseDirectory, input);
+  },
+  resolveReviewWorkspaceTarget(
+    input: ResolveReviewWorkspaceTargetInput,
+  ): Promise<ResolveReviewWorkspaceTargetResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveReviewWorkspaceTarget, input);
+  },
+  createReviewWorkspace(input: CreateReviewWorkspaceInput): Promise<CreateReviewWorkspaceResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.createReviewWorkspace, input);
+  },
+  listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listWorkspaceCreationJobs);
+  },
+  onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void) {
+    const subscription = (_event: IpcRendererEvent, payload: WorkspaceCreationEvent) =>
+      callback(payload);
+    ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.workspaceCreationEvent, subscription);
+    return () => {
+      ipcRenderer.removeListener(
+        POC3_GRAPH_REVIEW_IPC_CHANNELS.workspaceCreationEvent,
+        subscription,
+      );
+    };
   },
 };
 

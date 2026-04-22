@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type {
   PublicRepositoryProvider,
   RepositoryProfile,
@@ -7,6 +8,11 @@ import type {
   RepositoryProviderSecretInput,
   ResolveRepositoryProviderResult,
 } from '../../shared/poc3-domain/repository';
+import type {
+  ResolveReviewWorkspaceTargetResult,
+  ReviewWorkspaceCreationJobSnapshot,
+  WorkspaceCreationEvent,
+} from '../../shared/poc3-domain/review-workspace';
 import { apiEndpointForProvider } from './source/repository-url';
 import { RepositoryProfileStore } from './workspace/repository-profile-store';
 import {
@@ -15,14 +21,32 @@ import {
 } from './workspace/repository-profile-resolver';
 import { validateRepositoryProfileInput } from './workspace/repository-profile-validator';
 import { RepositoryProviderStore } from './workspace/repository-provider-store';
+import { ReviewWorkspaceCreationCoordinator } from './workspace/review-workspace-creation-coordinator';
+import { ReviewWorkspaceStore } from './workspace/review-workspace-store';
+import { resolveReviewWorkspaceTarget } from './workspace/review-workspace-target-resolver';
+
+export interface CreateReviewWorkspaceInput {
+  reviewUrl: string;
+  repositoryProfileId: string;
+}
 
 export class GraphReviewGateway {
   private readonly providerStore: RepositoryProviderStore;
   private readonly profileStore: RepositoryProfileStore;
+  private readonly workspaceStore: ReviewWorkspaceStore;
+  private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
 
-  constructor(userDataPath: string) {
+  constructor(
+    userDataPath: string,
+    private readonly emitWorkspaceCreationEvent: (event: WorkspaceCreationEvent) => void,
+  ) {
     this.providerStore = new RepositoryProviderStore(userDataPath);
     this.profileStore = new RepositoryProfileStore(userDataPath);
+    this.workspaceStore = new ReviewWorkspaceStore(userDataPath);
+    this.creationCoordinator = new ReviewWorkspaceCreationCoordinator({
+      emit: (event) => this.emitWorkspaceCreationEvent(event),
+      saveReviewWorkspace: (workspace) => this.workspaceStore.save(workspace),
+    });
   }
 
   listRepositoryProviders(): PublicRepositoryProvider[] {
@@ -128,8 +152,54 @@ export class GraphReviewGateway {
     });
   }
 
+  resolveReviewWorkspaceTarget(reviewUrl: string): ResolveReviewWorkspaceTargetResult {
+    return resolveReviewWorkspaceTarget(
+      reviewUrl,
+      this.providerStore.listInternal(),
+      this.profileStore.list(),
+    );
+  }
+
+  createReviewWorkspace(input: CreateReviewWorkspaceInput): ReviewWorkspaceCreationJobSnapshot {
+    const resolution = this.resolveReviewWorkspaceTarget(input.reviewUrl);
+    if (!resolution.ok || !resolution.target) {
+      throw new Error(resolution.message ?? 'Review URL を解決できません。');
+    }
+    if (resolution.target.repositoryProfileId !== input.repositoryProfileId) {
+      throw new Error('指定された Repository Profile が Review URL と一致しません。');
+    }
+
+    const provider = this.providerStore.get(resolution.target.repositoryProviderId);
+    if (!provider) {
+      throw new Error('Repository Provider が見つかりません。');
+    }
+    const token = this.providerStore.getToken(provider.tokenRef);
+    if (!token) {
+      throw new Error('Provider token を解決できませんでした。');
+    }
+    const profile = this.profileStore.get(input.repositoryProfileId);
+    if (!profile) {
+      throw new Error('Repository Profile が見つかりません。');
+    }
+
+    return this.creationCoordinator.startJob({
+      jobId: randomUUID(),
+      reviewUrl: resolution.target.reviewUrl,
+      repositoryProfileId: resolution.target.repositoryProfileId,
+      target: resolution.target,
+      provider,
+      profile,
+      providerToken: token,
+    });
+  }
+
+  listWorkspaceCreationJobs(): ReviewWorkspaceCreationJobSnapshot[] {
+    return this.creationCoordinator.listJobs();
+  }
+
   dispose(): void {
     this.providerStore.close();
     this.profileStore.close();
+    this.workspaceStore.close();
   }
 }

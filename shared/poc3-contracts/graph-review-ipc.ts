@@ -7,8 +7,21 @@ import type {
   RepositoryProviderSecretInput,
   ResolveRepositoryProviderResult,
 } from '../poc3-domain/repository';
+import type {
+  ResolveReviewWorkspaceTargetResult,
+  ReviewWorkspaceCreationJobSnapshot,
+  WorkspaceCreationEvent,
+} from '../poc3-domain/review-workspace';
 
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
+export type {
+  ResolveReviewWorkspaceTargetResult,
+  ReviewWorkspaceCreationJobSnapshot,
+  WorkspaceCreationEvent,
+  WorkspaceCreationPhase,
+  ReviewWorkspaceCreationJobStatus,
+  ReviewWorkspaceTarget,
+} from '../poc3-domain/review-workspace';
 
 export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   listRepositoryProviders: 'poc3:repository-provider:list',
@@ -19,6 +32,10 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   validateRepositoryProfile: 'poc3:repository-profile:validate',
   saveRepositoryProfile: 'poc3:repository-profile:save',
   browseDirectory: 'poc3:system:browse-directory',
+  resolveReviewWorkspaceTarget: 'poc3:workspace:resolve-review-url',
+  createReviewWorkspace: 'poc3:workspace:create',
+  listWorkspaceCreationJobs: 'poc3:workspace:creation-job:list',
+  workspaceCreationEvent: 'poc3:workspace:creation-job:event',
 } as const;
 
 export interface ListRepositoryProvidersResult {
@@ -75,6 +92,23 @@ export interface BrowseDirectoryResult {
   path: string | null;
 }
 
+export interface ResolveReviewWorkspaceTargetInput {
+  reviewUrl: string;
+}
+
+export interface CreateReviewWorkspaceInput {
+  reviewUrl: string;
+  repositoryProfileId: string;
+}
+
+export interface CreateReviewWorkspaceResult {
+  job: ReviewWorkspaceCreationJobSnapshot;
+}
+
+export interface ListWorkspaceCreationJobsResult {
+  jobs: ReviewWorkspaceCreationJobSnapshot[];
+}
+
 export interface Poc3GraphReviewApi {
   listRepositoryProviders(): Promise<ListRepositoryProvidersResult>;
   saveRepositoryProvider(input: SaveRepositoryProviderInput): Promise<SaveRepositoryProviderResult>;
@@ -88,4 +122,10 @@ export interface Poc3GraphReviewApi {
   ): Promise<ValidateRepositoryProfileResult>;
   saveRepositoryProfile(input: SaveRepositoryProfileInput): Promise<SaveRepositoryProfileResult>;
   browseDirectory(input: BrowseDirectoryInput): Promise<BrowseDirectoryResult>;
+  resolveReviewWorkspaceTarget(
+    input: ResolveReviewWorkspaceTargetInput,
+  ): Promise<ResolveReviewWorkspaceTargetResult>;
+  createReviewWorkspace(input: CreateReviewWorkspaceInput): Promise<CreateReviewWorkspaceResult>;
+  listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
+  onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
 }
