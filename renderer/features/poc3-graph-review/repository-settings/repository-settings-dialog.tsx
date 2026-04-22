@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { FolderOpen, Pencil, Plus, RefreshCw, Save, TestTube2, X } from 'lucide-react';
+import { ChevronDown, FolderOpen, Pencil, Plus, Save, TestTube2, X } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import type {
@@ -13,6 +13,7 @@ import type {
 import { ProviderKindPicker } from './provider-kind-picker';
 
 const SETTINGS_LAYOUT_ID = 'poc3-repository-settings-surface';
+const DIALOG_BLUR_EXIT_MS = 360;
 const FEY_GLASS_CARD_CLASS =
   'rounded-2xl border border-white/[0.08] bg-[#131313]/85 shadow-[0_0_44px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.14),inset_0_-26px_46px_rgba(0,0,0,0.34)] backdrop-blur-[6px]';
 
@@ -39,11 +40,15 @@ interface ProviderDraft {
 interface ProfileDraft {
   draftId: string;
   repositoryProfileId?: string;
+  layoutId: string;
   repositoryProviderId: string;
   originUrl: string;
   localClonePath: string;
   worktreeRootPath: string;
   setupScriptText: string;
+  showSetupScript: boolean;
+  isEditing: boolean;
+  isResolvingProvider: boolean;
   resolution: ResolveRepositoryProviderResult | null;
   lastAutoWorktreePath: string;
   message: string | null;
@@ -63,6 +68,10 @@ function providerAddLayoutId(index: number): string {
   return `poc3-provider-add-${index}`;
 }
 
+function repositoryAddLayoutId(index: number): string {
+  return `poc3-repository-add-${index}`;
+}
+
 function newProviderDraft(index: number): ProviderDraft {
   return {
     draftId: createDraftId('provider'),
@@ -79,14 +88,18 @@ function newProviderDraft(index: number): ProviderDraft {
   };
 }
 
-function newProfileDraft(): ProfileDraft {
+function newProfileDraft(index: number): ProfileDraft {
   return {
     draftId: createDraftId('profile'),
+    layoutId: repositoryAddLayoutId(index),
     repositoryProviderId: '',
     originUrl: '',
     localClonePath: '',
     worktreeRootPath: '',
     setupScriptText: '',
+    showSetupScript: false,
+    isEditing: true,
+    isResolvingProvider: false,
     resolution: null,
     lastAutoWorktreePath: '',
     message: null,
@@ -116,11 +129,15 @@ function profileToDraft(profile: RepositoryProfile): ProfileDraft {
   return {
     draftId: profile.repositoryProfileId,
     repositoryProfileId: profile.repositoryProfileId,
+    layoutId: `poc3-repository-card-${profile.repositoryProfileId}`,
     repositoryProviderId: profile.repositoryProviderId,
     originUrl: profile.originUrl,
     localClonePath: profile.localClonePath,
     worktreeRootPath: profile.worktreeRootPath,
     setupScriptText: profile.setupScript?.scriptText ?? '',
+    showSetupScript: Boolean(profile.setupScript?.scriptText),
+    isEditing: false,
+    isResolvingProvider: false,
     resolution: null,
     lastAutoWorktreePath: '',
     message: null,
@@ -159,29 +176,38 @@ function providerOptionLabel(provider: Pick<PublicRepositoryProvider, 'kind' | '
   return host ? `${provider.kind} / ${host}` : provider.kind;
 }
 
-function resolutionText(resolution: ResolveRepositoryProviderResult | null): string {
-  if (!resolution) {
-    return 'origin URL を入力すると Provider 候補を解決します。';
+function repositoryDisplayName(originUrl: string): string {
+  const trimmed = originUrl.trim();
+  if (!trimmed) {
+    return '';
   }
-  if (resolution.status === 'resolved') {
-    return 'Provider を自動解決しました。';
+
+  try {
+    const url = new URL(trimmed);
+    const pathSegments = url.pathname
+      .replace(/^\/+|\/+$/g, '')
+      .split('/')
+      .filter(Boolean);
+    return pathSegments.length > 1 ? pathSegments.slice(1).join('/') : (pathSegments[0] ?? trimmed);
+  } catch {
+    const scpLikePath = trimmed.match(/^[^@]+@[^:]+:(.+)$/)?.[1];
+    const path = scpLikePath ?? trimmed;
+    const pathSegments = path
+      .replace(/^\/+|\/+$/g, '')
+      .split('/')
+      .filter(Boolean);
+    return pathSegments.length > 1 ? pathSegments.slice(1).join('/') : trimmed;
   }
-  return resolution.message ?? 'Provider 解決結果を確認してください。';
 }
 
-function upsertProfile(
-  profiles: RepositoryProfile[],
-  profile: RepositoryProfile,
-): RepositoryProfile[] {
-  const exists = profiles.some(
-    (candidate) => candidate.repositoryProfileId === profile.repositoryProfileId,
-  );
-  if (!exists) {
-    return [profile, ...profiles];
+function resolutionText(resolution: ResolveRepositoryProviderResult | null): string {
+  if (!resolution) {
+    return '';
   }
-  return profiles.map((candidate) =>
-    candidate.repositoryProfileId === profile.repositoryProfileId ? profile : candidate,
-  );
+  if (resolution.status === 'resolved') {
+    return '';
+  }
+  return resolution.message ?? 'Provider 解決結果を確認してください。';
 }
 
 function isEmptyNewProfileDraft(draft: ProfileDraft): boolean {
@@ -197,10 +223,11 @@ function isEmptyNewProfileDraft(draft: ProfileDraft): boolean {
 export { SETTINGS_LAYOUT_ID };
 
 export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDialogProps) {
+  const [rendered, setRendered] = useState(open);
+  const [closing, setClosing] = useState(false);
   const [providers, setProviders] = useState<PublicRepositoryProvider[]>([]);
-  const [profiles, setProfiles] = useState<RepositoryProfile[]>([]);
   const [providerDrafts, setProviderDrafts] = useState<ProviderDraft[]>([]);
-  const [profileDrafts, setProfileDrafts] = useState<ProfileDraft[]>([newProfileDraft()]);
+  const [profileDrafts, setProfileDrafts] = useState<ProfileDraft[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const providerById = useMemo(
@@ -216,9 +243,8 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
         window.poc3GraphReviewApi.listRepositoryProfiles(),
       ]);
       setProviders(providerResult.providers);
-      setProfiles(profileResult.profiles);
       setProviderDrafts(providerResult.providers.map(providerToDraft));
-      setProfileDrafts([...profileResult.profiles.map(profileToDraft), newProfileDraft()]);
+      setProfileDrafts(profileResult.profiles.map(profileToDraft));
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Repository settings を読み込めません。');
     }
@@ -236,6 +262,23 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
     }
   }, [open]);
 
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      setClosing(false);
+      return;
+    }
+    if (!rendered) {
+      return;
+    }
+    setClosing(true);
+    const timerId = window.setTimeout(() => {
+      setRendered(false);
+      setClosing(false);
+    }, DIALOG_BLUR_EXIT_MS);
+    return () => window.clearTimeout(timerId);
+  }, [open, rendered]);
+
   const updateProviderDraft = (draftId: string, patch: Partial<ProviderDraft>) => {
     setProviderDrafts((current) =>
       current.map((draft) => (draft.draftId === draftId ? { ...draft, ...patch } : draft)),
@@ -249,25 +292,50 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   };
 
   const resolveProfileProvider = async (draft: ProfileDraft) => {
-    if (!draft.originUrl.trim()) {
-      updateProfileDraft(draft.draftId, { resolution: null, repositoryProviderId: '' });
+    const originUrl = draft.originUrl.trim();
+    if (!originUrl) {
+      updateProfileDraft(draft.draftId, {
+        resolution: null,
+        repositoryProviderId: '',
+        isResolvingProvider: false,
+      });
       return;
     }
+    updateProfileDraft(draft.draftId, { isResolvingProvider: true });
     try {
       const resolution = await window.poc3GraphReviewApi.resolveRepositoryProvider({
-        originUrl: draft.originUrl,
+        originUrl,
       });
-      const repositoryProviderId =
-        draft.repositoryProviderId || resolution.candidates[0]?.repositoryProviderId || '';
-      updateProfileDraft(draft.draftId, {
-        resolution,
-        repositoryProviderId,
-        message: resolutionText(resolution),
-        error: null,
+      const isFailure = ['invalidUrl', 'noProvider', 'unsupportedUrl'].includes(resolution.status);
+      setProfileDrafts((current) => {
+        return current.map((candidate) => {
+          if (candidate.draftId !== draft.draftId || candidate.originUrl.trim() !== originUrl) {
+            return candidate;
+          }
+          return {
+            ...candidate,
+            resolution,
+            repositoryProviderId: isFailure
+              ? ''
+              : resolution.candidates[0]?.repositoryProviderId || '',
+            message: null,
+            error: isFailure ? (resolution.message ?? 'Provider を解決できません。') : null,
+            isResolvingProvider: false,
+          };
+        });
       });
     } catch (err) {
-      updateProfileDraft(draft.draftId, {
-        error: err instanceof Error ? err.message : 'Provider 解決に失敗しました。',
+      setProfileDrafts((current) => {
+        return current.map((candidate) => {
+          if (candidate.draftId !== draft.draftId || candidate.originUrl.trim() !== originUrl) {
+            return candidate;
+          }
+          return {
+            ...candidate,
+            error: err instanceof Error ? err.message : 'Provider 解決に失敗しました。',
+            isResolvingProvider: false,
+          };
+        });
       });
     }
   };
@@ -438,12 +506,11 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
       const response = await window.poc3GraphReviewApi.saveRepositoryProfile({
         profile: profilePayload(draft, repositoryProviderId, allowOriginMismatch),
       });
-      setProfiles((current) => upsertProfile(current, response.profile));
       setProfileDrafts((current) => {
         const replaced = current.map((candidate) =>
           candidate.draftId === draft.draftId ? profileToDraft(response.profile) : candidate,
         );
-        return replaced.some(isEmptyNewProfileDraft) ? replaced : [...replaced, newProfileDraft()];
+        return replaced.filter((candidate) => !isEmptyNewProfileDraft(candidate));
       });
     } catch (err) {
       updateProfileDraft(draft.draftId, {
@@ -456,19 +523,43 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
 
   return (
     <AnimatePresence>
-      {open ? (
-        <>
+      {rendered ? (
+        <motion.div
+          key="poc3-settings-layer"
+          className="fixed inset-0 z-[60]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+        >
           <motion.div
-            key="poc3-settings-backdrop"
-            className="fixed inset-0 z-[60] bg-black/24 backdrop-blur-[6px]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/24 backdrop-blur-[6px]"
+            initial={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+            animate={
+              closing
+                ? { opacity: 0, backdropFilter: 'blur(10px)' }
+                : { opacity: 1, backdropFilter: 'blur(6px)' }
+            }
+            transition={{ duration: 0.34, ease: [0.4, 0, 0.2, 1] }}
           />
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-8">
+          <motion.div
+            key="poc3-settings-shell"
+            className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8"
+            onClick={(event) => {
+              if (!closing && event.target === event.currentTarget) {
+                onClose();
+              }
+            }}
+          >
             <motion.div
               layoutId={SETTINGS_LAYOUT_ID}
               className="max-h-[calc(100vh-2rem)] w-[min(96vw,1120px)] rounded-2xl bg-[linear-gradient(210deg,rgba(255,255,255,0.22)_6.2%,rgba(20,20,20,0.5)_21.56%,rgba(50,50,50,0.5)_69.03%,rgba(255,255,255,0.4)_96.99%)] p-px shadow-[0_0_44px_rgba(0,0,0,0.8)]"
+              initial={{ opacity: 0, scale: 0.98, filter: 'blur(12px)' }}
+              animate={
+                closing
+                  ? { opacity: 0, scale: 0.985, filter: 'blur(64px)' }
+                  : { opacity: 1, scale: 1, filter: 'blur(0px)' }
+              }
+              transition={{ duration: 0.34, ease: [0.4, 0, 0.2, 1] }}
             >
               <section
                 role="dialog"
@@ -496,8 +587,13 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                     drafts={profileDrafts}
                     providers={providers}
                     providerById={providerById}
-                    profiles={profiles}
-                    onAdd={() => setProfileDrafts((current) => [...current, newProfileDraft()])}
+                    onAdd={() =>
+                      setProfileDrafts((current) =>
+                        current.some((draft) => !draft.repositoryProfileId)
+                          ? current
+                          : [...current, newProfileDraft(current.length)],
+                      )
+                    }
                     onChange={updateProfileDraft}
                     onResolve={(draft) => void resolveProfileProvider(draft)}
                     onBrowse={(draft, field) => void browseDirectory(draft, field)}
@@ -507,8 +603,8 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                 </div>
               </section>
             </motion.div>
-          </div>
-        </>
+          </motion.div>
+        </motion.div>
       ) : null}
     </AnimatePresence>
   );
@@ -516,7 +612,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
 
 function DialogHeader({ onClose }: { onClose: () => void }) {
   return (
-    <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/[0.06] bg-[#131313]/38 px-5 py-4 shadow-[0_16px_34px_rgba(0,0,0,0.2)] backdrop-blur-[18px]">
+    <div className="sticky top-0 z-10 flex items-start justify-between gap-4 px-5 py-4">
       <div>
         <h2 id="poc3-repository-settings-title" className="text-xl font-semibold text-white">
           Repository settings
@@ -677,7 +773,6 @@ interface RepositorySectionProps {
   drafts: ProfileDraft[];
   providers: PublicRepositoryProvider[];
   providerById: Map<string, PublicRepositoryProvider>;
-  profiles: RepositoryProfile[];
   onAdd: () => void;
   onChange: (draftId: string, patch: Partial<ProfileDraft>) => void;
   onResolve: (draft: ProfileDraft) => void;
@@ -690,7 +785,6 @@ function RepositorySection({
   drafts,
   providers,
   providerById,
-  profiles,
   onAdd,
   onChange,
   onResolve,
@@ -698,22 +792,21 @@ function RepositorySection({
   onValidate,
   onSave,
 }: RepositorySectionProps) {
+  const hasUnsavedDraft = drafts.some((draft) => !draft.repositoryProfileId);
+  const addLayoutId = repositoryAddLayoutId(drafts.length);
+
   return (
     <section className="space-y-3">
-      <SectionHeader title="Repository" buttonLabel="Repository" onAdd={onAdd} />
+      <SectionTitle title="Repository" />
       {providers.length === 0 ? (
         <Message tone="info">Repository を登録する前に Provider を追加してください。</Message>
       ) : null}
-      <div className="space-y-3">
+      <motion.div layout className="space-y-3">
         {drafts.map((draft) => (
           <RepositoryDraftRow
             key={draft.draftId}
             draft={draft}
-            providers={providers}
             providerById={providerById}
-            isSaved={profiles.some(
-              (profile) => profile.repositoryProfileId === draft.repositoryProfileId,
-            )}
             onChange={onChange}
             onResolve={onResolve}
             onBrowse={onBrowse}
@@ -721,16 +814,15 @@ function RepositorySection({
             onSave={onSave}
           />
         ))}
-      </div>
+        {!hasUnsavedDraft ? <RepositoryAddButton layoutId={addLayoutId} onClick={onAdd} /> : null}
+      </motion.div>
     </section>
   );
 }
 
 interface RepositoryDraftRowProps {
   draft: ProfileDraft;
-  providers: PublicRepositoryProvider[];
   providerById: Map<string, PublicRepositoryProvider>;
-  isSaved: boolean;
   onChange: (draftId: string, patch: Partial<ProfileDraft>) => void;
   onResolve: (draft: ProfileDraft) => void;
   onBrowse: (draft: ProfileDraft, field: 'localClonePath' | 'worktreeRootPath') => void;
@@ -740,153 +832,198 @@ interface RepositoryDraftRowProps {
 
 function RepositoryDraftRow({
   draft,
-  providers,
   providerById,
-  isSaved,
   onChange,
   onResolve,
   onBrowse,
   onValidate,
   onSave,
 }: RepositoryDraftRowProps) {
-  const candidateProviders = draft.resolution?.candidates ?? [];
-  const selectableProviders = draft.resolution ? candidateProviders : providers;
   const selectedProvider = providerById.get(draft.repositoryProviderId);
+  const canSave =
+    !draft.busy &&
+    !draft.isResolvingProvider &&
+    Boolean(draft.originUrl.trim()) &&
+    Boolean(draft.localClonePath.trim()) &&
+    Boolean(draft.worktreeRootPath.trim());
+
+  useEffect(() => {
+    if (!draft.isEditing || !draft.originUrl.trim()) {
+      return;
+    }
+    const timerId = window.setTimeout(() => onResolve(draft), 650);
+    return () => window.clearTimeout(timerId);
+  }, [draft.originUrl, draft.isEditing]);
 
   return (
-    <div className={`${FEY_GLASS_CARD_CLASS} p-4`}>
-      <div className="grid gap-3 lg:grid-cols-[1.4fr_220px]">
-        <LabeledInput
-          label="originUrl"
-          value={draft.originUrl}
-          placeholder="https://github.com/owner/repo または git@gitlab.com:group/project.git"
-          onBlur={() => onResolve(draft)}
-          onChange={(value) =>
-            onChange(draft.draftId, { originUrl: value, error: null, message: null })
-          }
-        />
-        <div>
-          <Label>resolved provider</Label>
-          <select
-            value={draft.repositoryProviderId}
-            onChange={(event) =>
-              onChange(draft.draftId, { repositoryProviderId: event.target.value })
+    <motion.div
+      layout
+      layoutId={draft.layoutId}
+      className={`${FEY_GLASS_CARD_CLASS} p-4`}
+      transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+    >
+      {draft.isEditing ? (
+        <>
+          <div className="grid gap-3 lg:grid-cols-[1.4fr_minmax(220px,0.7fr)]">
+            <LabeledInput
+              label="origin url"
+              value={draft.originUrl}
+              placeholder="https://github.com/owner/repo または git@gitlab.com:group/project.git"
+              onBlur={() => onResolve(draft)}
+              onChange={(value) =>
+                onChange(draft.draftId, {
+                  originUrl: value,
+                  repositoryProviderId: '',
+                  resolution: null,
+                  isResolvingProvider: false,
+                  error: null,
+                  message: null,
+                })
+              }
+            />
+            <div className="min-w-0">
+              <Label>resolved provider</Label>
+              <p className="mt-1 flex h-10 items-center truncate text-sm text-white">
+                {draft.isResolvingProvider
+                  ? '解決中...'
+                  : selectedProvider
+                    ? providerOptionLabel(selectedProvider)
+                    : '未解決'}
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 min-h-4 text-xs text-[#a8b0b8]">
+            {draft.isResolvingProvider
+              ? 'Provider を解決中...'
+              : selectedProvider
+                ? selectedProvider.baseUrl
+                : draft.error
+                  ? ''
+                  : resolutionText(draft.resolution)}
+          </p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <PathInput
+              label="local clone path"
+              value={draft.localClonePath}
+              placeholder="C:\\Users\\nkubo\\Dev\\my-repo"
+              onChange={(value) => {
+                const autoWorktreePath = getAutoWorktreePath(value);
+                onChange(draft.draftId, {
+                  localClonePath: value,
+                  worktreeRootPath:
+                    !draft.worktreeRootPath || draft.worktreeRootPath === draft.lastAutoWorktreePath
+                      ? autoWorktreePath
+                      : draft.worktreeRootPath,
+                  lastAutoWorktreePath: autoWorktreePath,
+                });
+              }}
+              onBrowse={() => onBrowse(draft, 'localClonePath')}
+            />
+            <PathInput
+              label="worktree root path"
+              value={draft.worktreeRootPath}
+              placeholder="C:\\Users\\nkubo\\Dev\\my-repo_worktree"
+              onChange={(value) => onChange(draft.draftId, { worktreeRootPath: value })}
+              onBrowse={() => onBrowse(draft, 'worktreeRootPath')}
+            />
+          </div>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => onChange(draft.draftId, { showSetupScript: !draft.showSetupScript })}
+              className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.12] px-3 text-sm text-white transition hover:border-[#d8e071]/35"
+            >
+              <motion.span
+                animate={{ rotate: draft.showSetupScript ? 180 : 0 }}
+                transition={{ duration: 0.18, ease: 'easeInOut' }}
+              >
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              </motion.span>
+              setup script
+            </button>
+            <AnimatePresence initial={false}>
+              {draft.showSetupScript ? (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <textarea
+                    value={draft.setupScriptText}
+                    onChange={(event) =>
+                      onChange(draft.draftId, { setupScriptText: event.target.value })
+                    }
+                    className="mt-3 min-h-[92px] w-full resize-y rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2 text-sm leading-6 text-white outline-none transition placeholder:text-[#68717b] focus:border-[#d8e071]/45"
+                    placeholder={'npm install;\nnpx prisma generate;'}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-h-5 flex-1">
+              <RowMessage error={draft.error} message={draft.message} />
+            </div>
+            <div className="flex gap-2">
+              <SecondaryButton disabled={draft.busy} onClick={() => onValidate(draft)}>
+                Validate
+              </SecondaryButton>
+              <PrimaryButton disabled={!canSave} onClick={() => onSave(draft)}>
+                Save
+              </PrimaryButton>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="grid items-center gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0">
+            <p className="break-all text-sm font-medium text-white">
+              {repositoryDisplayName(draft.originUrl)}
+            </p>
+            <p className="mt-1 text-xs text-[#8e98a4]">
+              {selectedProvider ? providerOptionLabel(selectedProvider) : 'Provider 未解決'}
+            </p>
+          </div>
+          <IconButton
+            label="Edit repository"
+            onClick={() =>
+              onChange(draft.draftId, {
+                isEditing: true,
+                showSetupScript: Boolean(draft.setupScriptText.trim()),
+                error: null,
+                message: null,
+              })
             }
-            className="mt-1 h-10 w-full rounded-lg border border-white/[0.12] bg-black/30 px-3 text-sm text-white outline-none transition focus:border-[#d8e071]/45"
           >
-            <option value="">Provider を選択</option>
-            {selectableProviders.map((provider) => (
-              <option key={provider.repositoryProviderId} value={provider.repositoryProviderId}>
-                {providerOptionLabel(provider)}
-              </option>
-            ))}
-          </select>
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+          </IconButton>
         </div>
-      </div>
-      <p className="mt-2 text-xs text-[#a8b0b8]">
-        {selectedProvider
-          ? `${selectedProvider.kind} / ${selectedProvider.baseUrl}`
-          : resolutionText(draft.resolution)}
-      </p>
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <PathInput
-          label="localClonePath"
-          value={draft.localClonePath}
-          placeholder="C:\\Users\\nkubo\\Dev\\my-repo"
-          onChange={(value) => {
-            const autoWorktreePath = getAutoWorktreePath(value);
-            onChange(draft.draftId, {
-              localClonePath: value,
-              worktreeRootPath:
-                !draft.worktreeRootPath || draft.worktreeRootPath === draft.lastAutoWorktreePath
-                  ? autoWorktreePath
-                  : draft.worktreeRootPath,
-              lastAutoWorktreePath: autoWorktreePath,
-            });
-          }}
-          onBrowse={() => onBrowse(draft, 'localClonePath')}
-        />
-        <PathInput
-          label="worktreeRootPath"
-          value={draft.worktreeRootPath}
-          placeholder="C:\\Users\\nkubo\\Dev\\my-repo_worktree"
-          onChange={(value) => onChange(draft.draftId, { worktreeRootPath: value })}
-          onBrowse={() => onBrowse(draft, 'worktreeRootPath')}
-        />
-      </div>
-      <div className="mt-4">
-        <Label>setupScript</Label>
-        <textarea
-          value={draft.setupScriptText}
-          onChange={(event) => onChange(draft.draftId, { setupScriptText: event.target.value })}
-          className="mt-1 min-h-[92px] w-full resize-y rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2 text-sm leading-6 text-white outline-none transition placeholder:text-[#68717b] focus:border-[#d8e071]/45"
-          placeholder={'npm install;\nnpx prisma generate;'}
-        />
-      </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="min-h-5 text-sm">
-          {draft.error || draft.message ? (
-            <span className={draft.error ? 'text-[#ffb4b4]' : 'text-[#cfd78a]'}>
-              {draft.error ?? draft.message}
-            </span>
-          ) : (
-            <span className="text-[#8e98a4]">
-              {isSaved ? '保存済み profile を編集できます。' : '入力後に検証して保存してください。'}
-            </span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <SecondaryButton onClick={() => onResolve(draft)}>
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Resolve
-          </SecondaryButton>
-          <SecondaryButton disabled={draft.busy} onClick={() => onValidate(draft)}>
-            Validate
-          </SecondaryButton>
-          <PrimaryButton disabled={draft.busy} onClick={() => onSave(draft)}>
-            Save
-          </PrimaryButton>
-        </div>
-      </div>
-    </div>
+      )}
+    </motion.div>
   );
 }
 
-function SectionHeader({
-  title,
-  description,
-  buttonLabel,
-  onAdd,
-}: {
-  title: string;
-  description?: string;
-  buttonLabel: string;
-  onAdd: () => void;
-}) {
+function RepositoryAddButton({ layoutId, onClick }: { layoutId: string; onClick: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div>
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        {description ? <p className="mt-1 text-sm text-[#a8b0b8]">{description}</p> : null}
-      </div>
-      <button
+    <div className="flex min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-white/[0.12] bg-black/[0.08]">
+      <motion.button
         type="button"
-        onClick={onAdd}
-        className="flex items-center gap-2 rounded-lg border border-white/[0.12] px-3 py-2 text-sm text-white transition hover:border-[#d8e071]/35"
+        layout
+        layoutId={layoutId}
+        onClick={onClick}
+        className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.12] px-4 text-sm font-medium text-white transition hover:border-[#d8e071]/35"
+        transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
       >
         <Plus className="h-4 w-4" aria-hidden="true" />
-        {buttonLabel}
-      </button>
+        Repository
+      </motion.button>
     </div>
   );
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <label className="text-xs font-medium uppercase tracking-[0.14em] text-[#8e98a4]">
-      {children}
-    </label>
-  );
+  return <label className="text-xs font-medium text-[#8e98a4]">{children}</label>;
 }
 
 function TextInput({
