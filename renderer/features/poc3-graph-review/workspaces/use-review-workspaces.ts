@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  GraphAnalysisEvent,
   RemoveReviewWorkspaceInput,
   RemoveReviewWorkspaceResult,
   WorkspaceCreationEvent,
@@ -51,7 +52,15 @@ export function useReviewWorkspaces() {
         }
       },
     );
-    return unsubscribe;
+    const unsubscribeGraph = window.poc3GraphReviewApi.onGraphAnalysisEvent((event) => {
+      if (shouldHydrateWorkspaceListForGraphEvent(event)) {
+        void hydrate();
+      }
+    });
+    return () => {
+      unsubscribe();
+      unsubscribeGraph();
+    };
   }, [hydrate]);
 
   const removeWorkspace = useCallback(
@@ -129,4 +138,11 @@ export function useReviewWorkspaces() {
     removeError,
     removeWorkspace,
   };
+}
+
+export function shouldHydrateWorkspaceListForGraphEvent(event: GraphAnalysisEvent): boolean {
+  return (
+    event.type === 'graph.ready' ||
+    (event.type === 'analysis.snapshot' && event.status === 'completed')
+  );
 }

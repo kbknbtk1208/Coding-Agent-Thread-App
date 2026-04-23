@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { GitPullRequest, Play, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ResolveReviewWorkspaceTargetResult } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type { ReviewWorkspaceCreationJobSnapshot } from '../../../../shared/poc3-contracts/graph-review-ipc';
 
 export const CREATE_WORKSPACE_LAYOUT_ID = 'poc3-create-workspace-surface';
 
@@ -12,7 +13,7 @@ const DIALOG_BLUR_EXIT_MS = 360;
 interface CreateWorkspaceDialogProps {
   open: boolean;
   onClose: () => void;
-  onStarted: (jobId: string) => void;
+  onStarted: (job: ReviewWorkspaceCreationJobSnapshot) => void;
 }
 
 export function CreateWorkspaceDialog({ open, onClose, onStarted }: CreateWorkspaceDialogProps) {
@@ -102,7 +103,7 @@ export function CreateWorkspaceDialog({ open, onClose, onStarted }: CreateWorksp
         reviewUrl: target.reviewUrl,
         repositoryProfileId: target.repositoryProfileId,
       });
-      onStarted(response.job.jobId);
+      onStarted(response.job);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Workspace 作成を開始できませんでした。');

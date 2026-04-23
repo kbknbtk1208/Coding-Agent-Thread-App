@@ -38,7 +38,11 @@ export interface CreationJobInputs {
 export interface ReviewWorkspaceCreationCoordinatorDeps {
   emit: (event: WorkspaceCreationEvent) => void;
   saveInitialWorkspaceBundle: (bundle: InitialWorkspaceBundle) => void;
-  enqueueInitialGraphAnalysis: (analysisRunId: string, revisionId: string) => void;
+  runInitialGraphAnalysis: (
+    analysisRunId: string,
+    revisionId: string,
+    onProgress?: (event: { phase: AnalysisRunSnapshot['phase']; message: string }) => void,
+  ) => Promise<AnalysisRunSnapshot>;
 }
 
 interface JobState {
@@ -138,6 +142,20 @@ export class ReviewWorkspaceCreationCoordinator {
 
   private setPhase(jobId: string, phase: WorkspaceCreationPhase): void {
     this.updateSnapshot(jobId, { phase, status: 'running' });
+  }
+
+  private setAnalysisPhase(jobId: string, phase: AnalysisRunSnapshot['phase']): void {
+    const mappedPhase: WorkspaceCreationPhase =
+      phase === 'program'
+        ? 'analysisProgram'
+        : phase === 'extract'
+          ? 'analysisExtract'
+          : phase === 'buildGraph'
+            ? 'analysisBuildGraph'
+            : phase === 'layout'
+              ? 'analysisLayout'
+              : 'analysisPersist';
+    this.setPhase(jobId, mappedPhase);
   }
 
   private fail(jobId: string, message: string): void {
@@ -290,10 +308,13 @@ export class ReviewWorkspaceCreationCoordinator {
     this.setPhase(jobId, 'startAnalysis');
     if (blockingSourceDiagnostic) {
       onLog(`[startAnalysis] graph analysis skipped: ${blockingSourceDiagnostic.code}`);
-    } else {
-      this.deps.enqueueInitialGraphAnalysis(analysisRun.analysisRunId, revisionId);
-      onLog(`[startAnalysis] graph analysis queued: ${analysisRun.analysisRunId}`);
+      throw new Error(blockingSourceDiagnostic.message);
     }
+    onLog(`[startAnalysis] graph analysis queued: ${analysisRun.analysisRunId}`);
+    await this.deps.runInitialGraphAnalysis(analysisRun.analysisRunId, revisionId, (event) => {
+      this.setAnalysisPhase(jobId, event.phase);
+      onLog(event.message);
+    });
 
     this.setPhase(jobId, 'done');
     this.updateSnapshot(jobId, { status: 'completed' });

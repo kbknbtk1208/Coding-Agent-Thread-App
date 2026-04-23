@@ -86,8 +86,12 @@ export class GraphReviewGateway {
     this.creationCoordinator = new ReviewWorkspaceCreationCoordinator({
       emit: (event) => this.emitWorkspaceCreationEvent(event),
       saveInitialWorkspaceBundle: (bundle) => this.graphStore.saveInitialWorkspaceBundle(bundle),
-      enqueueInitialGraphAnalysis: (analysisRunId, revisionId) =>
-        this.analysisCoordinator.enqueueInitialGraphAnalysis(analysisRunId, revisionId),
+      runInitialGraphAnalysis: (analysisRunId, revisionId, onProgress) =>
+        this.analysisCoordinator.runInitialGraphAnalysisAndWait(
+          analysisRunId,
+          revisionId,
+          onProgress,
+        ),
     });
   }
 
@@ -207,21 +211,24 @@ export class GraphReviewGateway {
       this.profileStore.list().map((profile) => [profile.repositoryProfileId, profile] as const),
     );
 
-    return this.graphStore.listWorkspaces().map((workspace) => {
-      const profile = profilesById.get(workspace.repositoryProfileId);
+    return this.graphStore
+      .listWorkspaces()
+      .filter((workspace) => this.isWorkspaceSelectable(workspace.reviewWorkspaceId))
+      .map((workspace) => {
+        const profile = profilesById.get(workspace.repositoryProfileId);
 
-      return {
-        reviewWorkspaceId: workspace.reviewWorkspaceId,
-        repositoryLabel: profile
-          ? repositoryLabelFromLocator(profile.repoLocator)
-          : workspace.repositoryProfileId,
-        provider: workspace.provider,
-        reviewId: workspace.reviewId,
-        title: workspace.title,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-      };
-    });
+        return {
+          reviewWorkspaceId: workspace.reviewWorkspaceId,
+          repositoryLabel: profile
+            ? repositoryLabelFromLocator(profile.repoLocator)
+            : workspace.repositoryProfileId,
+          provider: workspace.provider,
+          reviewId: workspace.reviewId,
+          title: workspace.title,
+          createdAt: workspace.createdAt,
+          updatedAt: workspace.updatedAt,
+        };
+      });
   }
 
   createReviewWorkspace(input: CreateReviewWorkspaceInput): ReviewWorkspaceCreationJobSnapshot {
@@ -458,6 +465,16 @@ export class GraphReviewGateway {
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
     };
+  }
+
+  private isWorkspaceSelectable(reviewWorkspaceId: string): boolean {
+    const record = this.graphStore.getWorkspaceGraphRecord(
+      reviewWorkspaceId,
+      INITIAL_GRAPH_SCOPE_KEY,
+    );
+    return Boolean(
+      record?.activeRevision && record.analysis?.status === 'completed' && record.graph,
+    );
   }
 }
 

@@ -1,5 +1,6 @@
 import type {
   InitialGraphAnalysisInput,
+  InitialGraphAnalysisProgress,
   InitialGraphAnalysisOutput,
 } from './analysis-worker-entry';
 import { runInitialGraphAnalysis } from './analysis-worker-entry';
@@ -18,13 +19,15 @@ function resolveWorkerEntryPath(): string | null {
 export class AnalysisWorkerClient {
   async runInitialGraphAnalysis(
     input: InitialGraphAnalysisInput,
+    onProgress?: (progress: InitialGraphAnalysisProgress) => void,
   ): Promise<InitialGraphAnalysisOutput> {
     const entry = resolveWorkerEntryPath();
     if (!entry) {
-      return runInitialGraphAnalysis(input);
+      return runInitialGraphAnalysis(input, { onProgress });
     }
 
     return new Promise<InitialGraphAnalysisOutput>((resolve, reject) => {
+      let settled = false;
       const worker = new Worker(
         `
           const fs = require('fs');
@@ -46,9 +49,15 @@ export class AnalysisWorkerClient {
           };
 
           Promise.resolve()
-            .then(() => require(workerData.entry).runInitialGraphAnalysis(workerData.input))
-            .then((result) => parentPort.postMessage({ ok: true, result }))
+            .then(() => {
+              const entrypoint = require(workerData.entry);
+              return entrypoint.runInitialGraphAnalysis(workerData.input, {
+                onProgress: (progress) => parentPort.postMessage({ type: 'progress', progress }),
+              });
+            })
+            .then((result) => parentPort.postMessage({ type: 'result', ok: true, result }))
             .catch((error) => parentPort.postMessage({
+              type: 'result',
               ok: false,
               message: error && error.message ? error.message : String(error),
               stack: error && error.stack ? error.stack : null,
@@ -59,11 +68,24 @@ export class AnalysisWorkerClient {
           workerData: { entry, input },
         },
       );
-      worker.once('message', (message: unknown) => {
+      worker.on('message', (message: unknown) => {
+        if (
+          message &&
+          typeof message === 'object' &&
+          'type' in message &&
+          message.type === 'progress' &&
+          'progress' in message
+        ) {
+          onProgress?.(message.progress as InitialGraphAnalysisProgress);
+          return;
+        }
+        settled = true;
         void worker.terminate();
         if (
           message &&
           typeof message === 'object' &&
+          'type' in message &&
+          message.type === 'result' &&
           'ok' in message &&
           message.ok === true &&
           'result' in message
@@ -72,17 +94,22 @@ export class AnalysisWorkerClient {
           return;
         }
         const errorMessage =
-          message && typeof message === 'object' && 'message' in message
+          message &&
+          typeof message === 'object' &&
+          'type' in message &&
+          message.type === 'result' &&
+          'message' in message
             ? String(message.message)
             : 'Analysis worker failed';
         reject(new Error(errorMessage));
       });
       worker.once('error', (err) => {
+        settled = true;
         void worker.terminate();
         reject(err);
       });
       worker.once('exit', (code) => {
-        if (code !== 0) {
+        if (!settled && code !== 0) {
           reject(new Error(`Analysis worker exited with code ${code}`));
         }
       });

@@ -1,7 +1,15 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Terminal, X } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  RefreshCw,
+  Terminal,
+  X,
+} from 'lucide-react';
 import type { ReviewWorkspaceCreationJobStatus } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import { Poc3MorphingShimmerText } from './poc3-morphing-shimmer-text';
 import type { WorkspaceCreationJobView } from './use-workspace-creation-jobs';
@@ -11,6 +19,7 @@ interface WorkspaceCreationCardProps {
   job: WorkspaceCreationJobView;
   onToggleExpand: (jobId: string) => void;
   onDismiss: (jobId: string) => void;
+  onRetry: (jobId: string) => void;
 }
 
 const STATUS_TONE: Record<ReviewWorkspaceCreationJobStatus, { iconText: string }> = {
@@ -37,6 +46,7 @@ export function WorkspaceCreationCard({
   job,
   onToggleExpand,
   onDismiss,
+  onRetry,
 }: WorkspaceCreationCardProps) {
   const tone = STATUS_TONE[job.status];
   const isCompleted = job.status === 'completed';
@@ -118,6 +128,21 @@ export function WorkspaceCreationCard({
             </motion.span>
           </div>
         </button>
+        {isFailed && job.reviewWorkspaceId ? (
+          <button
+            type="button"
+            aria-label="Retry graph analysis"
+            onClick={() => onRetry(job.jobId)}
+            disabled={job.retrying}
+            className="rounded-md p-1 text-[#8e98a4] transition hover:bg-white/[0.08] hover:text-white disabled:cursor-wait disabled:opacity-60"
+          >
+            {job.retrying ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
         {(isCompleted || isFailed) && (
           <button
             type="button"

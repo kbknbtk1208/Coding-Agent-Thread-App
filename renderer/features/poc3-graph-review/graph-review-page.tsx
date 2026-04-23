@@ -21,7 +21,8 @@ import { WorkspaceListCard } from './workspaces/workspace-list-card';
 export function GraphReviewPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const { jobs, toggleExpanded, dismissJob } = useWorkspaceCreationJobs();
+  const { jobs, toggleExpanded, dismissJob, retryJob, upsertJobSnapshot } =
+    useWorkspaceCreationJobs();
   const {
     selectedWorkspace,
     otherWorkspaces,
@@ -106,6 +107,7 @@ export function GraphReviewPage() {
             jobs={jobs}
             onToggleExpand={toggleExpanded}
             onDismiss={dismissJob}
+            onRetry={retryJob}
           />
         </div>
         <Poc3AnimatedProfileMenu items={menuItems} />
@@ -113,7 +115,10 @@ export function GraphReviewPage() {
         <CreateWorkspaceDialog
           open={createOpen && !workspaceRemovalRunning}
           onClose={() => setCreateOpen(false)}
-          onStarted={() => setCreateOpen(false)}
+          onStarted={(job) => {
+            upsertJobSnapshot(job);
+            setCreateOpen(false);
+          }}
         />
       </div>
     </LayoutGroup>

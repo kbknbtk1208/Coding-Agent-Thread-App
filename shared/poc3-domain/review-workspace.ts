@@ -70,6 +70,11 @@ export type WorkspaceCreationPhase =
   | 'runSetupScript'
   | 'persistWorkspace'
   | 'startAnalysis'
+  | 'analysisProgram'
+  | 'analysisExtract'
+  | 'analysisBuildGraph'
+  | 'analysisLayout'
+  | 'analysisPersist'
   | 'done';
 
 export type ReviewWorkspaceCreationJobStatus = 'queued' | 'running' | 'completed' | 'failed';
