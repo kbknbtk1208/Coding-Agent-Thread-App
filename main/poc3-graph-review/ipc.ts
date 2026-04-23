@@ -92,6 +92,10 @@ export function registerPoc3GraphReviewIpc(
     },
   );
 
+  ipcMain.handle(POC3_GRAPH_REVIEW_IPC_CHANNELS.listReviewWorkspaces, () => {
+    return { workspaces: gateway.listReviewWorkspaces() };
+  });
+
   ipcMain.handle(POC3_GRAPH_REVIEW_IPC_CHANNELS.listWorkspaceCreationJobs, () => {
     return { jobs: gateway.listWorkspaceCreationJobs() };
   });

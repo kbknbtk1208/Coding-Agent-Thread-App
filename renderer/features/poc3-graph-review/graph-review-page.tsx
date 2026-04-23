@@ -14,11 +14,14 @@ import {
 } from './workspace-create/create-workspace-dialog';
 import { useWorkspaceCreationJobs } from './workspace-create/use-workspace-creation-jobs';
 import { WorkspaceCreationStack } from './workspace-create/workspace-creation-stack';
+import { useReviewWorkspaces } from './workspaces/use-review-workspaces';
+import { WorkspaceListCard } from './workspaces/workspace-list-card';
 
 export function GraphReviewPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const { jobs, toggleExpanded, dismissJob } = useWorkspaceCreationJobs();
+  const { selectedWorkspace, otherWorkspaces, selectWorkspace } = useReviewWorkspaces();
 
   const menuItems = useMemo(
     () => [
@@ -118,11 +121,22 @@ export function GraphReviewPage() {
           </section>
         </main>
 
-        <WorkspaceCreationStack
-          jobs={jobs}
-          onToggleExpand={toggleExpanded}
-          onDismiss={dismissJob}
-        />
+        <div
+          className="pointer-events-none fixed left-4 top-4 z-40 flex w-[340px] flex-col gap-3"
+          role="region"
+          aria-label="Review Workspace controls"
+        >
+          <WorkspaceListCard
+            selectedWorkspace={selectedWorkspace}
+            otherWorkspaces={otherWorkspaces}
+            onSelectWorkspace={selectWorkspace}
+          />
+          <WorkspaceCreationStack
+            jobs={jobs}
+            onToggleExpand={toggleExpanded}
+            onDismiss={dismissJob}
+          />
+        </div>
         <Poc3AnimatedProfileMenu items={menuItems} />
         <RepositorySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <CreateWorkspaceDialog

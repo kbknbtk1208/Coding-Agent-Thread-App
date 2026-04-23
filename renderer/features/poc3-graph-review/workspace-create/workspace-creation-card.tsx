@@ -2,10 +2,8 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Terminal, X } from 'lucide-react';
-import type {
-  ReviewWorkspaceCreationJobStatus,
-  WorkspaceCreationPhase,
-} from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type { ReviewWorkspaceCreationJobStatus } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import { Poc3MorphingShimmerText } from './poc3-morphing-shimmer-text';
 import type { WorkspaceCreationJobView } from './use-workspace-creation-jobs';
 import { workspaceCardLayoutId } from './use-workspace-creation-jobs';
 
@@ -15,43 +13,25 @@ interface WorkspaceCreationCardProps {
   onDismiss: (jobId: string) => void;
 }
 
-const PHASE_LABELS: Record<WorkspaceCreationPhase, string> = {
-  resolveTarget: 'Target 解決',
-  loadSourceSnapshot: 'Provider 情報取得',
-  fetchSource: 'git fetch',
-  createWorktree: 'worktree 作成',
-  verifyHead: 'HEAD 照合',
-  runSetupScript: 'setup script 実行',
-  persistWorkspace: '保存',
-  startAnalysis: '解析開始',
-  done: '完了',
-};
-
-const STATUS_TONE: Record<
-  ReviewWorkspaceCreationJobStatus,
-  { border: string; glow: string; accent: string }
-> = {
+const STATUS_TONE: Record<ReviewWorkspaceCreationJobStatus, { iconText: string }> = {
   queued: {
-    border: 'border-white/[0.1]',
-    glow: 'shadow-[0_0_24px_rgba(0,0,0,0.4)]',
-    accent: 'text-[#a8b0b8]',
+    iconText: 'text-[#d6dae0]',
   },
   running: {
-    border: 'border-[#479ffa]/25',
-    glow: 'shadow-[0_0_28px_rgba(71,159,250,0.2)]',
-    accent: 'text-[#7ab5ff]',
+    iconText: 'text-[#e50914]',
   },
   completed: {
-    border: 'border-[#5ae5a0]/35',
-    glow: 'shadow-[0_0_32px_rgba(90,229,160,0.24)]',
-    accent: 'text-[#9bf0c3]',
+    iconText: 'text-[#4ebe96]',
   },
   failed: {
-    border: 'border-[#ff5c5c]/40',
-    glow: 'shadow-[0_0_32px_rgba(255,92,92,0.22)]',
-    accent: 'text-[#ffb4b4]',
+    iconText: 'text-[#ff5c5c]',
   },
 };
+
+const FEY_BORDER_GRADIENT =
+  'linear-gradient(210deg, rgba(255, 255, 255, 0.22) 6.2%, rgba(20, 20, 20, 0.5) 21.56%, rgba(50, 50, 50, 0.5) 69.03%, rgba(255, 255, 255, 0.4) 96.99%) border-box';
+
+const FEY_BORDER_MASK = 'linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0)';
 
 export function WorkspaceCreationCard({
   job,
@@ -61,7 +41,8 @@ export function WorkspaceCreationCard({
   const tone = STATUS_TONE[job.status];
   const isCompleted = job.status === 'completed';
   const isFailed = job.status === 'failed';
-  const phaseLabel = PHASE_LABELS[job.phase];
+  const latestLogLine = job.latestLogLine ?? '準備中...';
+  const shouldShimmerLog = job.status === 'running';
 
   return (
     <motion.div
@@ -71,39 +52,71 @@ export function WorkspaceCreationCard({
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: -16, scale: 0.94, transition: { duration: 0.2 } }}
       transition={{ duration: 0.32, ease: [0.4, 0, 0.2, 1] }}
-      className={`pointer-events-auto relative w-[340px] overflow-hidden rounded-xl border ${tone.border} bg-[#131313]/85 text-white backdrop-blur-[8px] ${tone.glow}`}
+      className="pointer-events-auto relative isolate min-h-16 w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[7px] bg-[#131313]/85 px-5 text-white shadow-[0_0_44px_rgba(0,0,0,0.8)] backdrop-blur-[6px] transition-colors hover:bg-[#212121]/80"
     >
-      <div className="flex w-full items-center gap-2 px-3 py-2.5">
+      <FeyNoiseFilter />
+      <div
+        className="pointer-events-none absolute inset-0 z-0 bg-white opacity-[0.05]"
+        style={{
+          filter: 'url("#poc3-fey-card-noise")',
+        }}
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute inset-0 z-0 rounded-[7px] border border-transparent opacity-50"
+        style={{
+          background: FEY_BORDER_GRADIENT,
+          WebkitMask: FEY_BORDER_MASK,
+          mask: FEY_BORDER_MASK,
+          WebkitMaskComposite: 'xor',
+          maskComposite: 'exclude',
+        }}
+        aria-hidden="true"
+      />
+
+      <div className="relative z-10 flex h-16 w-full items-center gap-2">
         <button
           type="button"
           onClick={() => onToggleExpand(job.jobId)}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:opacity-90"
+          className="flex h-full min-w-0 flex-1 items-center justify-between text-left"
           aria-expanded={job.expanded}
           aria-label={`Toggle ${job.repositoryLabel} creation log`}
         >
-          <StatusIcon status={job.status} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+          <div className="flex min-w-0 flex-1 items-center gap-[14px]">
+            <StatusIcon status={job.status} tone={tone} shimmer={shouldShimmerLog} />
+            <div className="h-7 w-px shrink-0 bg-black/45" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p
+                className="truncate text-sm font-bold leading-4 text-[#e6e6e6]"
+                title={job.repositoryLabel}
+              >
                 {job.repositoryLabel}
               </p>
-              <p
-                className={`shrink-0 whitespace-nowrap text-[10px] font-medium uppercase tracking-wide ${tone.accent}`}
-              >
-                {phaseLabel}
-              </p>
+              {shouldShimmerLog ? (
+                <Poc3MorphingShimmerText
+                  text={latestLogLine}
+                  className="mt-1 block truncate whitespace-nowrap text-sm leading-[17px]"
+                  title={latestLogLine}
+                />
+              ) : (
+                <p
+                  className="mt-1 truncate text-sm leading-[17px] text-[#e6e6e6]/80"
+                  title={latestLogLine}
+                >
+                  {latestLogLine}
+                </p>
+              )}
             </div>
-            <p className="mt-0.5 truncate text-xs text-[#8e98a4]">
-              {job.latestLogLine ?? '準備中...'}
-            </p>
           </div>
-          <motion.span
-            animate={{ rotate: job.expanded ? 180 : 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="text-[#8e98a4]"
-          >
-            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-          </motion.span>
+          <div className="flex shrink-0 items-center gap-2 pl-2">
+            <motion.span
+              animate={{ rotate: job.expanded ? 180 : 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="grid h-7 w-6 place-items-center text-[#111]"
+            >
+              <ChevronDown className="h-4 w-4 opacity-80" aria-hidden="true" />
+            </motion.span>
+          </div>
         </button>
         {(isCompleted || isFailed) && (
           <button
@@ -125,7 +138,7 @@ export function WorkspaceCreationCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
-            className="overflow-hidden border-t border-white/[0.08] bg-black/20"
+            className="relative z-10 overflow-hidden border-t border-white/[0.08] bg-[#131313]/95"
           >
             <ExpandedContent job={job} />
           </motion.div>
@@ -137,25 +150,77 @@ export function WorkspaceCreationCard({
   );
 }
 
-function StatusIcon({ status }: { status: ReviewWorkspaceCreationJobStatus }) {
+function FeyNoiseFilter() {
+  return (
+    <svg aria-hidden="true" className="pointer-events-none absolute h-0 w-0">
+      <filter id="poc3-fey-card-noise">
+        <feTurbulence baseFrequency="0.86" numOctaves="4" seed="7" type="fractalNoise" />
+        <feColorMatrix type="saturate" values="0" />
+      </filter>
+    </svg>
+  );
+}
+
+function StatusIcon({
+  status,
+  tone,
+  shimmer,
+}: {
+  status: ReviewWorkspaceCreationJobStatus;
+  tone: (typeof STATUS_TONE)[ReviewWorkspaceCreationJobStatus];
+  shimmer: boolean;
+}) {
   if (status === 'completed') {
     return (
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#5ae5a0]/15 text-[#9bf0c3]">
+      <span
+        className={`relative grid h-[30px] w-[30px] place-items-center rounded-[7px] ${tone.iconText}`}
+      >
         <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
       </span>
     );
   }
   if (status === 'failed') {
     return (
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#ff5c5c]/15 text-[#ffb4b4]">
+      <span
+        className={`relative grid h-[30px] w-[30px] place-items-center rounded-[7px] ${tone.iconText}`}
+      >
         <AlertCircle className="h-4 w-4" aria-hidden="true" />
       </span>
     );
   }
   return (
-    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#479ffa]/15 text-[#7ab5ff]">
-      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+    <span
+      className={`relative grid h-[30px] w-[30px] place-items-center rounded-[7px] ${tone.iconText}`}
+    >
+      {shimmer ? (
+        <ShimmerLoaderIcon />
+      ) : (
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+      )}
     </span>
+  );
+}
+
+function ShimmerLoaderIcon() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="poc3-loader-shimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.42)" />
+          <stop offset="38%" stopColor="rgba(255,255,255,0.96)" />
+          <stop offset="52%" stopColor="rgba(255,161,108,0.9)" />
+          <stop offset="72%" stopColor="rgba(134,143,151,0.82)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0.56)" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M21 12a9 9 0 1 1-6.219-8.56"
+        stroke="url(#poc3-loader-shimmer)"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

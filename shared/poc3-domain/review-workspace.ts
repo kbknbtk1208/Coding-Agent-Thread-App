@@ -1,6 +1,10 @@
-import type { RepositorySetupScript } from './repository';
+import type { RepositoryLocator, RepositorySetupScript } from './repository';
 
 export type ReviewProviderKind = 'github' | 'gitlab';
+
+export function repositoryLabelFromLocator(locator: RepositoryLocator): string {
+  return locator.kind === 'github' ? `${locator.owner}/${locator.repo}` : locator.projectPathOrId;
+}
 
 export interface ReviewWorkspace {
   reviewWorkspaceId: string;
@@ -15,6 +19,16 @@ export interface ReviewWorkspace {
   worktreePath: string;
   setupStatus: 'pending' | 'running' | 'completed' | 'failed';
   status: 'active' | 'inactive' | 'archived' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReviewWorkspaceListItem {
+  reviewWorkspaceId: string;
+  repositoryLabel: string;
+  provider: ReviewProviderKind;
+  reviewId: string;
+  title: string;
   createdAt: string;
   updatedAt: string;
 }

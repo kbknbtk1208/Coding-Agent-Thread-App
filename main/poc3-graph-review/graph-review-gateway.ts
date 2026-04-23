@@ -8,10 +8,12 @@ import type {
   RepositoryProviderSecretInput,
   ResolveRepositoryProviderResult,
 } from '../../shared/poc3-domain/repository';
-import type {
-  ResolveReviewWorkspaceTargetResult,
-  ReviewWorkspaceCreationJobSnapshot,
-  WorkspaceCreationEvent,
+import {
+  repositoryLabelFromLocator,
+  type ResolveReviewWorkspaceTargetResult,
+  type ReviewWorkspaceCreationJobSnapshot,
+  type ReviewWorkspaceListItem,
+  type WorkspaceCreationEvent,
 } from '../../shared/poc3-domain/review-workspace';
 import { apiEndpointForProvider } from './source/repository-url';
 import { RepositoryProfileStore } from './workspace/repository-profile-store';
@@ -158,6 +160,28 @@ export class GraphReviewGateway {
       this.providerStore.listInternal(),
       this.profileStore.list(),
     );
+  }
+
+  listReviewWorkspaces(): ReviewWorkspaceListItem[] {
+    const profilesById = new Map(
+      this.profileStore.list().map((profile) => [profile.repositoryProfileId, profile] as const),
+    );
+
+    return this.workspaceStore.list().map((workspace) => {
+      const profile = profilesById.get(workspace.repositoryProfileId);
+
+      return {
+        reviewWorkspaceId: workspace.reviewWorkspaceId,
+        repositoryLabel: profile
+          ? repositoryLabelFromLocator(profile.repoLocator)
+          : workspace.repositoryProfileId,
+        provider: workspace.provider,
+        reviewId: workspace.reviewId,
+        title: workspace.title,
+        createdAt: workspace.createdAt,
+        updatedAt: workspace.updatedAt,
+      };
+    });
   }
 
   createReviewWorkspace(input: CreateReviewWorkspaceInput): ReviewWorkspaceCreationJobSnapshot {

@@ -17,7 +17,7 @@ export function WorkspaceCreationStack({
 }: WorkspaceCreationStackProps) {
   return (
     <div
-      className="pointer-events-none fixed left-4 top-4 z-40 flex flex-col gap-3"
+      className="pointer-events-none flex flex-col gap-3"
       role="region"
       aria-label="Review Workspace creation jobs"
     >

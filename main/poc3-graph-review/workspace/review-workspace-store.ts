@@ -67,7 +67,7 @@ export class ReviewWorkspaceStore {
 
   list(): ReviewWorkspace[] {
     const rows = this.db
-      .prepare('SELECT * FROM review_workspaces ORDER BY updated_at DESC')
+      .prepare('SELECT * FROM review_workspaces ORDER BY created_at DESC')
       .all() as ReviewWorkspaceRow[];
     return rows.map((row) => this.rowToWorkspace(row));
   }

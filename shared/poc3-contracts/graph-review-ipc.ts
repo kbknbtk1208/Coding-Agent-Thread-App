@@ -9,6 +9,7 @@ import type {
 } from '../poc3-domain/repository';
 import type {
   ResolveReviewWorkspaceTargetResult,
+  ReviewWorkspaceListItem,
   ReviewWorkspaceCreationJobSnapshot,
   WorkspaceCreationEvent,
 } from '../poc3-domain/review-workspace';
@@ -16,6 +17,7 @@ import type {
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
+  ReviewWorkspaceListItem,
   ReviewWorkspaceCreationJobSnapshot,
   WorkspaceCreationEvent,
   WorkspaceCreationPhase,
@@ -34,6 +36,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   browseDirectory: 'poc3:system:browse-directory',
   resolveReviewWorkspaceTarget: 'poc3:workspace:resolve-review-url',
   createReviewWorkspace: 'poc3:workspace:create',
+  listReviewWorkspaces: 'poc3:workspace:list',
   listWorkspaceCreationJobs: 'poc3:workspace:creation-job:list',
   workspaceCreationEvent: 'poc3:workspace:creation-job:event',
 } as const;
@@ -105,6 +108,10 @@ export interface CreateReviewWorkspaceResult {
   job: ReviewWorkspaceCreationJobSnapshot;
 }
 
+export interface ListReviewWorkspacesResult {
+  workspaces: ReviewWorkspaceListItem[];
+}
+
 export interface ListWorkspaceCreationJobsResult {
   jobs: ReviewWorkspaceCreationJobSnapshot[];
 }
@@ -126,6 +133,7 @@ export interface Poc3GraphReviewApi {
     input: ResolveReviewWorkspaceTargetInput,
   ): Promise<ResolveReviewWorkspaceTargetResult>;
   createReviewWorkspace(input: CreateReviewWorkspaceInput): Promise<CreateReviewWorkspaceResult>;
+  listReviewWorkspaces(): Promise<ListReviewWorkspacesResult>;
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
 }
