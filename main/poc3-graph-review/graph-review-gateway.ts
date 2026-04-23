@@ -1,8 +1,21 @@
 import { randomUUID } from 'crypto';
 import type {
+  LoadWorkspaceGraphInput,
+  LoadWorkspaceGraphResult,
   RemoveReviewWorkspaceInput,
   RemoveReviewWorkspaceResult,
+  RetryGraphAnalysisInput,
+  RetryGraphAnalysisResult,
 } from '../../shared/poc3-contracts/graph-review-ipc';
+import type {
+  CodeGraphSnapshot,
+  GraphAnalysisEvent,
+  GraphDiagnostic,
+  GraphNodeLayout,
+  GraphRenderSnapshot,
+  LayoutSnapshot,
+} from '../../shared/poc3-domain/graph';
+import { INITIAL_GRAPH_SCOPE_KEY } from '../../shared/poc3-domain/graph';
 import type {
   PublicRepositoryProvider,
   RepositoryProfile,
@@ -14,6 +27,7 @@ import type {
 } from '../../shared/poc3-domain/repository';
 import {
   repositoryLabelFromLocator,
+  type ReviewWorkspace,
   type ResolveReviewWorkspaceTargetResult,
   type ReviewWorkspaceCreationJobSnapshot,
   type ReviewWorkspaceListItem,
@@ -28,9 +42,11 @@ import {
 import { validateRepositoryProfileInput } from './workspace/repository-profile-validator';
 import { RepositoryProviderStore } from './workspace/repository-provider-store';
 import { ReviewWorkspaceCreationCoordinator } from './workspace/review-workspace-creation-coordinator';
-import { ReviewWorkspaceStore } from './workspace/review-workspace-store';
 import { resolveReviewWorkspaceTarget } from './workspace/review-workspace-target-resolver';
 import { removeWorktree } from './workspace/worktree-manager';
+import { AnalysisCoordinator } from './analysis/analysis-coordinator';
+import { fallbackGridLayout } from './layout/elk-layout-service';
+import { GraphReviewStore } from './store/graph-review-store';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -51,20 +67,27 @@ function isForceRecoverableWorktreeRemoveError(message: string): boolean {
 export class GraphReviewGateway {
   private readonly providerStore: RepositoryProviderStore;
   private readonly profileStore: RepositoryProfileStore;
-  private readonly workspaceStore: ReviewWorkspaceStore;
+  private readonly graphStore: GraphReviewStore;
+  private readonly analysisCoordinator: AnalysisCoordinator;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
   private removingWorkspaceId: string | null = null;
 
   constructor(
     userDataPath: string,
     private readonly emitWorkspaceCreationEvent: (event: WorkspaceCreationEvent) => void,
+    private readonly emitGraphAnalysisEvent: (event: GraphAnalysisEvent) => void = () => undefined,
   ) {
     this.providerStore = new RepositoryProviderStore(userDataPath);
     this.profileStore = new RepositoryProfileStore(userDataPath);
-    this.workspaceStore = new ReviewWorkspaceStore(userDataPath);
+    this.graphStore = new GraphReviewStore(userDataPath);
+    this.analysisCoordinator = new AnalysisCoordinator(this.graphStore, (event) =>
+      this.emitGraphAnalysisEvent(event),
+    );
     this.creationCoordinator = new ReviewWorkspaceCreationCoordinator({
       emit: (event) => this.emitWorkspaceCreationEvent(event),
-      saveReviewWorkspace: (workspace) => this.workspaceStore.save(workspace),
+      saveInitialWorkspaceBundle: (bundle) => this.graphStore.saveInitialWorkspaceBundle(bundle),
+      enqueueInitialGraphAnalysis: (analysisRunId, revisionId) =>
+        this.analysisCoordinator.enqueueInitialGraphAnalysis(analysisRunId, revisionId),
     });
   }
 
@@ -184,7 +207,7 @@ export class GraphReviewGateway {
       this.profileStore.list().map((profile) => [profile.repositoryProfileId, profile] as const),
     );
 
-    return this.workspaceStore.list().map((workspace) => {
+    return this.graphStore.listWorkspaces().map((workspace) => {
       const profile = profilesById.get(workspace.repositoryProfileId);
 
       return {
@@ -251,7 +274,7 @@ export class GraphReviewGateway {
       };
     }
 
-    const workspace = this.workspaceStore.get(reviewWorkspaceId);
+    const workspace = this.graphStore.getWorkspace(reviewWorkspaceId);
     if (!workspace) {
       return {
         ok: false,
@@ -275,7 +298,7 @@ export class GraphReviewGateway {
     this.removingWorkspaceId = reviewWorkspaceId;
     try {
       await removeWorktree(profile.localClonePath, workspace.worktreePath, force);
-      this.workspaceStore.delete(reviewWorkspaceId);
+      this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'git worktree remove が失敗しました。';
@@ -297,9 +320,190 @@ export class GraphReviewGateway {
     return this.creationCoordinator.listJobs();
   }
 
+  loadWorkspaceGraph(input: LoadWorkspaceGraphInput): LoadWorkspaceGraphResult {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const scopeKey = input.scopeKey ?? INITIAL_GRAPH_SCOPE_KEY;
+    const record = this.graphStore.getWorkspaceGraphRecord(reviewWorkspaceId, scopeKey);
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        analysis: null,
+      };
+    }
+    if (!record.activeRevision) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Active revision が見つかりません。',
+        analysis: null,
+        revision: null,
+      };
+    }
+    if (record.analysis?.status === 'failed') {
+      return {
+        ok: false,
+        reason: 'analysisFailed',
+        message: record.analysis.errorMessage ?? 'Graph analysis が失敗しました。',
+        analysis: record.analysis,
+        revision: record.activeRevision,
+      };
+    }
+    if (
+      !record.analysis ||
+      record.analysis.status === 'queued' ||
+      record.analysis.status === 'running'
+    ) {
+      return {
+        ok: false,
+        reason: 'graphNotReady',
+        message: 'Graph analysis がまだ完了していません。',
+        analysis: record.analysis,
+        revision: record.activeRevision,
+      };
+    }
+    if (!record.graph) {
+      return {
+        ok: false,
+        reason: 'graphNotReady',
+        message: 'Graph snapshot がまだ保存されていません。',
+        analysis: record.analysis,
+        revision: record.activeRevision,
+      };
+    }
+
+    return {
+      ok: true,
+      workspace: this.toListItem(record.workspace),
+      revision: record.activeRevision,
+      analysis: record.analysis,
+      graph: toRenderSnapshot(record.graph, record.layout),
+    };
+  }
+
+  retryGraphAnalysis(input: RetryGraphAnalysisInput): RetryGraphAnalysisResult {
+    const record = this.graphStore.getWorkspaceGraphRecord(
+      input.reviewWorkspaceId.trim(),
+      input.scopeKey ?? INITIAL_GRAPH_SCOPE_KEY,
+    );
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        analysis: null,
+      };
+    }
+    if (!record.activeRevision) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Active revision が見つかりません。',
+        analysis: null,
+      };
+    }
+    const sourceDiagnostics = record.analysis?.progress.sourceDiagnostics;
+    const hasBlockingSourceDiagnostic =
+      Array.isArray(sourceDiagnostics) &&
+      sourceDiagnostics.some(
+        (diagnostic) =>
+          typeof diagnostic === 'object' &&
+          diagnostic !== null &&
+          'code' in diagnostic &&
+          (diagnostic.code === 'CHANGED_FILES_LIMIT_EXCEEDED' ||
+            diagnostic.code === 'DIFF_TRUNCATED'),
+      );
+    if (hasBlockingSourceDiagnostic) {
+      return {
+        ok: false,
+        reason: 'enqueueFailed',
+        message: '不完全な diff snapshot のため retry できません。',
+        analysis: record.analysis,
+      };
+    }
+    try {
+      return {
+        ok: true,
+        analysis: this.analysisCoordinator.retryInitialGraphAnalysis(
+          record.activeRevision.revisionId,
+        ),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: 'enqueueFailed',
+        message: err instanceof Error ? err.message : 'Graph analysis retry に失敗しました。',
+        analysis: record.analysis,
+      };
+    }
+  }
+
   dispose(): void {
     this.providerStore.close();
     this.profileStore.close();
-    this.workspaceStore.close();
+    this.graphStore.close();
   }
+
+  private toListItem(workspace: ReviewWorkspace): ReviewWorkspaceListItem {
+    const profile = this.profileStore.get(workspace.repositoryProfileId);
+    return {
+      reviewWorkspaceId: workspace.reviewWorkspaceId,
+      repositoryLabel: profile
+        ? repositoryLabelFromLocator(profile.repoLocator)
+        : workspace.repositoryProfileId,
+      provider: workspace.provider,
+      reviewId: workspace.reviewId,
+      title: workspace.title,
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+    };
+  }
+}
+
+function nodeSize(node: CodeGraphSnapshot['nodes'][number]): { width: number; height: number } {
+  if (node.kind === 'module') {
+    return { width: 220, height: 64 };
+  }
+  if (node.kind === 'external') {
+    return { width: 160, height: 44 };
+  }
+  return { width: 180, height: 52 };
+}
+
+function toRenderSnapshot(
+  graph: CodeGraphSnapshot,
+  layout: LayoutSnapshot | null,
+): GraphRenderSnapshot {
+  const diagnostics: GraphDiagnostic[] = [...graph.diagnostics];
+  const positions: Record<string, GraphNodeLayout> = layout?.positions ?? fallbackGridLayout(graph);
+  if (!layout) {
+    diagnostics.push({
+      code: 'LAYOUT_MISSING_FALLBACK_GRID',
+      message: 'Layout snapshot がないため fallback layout を使用しました。',
+      severity: 'warning',
+    });
+  }
+  return {
+    revisionId: graph.revisionId,
+    graphSnapshotId: graph.graphSnapshotId,
+    scopeKey: graph.scopeKey,
+    status: graph.status,
+    nodes: graph.nodes.map((node) => {
+      const position = positions[node.nodeId] ?? { x: 0, y: 0, ...nodeSize(node) };
+      return {
+        ...node,
+        position: { x: position.x, y: position.y },
+        size: { width: position.width, height: position.height },
+        extent: null,
+      };
+    }),
+    edges: graph.edges.map((edge) => ({
+      ...edge,
+      label: edge.kind === 'calls' ? null : edge.kind,
+    })),
+    viewport: layout?.viewport ?? null,
+    limits: graph.limits,
+    diagnostics,
+  };
 }

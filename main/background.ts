@@ -124,12 +124,21 @@ if (isProd) {
   });
 
   const reviewGateway = new ReviewGateway({ agentGateway: gateway });
-  const graphReviewGateway = new GraphReviewGateway(app.getPath('userData'), (event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      return;
-    }
-    mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.workspaceCreationEvent, event);
-  });
+  const graphReviewGateway = new GraphReviewGateway(
+    app.getPath('userData'),
+    (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.workspaceCreationEvent, event);
+    },
+    (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, event);
+    },
+  );
 
   ipcMain.handle(REVIEW_IPC_CHANNELS.loadReviewSource, (_event, input: LoadReviewSourceInput) => {
     return reviewGateway.loadReviewSource(input.source);

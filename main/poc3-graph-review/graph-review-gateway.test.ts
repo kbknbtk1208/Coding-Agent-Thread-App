@@ -86,6 +86,58 @@ vi.mock('./workspace/review-workspace-store', () => ({
   },
 }));
 
+vi.mock('./store/graph-review-store', () => ({
+  GraphReviewStore: class GraphReviewStoreMock {
+    private readonly workspaces = new Map<string, ReviewWorkspace>();
+
+    listWorkspaces(): ReviewWorkspace[] {
+      return Array.from(this.workspaces.values());
+    }
+
+    getWorkspace(reviewWorkspaceId: string): ReviewWorkspace | null {
+      return this.workspaces.get(reviewWorkspaceId) ?? null;
+    }
+
+    saveWorkspace(workspace: ReviewWorkspace): ReviewWorkspace {
+      this.workspaces.set(workspace.reviewWorkspaceId, workspace);
+      return workspace;
+    }
+
+    saveInitialWorkspaceBundle(bundle: { workspace: ReviewWorkspace }): {
+      workspace: ReviewWorkspace;
+    } {
+      this.workspaces.set(bundle.workspace.reviewWorkspaceId, bundle.workspace);
+      return bundle;
+    }
+
+    deleteWorkspaceBundle(reviewWorkspaceId: string): void {
+      this.workspaces.delete(reviewWorkspaceId);
+    }
+
+    getWorkspaceGraphRecord(): null {
+      return null;
+    }
+
+    updateAnalysisRun(): null {
+      return null;
+    }
+
+    saveAnalysisRun(): void {}
+
+    getRevision(): null {
+      return null;
+    }
+
+    getSourceSnapshotByRevision(): null {
+      return null;
+    }
+
+    saveGraphAndLayout(): void {}
+
+    close(): void {}
+  },
+}));
+
 function createTempDir(tempDirs: string[]): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-thread-app-'));
   tempDirs.push(tempDir);
@@ -139,13 +191,15 @@ function seedGateway(tempDirs: string[]) {
   const gateway = new GraphReviewGateway(createTempDir(tempDirs), () => undefined);
   const stores = gateway as unknown as {
     profileStore: { save: (profile: RepositoryProfile) => RepositoryProfile };
-    workspaceStore: {
+    graphStore: {
       save: (workspace: ReviewWorkspace) => ReviewWorkspace;
       get: (reviewWorkspaceId: string) => ReviewWorkspace | null;
+      saveWorkspace: (workspace: ReviewWorkspace) => ReviewWorkspace;
+      getWorkspace: (reviewWorkspaceId: string) => ReviewWorkspace | null;
     };
   };
   stores.profileStore.save(createProfile());
-  stores.workspaceStore.save(createWorkspace());
+  stores.graphStore.saveWorkspace(createWorkspace());
   return { gateway, stores };
 }
 
@@ -174,7 +228,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
         'C:\\worktrees\\project-pr-123',
         false,
       );
-      expect(stores.workspaceStore.get('workspace-1')).toBeNull();
+      expect(stores.graphStore.getWorkspace('workspace-1')).toBeNull();
     } finally {
       gateway.dispose();
     }
@@ -197,7 +251,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
         reason: 'forceRequired',
         message: 'contains modified or untracked files, use --force to delete it',
       });
-      expect(stores.workspaceStore.get('workspace-1')).toEqual(createWorkspace());
+      expect(stores.graphStore.getWorkspace('workspace-1')).toEqual(createWorkspace());
     } finally {
       gateway.dispose();
     }
@@ -218,7 +272,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
         reason: 'gitFailed',
         message: 'not a git repository',
       });
-      expect(stores.workspaceStore.get('workspace-1')).toEqual(createWorkspace());
+      expect(stores.graphStore.getWorkspace('workspace-1')).toEqual(createWorkspace());
     } finally {
       gateway.dispose();
     }
@@ -303,7 +357,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
         'C:\\worktrees\\project-pr-123',
         true,
       );
-      expect(stores.workspaceStore.get('workspace-1')).toBeNull();
+      expect(stores.graphStore.getWorkspace('workspace-1')).toBeNull();
     } finally {
       gateway.dispose();
     }
@@ -325,7 +379,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
         reason: 'gitFailed',
         message: 'remove failed',
       });
-      expect(stores.workspaceStore.get('workspace-1')).toEqual(createWorkspace());
+      expect(stores.graphStore.getWorkspace('workspace-1')).toEqual(createWorkspace());
     } finally {
       gateway.dispose();
     }

@@ -1,6 +1,9 @@
 import path from 'path';
 import { randomUUID } from 'crypto';
 import type { RepositoryProvider, RepositoryProfile } from '../../../shared/poc3-domain/repository';
+import type { AnalysisRunSnapshot } from '../../../shared/poc3-domain/graph';
+import type { RevisionContext } from '../../../shared/poc3-domain/revision';
+import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
 import type {
   ReviewWorkspace,
   ReviewWorkspaceCreationJobSnapshot,
@@ -17,6 +20,8 @@ import {
 } from './worktree-manager';
 import { runSetupScript } from './setup-script-runner';
 import { fetchReviewSourceSnapshot } from '../source/review-source-gateway';
+import { createQueuedInitialAnalysisRun } from '../analysis/analysis-coordinator';
+import type { InitialWorkspaceBundle } from '../store/graph-review-store';
 
 const MAX_LOG_LINES = 500;
 
@@ -32,7 +37,8 @@ export interface CreationJobInputs {
 
 export interface ReviewWorkspaceCreationCoordinatorDeps {
   emit: (event: WorkspaceCreationEvent) => void;
-  saveReviewWorkspace: (workspace: ReviewWorkspace) => void;
+  saveInitialWorkspaceBundle: (bundle: InitialWorkspaceBundle) => void;
+  enqueueInitialGraphAnalysis: (analysisRunId: string, revisionId: string) => void;
 }
 
 interface JobState {
@@ -228,12 +234,66 @@ export class ReviewWorkspaceCreationCoordinator {
       createdAt: persistedAt,
       updatedAt: persistedAt,
     };
-    this.deps.saveReviewWorkspace(persisted);
+    const revisionId = randomUUID();
+    const revision: RevisionContext = {
+      revisionId,
+      reviewWorkspaceId,
+      provider: target.provider,
+      reviewId: target.reviewId,
+      baseSha: snapshot.baseSha,
+      headSha: snapshot.headSha,
+      startSha: snapshot.startSha,
+      sourceBranchName: snapshot.sourceBranchName,
+      diffVersion: snapshot.diffVersion,
+      isActive: true,
+      status: 'active',
+      createdAt: persistedAt,
+      updatedAt: persistedAt,
+    };
+    const sourceSnapshot: ReviewSourceSnapshot = {
+      sourceSnapshotId: randomUUID(),
+      revisionId,
+      provider: target.provider,
+      reviewId: target.reviewId,
+      title: snapshot.title,
+      description: snapshot.description,
+      baseSha: snapshot.baseSha,
+      headSha: snapshot.headSha,
+      startSha: snapshot.startSha,
+      diffVersion: snapshot.diffVersion,
+      changedFiles: snapshot.changedFiles,
+      remoteThreadsSummary: [],
+      createdAt: persistedAt,
+      updatedAt: persistedAt,
+    };
+    const sourceDiagnostics = snapshot.diagnostics;
+    const blockingSourceDiagnostic = sourceDiagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === 'CHANGED_FILES_LIMIT_EXCEEDED' || diagnostic.code === 'DIFF_TRUNCATED',
+    );
+    const analysisRun: AnalysisRunSnapshot = {
+      ...createQueuedInitialAnalysisRun(revisionId),
+      status: blockingSourceDiagnostic ? 'failed' : 'queued',
+      errorMessage: blockingSourceDiagnostic?.message ?? null,
+      completedAt: blockingSourceDiagnostic ? persistedAt : null,
+      progress: sourceDiagnostics.length > 0 ? { sourceDiagnostics } : {},
+    };
+    this.deps.saveInitialWorkspaceBundle({
+      workspace: persisted,
+      revision,
+      sourceSnapshot,
+      analysisRun,
+    });
     onLog(`[persistWorkspace] reviewWorkspaceId=${reviewWorkspaceId}`);
     this.updateSnapshot(jobId, { reviewWorkspaceId });
 
     this.setPhase(jobId, 'startAnalysis');
-    onLog('[startAnalysis] 初期 graph analysis を stub として enqueue しました。');
+    if (blockingSourceDiagnostic) {
+      onLog(`[startAnalysis] graph analysis skipped: ${blockingSourceDiagnostic.code}`);
+    } else {
+      this.deps.enqueueInitialGraphAnalysis(analysisRun.analysisRunId, revisionId);
+      onLog(`[startAnalysis] graph analysis queued: ${analysisRun.analysisRunId}`);
+    }
 
     this.setPhase(jobId, 'done');
     this.updateSnapshot(jobId, { status: 'completed' });

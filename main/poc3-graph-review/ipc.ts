@@ -2,7 +2,9 @@ import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'ele
 import type {
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
+  LoadWorkspaceGraphInput,
   RemoveReviewWorkspaceInput,
+  RetryGraphAnalysisInput,
   ResolveReviewWorkspaceTargetInput,
   SaveRepositoryProfileInput,
   SaveRepositoryProviderInput,
@@ -107,4 +109,18 @@ export function registerPoc3GraphReviewIpc(
   ipcMain.handle(POC3_GRAPH_REVIEW_IPC_CHANNELS.listWorkspaceCreationJobs, () => {
     return { jobs: gateway.listWorkspaceCreationJobs() };
   });
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraph,
+    (_event, input: LoadWorkspaceGraphInput) => {
+      return gateway.loadWorkspaceGraph(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis,
+    (_event, input: RetryGraphAnalysisInput) => {
+      return gateway.retryGraphAnalysis(input);
+    },
+  );
 }

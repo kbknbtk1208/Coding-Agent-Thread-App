@@ -1,4 +1,10 @@
 import type {
+  AnalysisRunSnapshot,
+  GraphAnalysisEvent,
+  GraphWorkspaceView,
+} from '../poc3-domain/graph';
+import type { RevisionContext } from '../poc3-domain/revision';
+import type {
   PublicRepositoryProvider,
   RepositoryProfile,
   RepositoryProfileInput,
@@ -14,6 +20,7 @@ import type {
   WorkspaceCreationEvent,
 } from '../poc3-domain/review-workspace';
 
+export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
@@ -40,6 +47,9 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   removeReviewWorkspace: 'poc3:workspace:remove',
   listWorkspaceCreationJobs: 'poc3:workspace:creation-job:list',
   workspaceCreationEvent: 'poc3:workspace:creation-job:event',
+  loadWorkspaceGraph: 'poc3:graph:load',
+  retryGraphAnalysis: 'poc3:graph:analysis:retry',
+  graphAnalysisEvent: 'poc3:graph:analysis:event',
 } as const;
 
 export interface ListRepositoryProvidersResult {
@@ -131,6 +141,40 @@ export interface ListWorkspaceCreationJobsResult {
   jobs: ReviewWorkspaceCreationJobSnapshot[];
 }
 
+export interface LoadWorkspaceGraphInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+}
+
+export type LoadWorkspaceGraphResult =
+  | (GraphWorkspaceView & {
+      ok: true;
+    })
+  | {
+      ok: false;
+      reason: 'workspaceNotFound' | 'revisionNotFound' | 'graphNotReady' | 'analysisFailed';
+      message: string;
+      analysis: AnalysisRunSnapshot | null;
+      revision?: RevisionContext | null;
+    };
+
+export interface RetryGraphAnalysisInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+}
+
+export type RetryGraphAnalysisResult =
+  | {
+      ok: true;
+      analysis: AnalysisRunSnapshot;
+    }
+  | {
+      ok: false;
+      reason: 'workspaceNotFound' | 'revisionNotFound' | 'enqueueFailed';
+      message: string;
+      analysis: AnalysisRunSnapshot | null;
+    };
+
 export interface Poc3GraphReviewApi {
   listRepositoryProviders(): Promise<ListRepositoryProvidersResult>;
   saveRepositoryProvider(input: SaveRepositoryProviderInput): Promise<SaveRepositoryProviderResult>;
@@ -151,5 +195,8 @@ export interface Poc3GraphReviewApi {
   listReviewWorkspaces(): Promise<ListReviewWorkspacesResult>;
   removeReviewWorkspace(input: RemoveReviewWorkspaceInput): Promise<RemoveReviewWorkspaceResult>;
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
+  loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
+  retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
+  onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
 }
