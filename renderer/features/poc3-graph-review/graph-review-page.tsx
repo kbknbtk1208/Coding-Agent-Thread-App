@@ -72,7 +72,7 @@ export function GraphReviewPage() {
             backgroundSize: '96px 96px',
           }}
         />
-        <main className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-8 sm:px-8 lg:px-10">
+        <main className="relative flex min-h-screen w-full flex-col px-4 py-8 sm:px-6 lg:px-8 xl:px-10">
           <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.1] pb-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#d8e071]">

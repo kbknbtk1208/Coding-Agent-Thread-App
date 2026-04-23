@@ -5,10 +5,11 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  type ReactFlowInstance,
   useEdgesState,
   useNodesState,
 } from '@xyflow/react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { Poc3GraphNode } from './graph-node';
 import { toReactFlowElements } from './to-react-flow-elements';
@@ -18,26 +19,67 @@ const nodeTypes = {
   poc3GraphNode: Poc3GraphNode,
 };
 
+const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1.8 };
+
 export function DependencyGraphCanvas({ graph }: { graph: GraphRenderSnapshot }) {
   const elements = useMemo(() => toReactFlowElements(graph), [graph]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Poc3FlowNode>(elements.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Poc3FlowEdge>(elements.edges);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     setNodes(elements.nodes);
     setEdges(elements.edges);
   }, [elements.edges, elements.nodes, setEdges, setNodes]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const queueFitView = () => {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        void reactFlowRef.current?.fitView(FIT_VIEW_OPTIONS);
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      queueFitView();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
+  }, []);
+
   return (
-    <div className="h-[calc(100vh-170px)] min-h-[520px] w-full overflow-hidden rounded-[8px] border border-white/[0.1] bg-[#070707]/92">
+    <div
+      ref={containerRef}
+      className="h-[calc(100vh-170px)] min-h-[520px] w-full overflow-hidden rounded-[8px] border border-white/[0.1] bg-[#070707]/92"
+    >
       <ReactFlow<Poc3FlowNode, Poc3FlowEdge>
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onInit={(instance) => {
+          reactFlowRef.current = instance;
+        }}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.2}
         maxZoom={1.8}
         proOptions={{ hideAttribution: true }}
