@@ -22,6 +22,7 @@ export interface ExtractedCallEdge {
 export interface ExtractedImportEdge {
   sourceFilePath: string;
   targetModule: string;
+  targetFilePath: string | null;
   confidence: 'high' | 'medium' | 'low';
 }
 
@@ -123,6 +124,30 @@ function shouldCollectNode(node: ts.Node): boolean {
   );
 }
 
+function resolveImportTargetFilePath(input: {
+  worktreePath: string;
+  program: ts.Program;
+  sourceFile: ts.SourceFile;
+  moduleSpecifier: string;
+}): string | null {
+  if (!input.moduleSpecifier.startsWith('.')) {
+    return null;
+  }
+
+  const resolved = ts.resolveModuleName(
+    input.moduleSpecifier,
+    input.sourceFile.fileName,
+    input.program.getCompilerOptions(),
+    ts.sys,
+  ).resolvedModule;
+
+  if (!resolved || resolved.isExternalLibraryImport || isInNodeModules(resolved.resolvedFileName)) {
+    return null;
+  }
+
+  return normalizeRepoPath(toRepoRelativePath(input.worktreePath, resolved.resolvedFileName));
+}
+
 export function extractDependencies(input: {
   worktreePath: string;
   program: ts.Program;
@@ -198,6 +223,12 @@ export function extractDependencies(input: {
         imports.push({
           sourceFilePath,
           targetModule: node.moduleSpecifier.text,
+          targetFilePath: resolveImportTargetFilePath({
+            worktreePath: input.worktreePath,
+            program: input.program,
+            sourceFile,
+            moduleSpecifier: node.moduleSpecifier.text,
+          }),
           confidence: node.moduleSpecifier.text.startsWith('.') ? 'medium' : 'high',
         });
       }

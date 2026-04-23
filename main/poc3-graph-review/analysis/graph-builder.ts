@@ -9,10 +9,12 @@ import type {
 import { INITIAL_GRAPH_SCOPE_KEY } from '../../../shared/poc3-domain/graph';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
 import type { DependencyExtractionResult, ExtractedSymbolNode } from './dependency-extractor';
+import { normalizeRepoPath } from './graph-id';
 import { snapshotEdgeId, snapshotNodeId, stableSymbolId } from './graph-id';
 
 const INITIAL_GRAPH_NODE_LIMIT = 150;
 const INITIAL_GRAPH_EDGE_LIMIT = 400;
+const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -80,37 +82,24 @@ function createModuleNode(filePath: string, changedLines: number): CodeGraphNode
   };
 }
 
-function externalNode(packageName: string): CodeGraphNode {
-  const stableId = stableSymbolId({
-    filePath: null,
-    symbolName: packageName,
-    kind: 'external',
-    startLine: 0,
-  });
-  return {
-    nodeId: snapshotNodeId(stableId),
-    stableSymbolId: stableId,
-    parentNodeId: null,
-    kind: 'external',
-    label: packageName,
-    filePath: null,
-    declarationRange: null,
-    diffStatus: 'external',
-    isDiffNode: false,
-    badges: {
-      changedLines: 0,
-      remoteThreadCount: 0,
-      findingCount: 0,
-    },
-  };
+function isTypeScriptPath(filePath: string): boolean {
+  const normalized = filePath.toLowerCase();
+  return Array.from(TYPESCRIPT_EXTENSIONS).some((extension) => normalized.endsWith(extension));
 }
 
-function packageNameFromImport(targetModule: string): string {
-  if (targetModule.startsWith('@')) {
-    const [scope, name] = targetModule.split('/');
-    return name ? `${scope}/${name}` : targetModule;
+function collectChangedLineCounts(sourceSnapshot: ReviewSourceSnapshot): Map<string, number> {
+  const changedLineCounts = new Map<string, number>();
+
+  for (const file of sourceSnapshot.changedFiles) {
+    const filePath = normalizeRepoPath(file.path);
+    if (!isTypeScriptPath(filePath)) {
+      continue;
+    }
+    const changedLines = new Set(file.hunks.flatMap((hunk) => hunk.changedNewLines));
+    changedLineCounts.set(filePath, changedLines.size);
   }
-  return targetModule.split('/')[0] ?? targetModule;
+
+  return changedLineCounts;
 }
 
 export function buildInitialGraph(input: {
@@ -152,13 +141,27 @@ export function buildInitialGraph(input: {
   const limitedSymbols = selectedSymbols.slice(0, INITIAL_GRAPH_NODE_LIMIT);
   const limitedKeys = new Set(limitedSymbols.map((symbol) => symbol.key));
   const nodes: CodeGraphNode[] = [];
-  const modulePaths = new Set(limitedSymbols.map((symbol) => symbol.filePath));
-  const changedLineCounts = new Map<string, number>();
+  const changedLineCounts = collectChangedLineCounts(input.sourceSnapshot);
+  const changedModulePaths = new Set(
+    Array.from(changedLineCounts.keys()).filter((filePath) => isTypeScriptPath(filePath)),
+  );
+  const modulePaths = new Set<string>(changedModulePaths);
+
   for (const symbol of limitedSymbols) {
-    changedLineCounts.set(
-      symbol.filePath,
-      (changedLineCounts.get(symbol.filePath) ?? 0) + symbol.changedLines,
-    );
+    modulePaths.add(symbol.filePath);
+  }
+
+  for (const imported of input.extraction.imports) {
+    if (!imported.targetFilePath) {
+      continue;
+    }
+    if (
+      changedModulePaths.has(imported.sourceFilePath) ||
+      changedModulePaths.has(imported.targetFilePath)
+    ) {
+      modulePaths.add(imported.sourceFilePath);
+      modulePaths.add(imported.targetFilePath);
+    }
   }
 
   for (const filePath of Array.from(modulePaths).sort()) {
@@ -176,24 +179,23 @@ export function buildInitialGraph(input: {
       toSymbolNode(symbol, moduleNodeId(symbol.filePath)).nodeId,
     ]),
   );
-  const moduleNodeIds = new Map(
+  const modulePathToNodeId = new Map(
     Array.from(modulePaths).map((filePath) => [filePath, moduleNodeId(filePath)]),
   );
 
   for (const imported of input.extraction.imports) {
-    if (!modulePaths.has(imported.sourceFilePath) || imported.targetModule.startsWith('.')) {
+    if (!imported.targetFilePath || imported.sourceFilePath === imported.targetFilePath) {
       continue;
     }
-    const packageName = packageNameFromImport(imported.targetModule);
-    const external = externalNode(packageName);
-    if (!nodes.some((node) => node.nodeId === external.nodeId)) {
-      nodes.push(external);
-    }
-    const sourceNodeId = moduleNodeIds.get(imported.sourceFilePath);
-    if (!sourceNodeId) {
+    if (!modulePaths.has(imported.sourceFilePath) || !modulePaths.has(imported.targetFilePath)) {
       continue;
     }
-    const edgeId = snapshotEdgeId(sourceNodeId, external.nodeId, 'imports');
+    const sourceNodeId = modulePathToNodeId.get(imported.sourceFilePath);
+    const targetNodeId = modulePathToNodeId.get(imported.targetFilePath);
+    if (!sourceNodeId || !targetNodeId) {
+      continue;
+    }
+    const edgeId = snapshotEdgeId(sourceNodeId, targetNodeId, 'imports');
     if (edgeKeys.has(edgeId)) {
       continue;
     }
@@ -201,7 +203,7 @@ export function buildInitialGraph(input: {
     edges.push({
       edgeId,
       sourceNodeId,
-      targetNodeId: external.nodeId,
+      targetNodeId,
       kind: 'imports',
       confidence: imported.confidence,
     });

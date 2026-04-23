@@ -19,7 +19,7 @@ const nodeTypes = {
   poc3GraphNode: Poc3GraphNode,
 };
 
-const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1.8 };
+const FIT_VIEW_OPTIONS = { padding: 0.28, maxZoom: 1.8 };
 
 export function DependencyGraphCanvas({ graph }: { graph: GraphRenderSnapshot }) {
   const elements = useMemo(() => toReactFlowElements(graph), [graph]);

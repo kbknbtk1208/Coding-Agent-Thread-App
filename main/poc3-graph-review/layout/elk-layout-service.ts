@@ -19,6 +19,11 @@ const NODE_SIZES: Record<
   external: { width: 160, height: 44 },
 };
 
+const FALLBACK_GRID_HORIZONTAL_GAP = 320;
+const FALLBACK_GRID_VERTICAL_GAP = 180;
+const ELK_NODE_SPACING_BETWEEN_LAYERS = '160';
+const ELK_NODE_SPACING = '96';
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -29,8 +34,8 @@ export function fallbackGridLayout(graph: CodeGraphSnapshot): Record<string, Gra
   graph.nodes.forEach((node, index) => {
     const size = NODE_SIZES[node.kind];
     positions[node.nodeId] = {
-      x: (index % columns) * 240,
-      y: Math.floor(index / columns) * 120,
+      x: (index % columns) * FALLBACK_GRID_HORIZONTAL_GAP,
+      y: Math.floor(index / columns) * FALLBACK_GRID_VERTICAL_GAP,
       width: size.width,
       height: size.height,
     };
@@ -55,8 +60,8 @@ export async function layoutGraph(graph: CodeGraphSnapshot): Promise<{
       layoutOptions: {
         'elk.algorithm': 'layered',
         'elk.direction': 'RIGHT',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '80',
-        'elk.spacing.nodeNode': '36',
+        'elk.layered.spacing.nodeNodeBetweenLayers': ELK_NODE_SPACING_BETWEEN_LAYERS,
+        'elk.spacing.nodeNode': ELK_NODE_SPACING,
       },
       children: graph.nodes.map((node) => {
         const size = NODE_SIZES[node.kind];
