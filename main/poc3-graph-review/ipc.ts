@@ -2,6 +2,7 @@ import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'ele
 import type {
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
+  RemoveReviewWorkspaceInput,
   ResolveReviewWorkspaceTargetInput,
   SaveRepositoryProfileInput,
   SaveRepositoryProviderInput,
@@ -95,6 +96,13 @@ export function registerPoc3GraphReviewIpc(
   ipcMain.handle(POC3_GRAPH_REVIEW_IPC_CHANNELS.listReviewWorkspaces, () => {
     return { workspaces: gateway.listReviewWorkspaces() };
   });
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.removeReviewWorkspace,
+    async (_event, input: RemoveReviewWorkspaceInput) => {
+      return gateway.removeReviewWorkspace(input);
+    },
+  );
 
   ipcMain.handle(POC3_GRAPH_REVIEW_IPC_CHANNELS.listWorkspaceCreationJobs, () => {
     return { jobs: gateway.listWorkspaceCreationJobs() };

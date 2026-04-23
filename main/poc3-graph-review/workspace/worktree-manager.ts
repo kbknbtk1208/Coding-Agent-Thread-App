@@ -106,6 +106,24 @@ export async function addWorktree(
   }
 }
 
+export async function removeWorktree(
+  localClonePath: string,
+  worktreePath: string,
+  force: boolean,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const args = force
+    ? ['worktree', 'remove', '--force', worktreePath]
+    : ['worktree', 'remove', worktreePath];
+  onLog?.(`git ${args.join(' ')}`);
+  const result = await runGitCommand(localClonePath, args, onLog);
+  if (result.code !== 0) {
+    throw new Error(
+      `git worktree remove が失敗しました (exit ${result.code}): ${result.stderr.trim()}`,
+    );
+  }
+}
+
 export async function verifyHeadSha(
   worktreePath: string,
   expectedHeadSha: string,

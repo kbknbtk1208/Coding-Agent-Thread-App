@@ -37,6 +37,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   resolveReviewWorkspaceTarget: 'poc3:workspace:resolve-review-url',
   createReviewWorkspace: 'poc3:workspace:create',
   listReviewWorkspaces: 'poc3:workspace:list',
+  removeReviewWorkspace: 'poc3:workspace:remove',
   listWorkspaceCreationJobs: 'poc3:workspace:creation-job:list',
   workspaceCreationEvent: 'poc3:workspace:creation-job:event',
 } as const;
@@ -112,6 +113,20 @@ export interface ListReviewWorkspacesResult {
   workspaces: ReviewWorkspaceListItem[];
 }
 
+export interface RemoveReviewWorkspaceInput {
+  reviewWorkspaceId: string;
+  force?: boolean;
+}
+
+export type RemoveReviewWorkspaceResult =
+  | { ok: true; reviewWorkspaceId: string }
+  | {
+      ok: false;
+      reviewWorkspaceId: string;
+      reason: 'notFound' | 'forceRequired' | 'gitFailed';
+      message: string;
+    };
+
 export interface ListWorkspaceCreationJobsResult {
   jobs: ReviewWorkspaceCreationJobSnapshot[];
 }
@@ -134,6 +149,7 @@ export interface Poc3GraphReviewApi {
   ): Promise<ResolveReviewWorkspaceTargetResult>;
   createReviewWorkspace(input: CreateReviewWorkspaceInput): Promise<CreateReviewWorkspaceResult>;
   listReviewWorkspaces(): Promise<ListReviewWorkspacesResult>;
+  removeReviewWorkspace(input: RemoveReviewWorkspaceInput): Promise<RemoveReviewWorkspaceResult>;
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
 }

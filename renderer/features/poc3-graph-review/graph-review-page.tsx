@@ -21,7 +21,15 @@ export function GraphReviewPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const { jobs, toggleExpanded, dismissJob } = useWorkspaceCreationJobs();
-  const { selectedWorkspace, otherWorkspaces, selectWorkspace } = useReviewWorkspaces();
+  const {
+    selectedWorkspace,
+    otherWorkspaces,
+    selectWorkspace,
+    removingWorkspaceId,
+    removeError,
+    removeWorkspace,
+  } = useReviewWorkspaces();
+  const workspaceRemovalRunning = removingWorkspaceId !== null;
 
   const menuItems = useMemo(
     () => [
@@ -31,7 +39,12 @@ export function GraphReviewPage() {
         title: 'Create Workspace',
         description: 'PR / MR から Review Workspace を作成',
         layoutId: CREATE_WORKSPACE_LAYOUT_ID,
-        onSelect: () => setCreateOpen(true),
+        disabled: workspaceRemovalRunning,
+        onSelect: () => {
+          if (!workspaceRemovalRunning) {
+            setCreateOpen(true);
+          }
+        },
       },
       {
         id: 'repository-settings',
@@ -42,7 +55,7 @@ export function GraphReviewPage() {
         onSelect: () => setSettingsOpen(true),
       },
     ],
-    [],
+    [workspaceRemovalRunning],
   );
 
   return (
@@ -130,6 +143,9 @@ export function GraphReviewPage() {
             selectedWorkspace={selectedWorkspace}
             otherWorkspaces={otherWorkspaces}
             onSelectWorkspace={selectWorkspace}
+            removingWorkspaceId={removingWorkspaceId}
+            removeError={removeError}
+            onRemoveWorkspace={removeWorkspace}
           />
           <WorkspaceCreationStack
             jobs={jobs}
@@ -140,7 +156,7 @@ export function GraphReviewPage() {
         <Poc3AnimatedProfileMenu items={menuItems} />
         <RepositorySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <CreateWorkspaceDialog
-          open={createOpen}
+          open={createOpen && !workspaceRemovalRunning}
           onClose={() => setCreateOpen(false)}
           onStarted={() => setCreateOpen(false)}
         />

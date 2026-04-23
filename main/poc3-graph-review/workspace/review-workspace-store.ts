@@ -72,6 +72,19 @@ export class ReviewWorkspaceStore {
     return rows.map((row) => this.rowToWorkspace(row));
   }
 
+  get(reviewWorkspaceId: string): ReviewWorkspace | null {
+    const row = this.db
+      .prepare('SELECT * FROM review_workspaces WHERE review_workspace_id = ?')
+      .get(reviewWorkspaceId) as ReviewWorkspaceRow | undefined;
+    return row ? this.rowToWorkspace(row) : null;
+  }
+
+  delete(reviewWorkspaceId: string): void {
+    this.db
+      .prepare('DELETE FROM review_workspaces WHERE review_workspace_id = ?')
+      .run(reviewWorkspaceId);
+  }
+
   close(): void {
     this.db.close();
   }

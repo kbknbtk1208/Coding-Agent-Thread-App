@@ -11,6 +11,7 @@ export interface Poc3ProfileMenuItem {
   title: string;
   description: string;
   layoutId?: string;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -83,14 +84,18 @@ export function Poc3AnimatedProfileMenu({ items }: Poc3AnimatedProfileMenuProps)
                     <motion.button
                       type="button"
                       layoutId={item.layoutId}
+                      disabled={item.disabled}
                       onClick={() => {
+                        if (item.disabled) {
+                          return;
+                        }
                         closeMenu();
                         item.onSelect();
                       }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       transition={{ duration: 0.18 }}
-                      className={menuItemClassName}
+                      className={`${menuItemClassName} disabled:cursor-wait disabled:opacity-45`}
                       aria-label={item.title}
                     >
                       <div

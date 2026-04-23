@@ -1,5 +1,9 @@
 import { randomUUID } from 'crypto';
 import type {
+  RemoveReviewWorkspaceInput,
+  RemoveReviewWorkspaceResult,
+} from '../../shared/poc3-contracts/graph-review-ipc';
+import type {
   PublicRepositoryProvider,
   RepositoryProfile,
   RepositoryProfileInput,
@@ -26,10 +30,22 @@ import { RepositoryProviderStore } from './workspace/repository-provider-store';
 import { ReviewWorkspaceCreationCoordinator } from './workspace/review-workspace-creation-coordinator';
 import { ReviewWorkspaceStore } from './workspace/review-workspace-store';
 import { resolveReviewWorkspaceTarget } from './workspace/review-workspace-target-resolver';
+import { removeWorktree } from './workspace/worktree-manager';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
   repositoryProfileId: string;
+}
+
+function isForceRecoverableWorktreeRemoveError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('--force') ||
+    normalized.includes('use force') ||
+    normalized.includes('contains modified or untracked files') ||
+    normalized.includes('contains modified files') ||
+    normalized.includes('contains untracked files')
+  );
 }
 
 export class GraphReviewGateway {
@@ -37,6 +53,7 @@ export class GraphReviewGateway {
   private readonly profileStore: RepositoryProfileStore;
   private readonly workspaceStore: ReviewWorkspaceStore;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
+  private removingWorkspaceId: string | null = null;
 
   constructor(
     userDataPath: string,
@@ -185,6 +202,10 @@ export class GraphReviewGateway {
   }
 
   createReviewWorkspace(input: CreateReviewWorkspaceInput): ReviewWorkspaceCreationJobSnapshot {
+    if (this.removingWorkspaceId) {
+      throw new Error('Workspace の削除処理が進行中です。');
+    }
+
     const resolution = this.resolveReviewWorkspaceTarget(input.reviewUrl);
     if (!resolution.ok || !resolution.target) {
       throw new Error(resolution.message ?? 'Review URL を解決できません。');
@@ -215,6 +236,61 @@ export class GraphReviewGateway {
       profile,
       providerToken: token,
     });
+  }
+
+  async removeReviewWorkspace(
+    input: RemoveReviewWorkspaceInput,
+  ): Promise<RemoveReviewWorkspaceResult> {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    if (this.removingWorkspaceId) {
+      return {
+        ok: false,
+        reviewWorkspaceId,
+        reason: 'gitFailed',
+        message: 'Workspace の削除処理が進行中です。',
+      };
+    }
+
+    const workspace = this.workspaceStore.get(reviewWorkspaceId);
+    if (!workspace) {
+      return {
+        ok: false,
+        reviewWorkspaceId,
+        reason: 'notFound',
+        message: 'Review Workspace が見つかりません。',
+      };
+    }
+
+    const profile = this.profileStore.get(workspace.repositoryProfileId);
+    if (!profile) {
+      return {
+        ok: false,
+        reviewWorkspaceId,
+        reason: 'notFound',
+        message: 'Repository Profile が見つかりません。',
+      };
+    }
+
+    const force = input.force === true;
+    this.removingWorkspaceId = reviewWorkspaceId;
+    try {
+      await removeWorktree(profile.localClonePath, workspace.worktreePath, force);
+      this.workspaceStore.delete(reviewWorkspaceId);
+      return { ok: true, reviewWorkspaceId };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'git worktree remove が失敗しました。';
+      return {
+        ok: false,
+        reviewWorkspaceId,
+        reason:
+          !force && isForceRecoverableWorktreeRemoveError(message) ? 'forceRequired' : 'gitFailed',
+        message,
+      };
+    } finally {
+      if (this.removingWorkspaceId === reviewWorkspaceId) {
+        this.removingWorkspaceId = null;
+      }
+    }
   }
 
   listWorkspaceCreationJobs(): ReviewWorkspaceCreationJobSnapshot[] {
