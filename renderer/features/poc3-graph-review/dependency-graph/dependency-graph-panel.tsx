@@ -1,6 +1,6 @@
 'use client';
 
-import { GitPullRequest, Network } from 'lucide-react';
+import { Network } from 'lucide-react';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { DependencyGraphCanvas } from './dependency-graph-canvas';
 import { GraphAnalysisState } from './graph-analysis-state';
@@ -19,26 +19,7 @@ export function DependencyGraphPanel({
   }
 
   return (
-    <section className="w-full pt-8">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#d8e071]">
-            <GitPullRequest className="size-4" aria-hidden="true" />
-            {selectedWorkspace.provider === 'github'
-              ? `PR #${selectedWorkspace.reviewId}`
-              : `MR !${selectedWorkspace.reviewId}`}
-          </p>
-          <h2 className="mt-2 truncate text-2xl font-semibold text-white">
-            {selectedWorkspace.title}
-          </h2>
-        </div>
-        {state.status === 'ready' ? (
-          <div className="rounded-[7px] border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-xs text-white/58">
-            {state.result.graph?.nodes.length ?? 0} nodes
-          </div>
-        ) : null}
-      </div>
-
+    <section className="flex min-h-0 flex-1 flex-col pt-0">
       {state.status === 'idle' || state.status === 'loading' || state.status === 'notReady' ? (
         <GraphAnalysisState status="loading" message={state.message} />
       ) : null}

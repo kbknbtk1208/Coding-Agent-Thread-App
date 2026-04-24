@@ -72,21 +72,7 @@ export function GraphReviewPage() {
             backgroundSize: '96px 96px',
           }}
         />
-        <main className="relative flex min-h-screen w-full flex-col px-4 py-8 sm:px-6 lg:px-8 xl:px-10">
-          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.1] pb-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#d8e071]">
-                Graph Review
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-                Dependency review workspace
-              </h1>
-            </div>
-            <div className="rounded-lg border border-white/[0.1] bg-white/[0.04] px-4 py-2 text-sm text-[#a8b0b8]">
-              Repository setup first
-            </div>
-          </header>
-
+        <main className="relative flex min-h-screen w-full flex-col px-4 py-4 sm:px-6 lg:px-8 xl:px-10">
           <DependencyGraphPanel selectedWorkspace={selectedWorkspace} />
         </main>
 

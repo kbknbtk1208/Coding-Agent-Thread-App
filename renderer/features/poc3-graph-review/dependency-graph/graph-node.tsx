@@ -3,6 +3,7 @@
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
 import { FileCode2, FunctionSquare, Package } from 'lucide-react';
+import { motion } from 'motion/react';
 import type { Poc3FlowNode } from './to-react-flow-elements';
 
 export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
@@ -20,29 +21,50 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
       : 'border-[#58d7ff]/28 bg-[#58d7ff]/10 text-[#dff7ff]';
 
   return (
-    <div
-      className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 shadow-[0_14px_36px_rgba(0,0,0,0.25)] backdrop-blur-[12px] ${tone} ${
-        selected ? 'ring-2 ring-white/42' : ''
-      }`}
-    >
-      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-white/70" />
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-[5px] bg-black/20">
-        <Icon className="size-4" aria-hidden="true" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-semibold leading-5">
-          {graphNode.label}
-        </span>
-        <span className="block truncate text-[11px] leading-4 text-white/50">
-          {graphNode.filePath ?? graphNode.kind}
-        </span>
-      </span>
-      {graphNode.badges.changedLines > 0 ? (
-        <span className="rounded-[5px] border border-[#d8e071]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#d8e071]">
-          +{graphNode.badges.changedLines}
-        </span>
+    <div className="relative h-full w-full">
+      {selected ? (
+        <motion.span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-[8px]"
+          style={{
+            backgroundImage:
+              'linear-gradient(115deg, rgba(88,215,255,0.15) 0%, rgba(216,224,113,0.88) 25%, rgba(255,255,255,0.92) 50%, rgba(88,215,255,0.35) 70%, rgba(216,224,113,0.18) 100%)',
+            backgroundSize: '200% 100%',
+            padding: '1px',
+          }}
+          animate={{
+            backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
+            opacity: [0.45, 0.92, 0.45],
+          }}
+          transition={{ duration: 2.4, ease: 'linear', repeat: Number.POSITIVE_INFINITY }}
+        />
       ) : null}
-      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-white/70" />
+      <div
+        className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 shadow-[0_14px_36px_rgba(0,0,0,0.25)] backdrop-blur-[12px] ${tone} ${
+          selected
+            ? 'border-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.3)]'
+            : ''
+        }`}
+      >
+        <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-white/70" />
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-[5px] bg-black/20">
+          <Icon className="size-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-semibold leading-5">
+            {graphNode.label}
+          </span>
+          <span className="block truncate text-[11px] leading-4 text-white/50">
+            {graphNode.filePath ?? graphNode.kind}
+          </span>
+        </span>
+        {graphNode.badges.changedLines > 0 ? (
+          <span className="rounded-[5px] border border-[#d8e071]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#d8e071]">
+            +{graphNode.badges.changedLines}
+          </span>
+        ) : null}
+        <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-white/70" />
+      </div>
     </div>
   );
 }
