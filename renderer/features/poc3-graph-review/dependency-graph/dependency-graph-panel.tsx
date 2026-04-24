@@ -54,7 +54,10 @@ export function DependencyGraphPanel({
         <GraphEmptyState />
       ) : null}
       {state.status === 'ready' && state.result.graph && state.result.graph.nodes.length > 0 ? (
-        <DependencyGraphCanvas graph={state.result.graph} />
+        <DependencyGraphCanvas
+          graph={state.result.graph}
+          reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
+        />
       ) : null}
     </section>
   );

@@ -1,0 +1,502 @@
+import fs from 'fs';
+import path from 'path';
+import type {
+  GraphDiagnostic,
+  GraphNodeLayout,
+  GraphRenderEdge,
+  GraphRenderNode,
+  GraphRenderSnapshot,
+  SourceRange,
+} from '../../../shared/poc3-domain/graph';
+import type {
+  NodeCodeExcerpt,
+  NodeCodeExcerptLanguage,
+  NodeDetailDiagnostic,
+  NodeDetailPrimaryView,
+  NodeDetailSnapshot,
+  NodeDetailStatus,
+  NodeDetailSummary,
+  NodeDiffExcerpt,
+  NodeRelationItem,
+  NodeRelationSummary,
+  NodeThreadSummary,
+} from '../../../shared/poc3-domain/node-detail';
+import type {
+  DiffHunkRange,
+  ReviewChangedFile,
+  ReviewRemoteThreadSummary,
+  ReviewSourceSnapshot,
+} from '../../../shared/poc3-domain/source-snapshot';
+import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
+import { fallbackGridLayout } from '../layout/elk-layout-service';
+import type { WorkspaceGraphRecord } from '../store/graph-review-store';
+
+export interface ResolveNodeDetailContext {
+  workspace: ReviewWorkspace;
+  revisionId: string;
+  scopeKey: string;
+  nodeId: string;
+  record: WorkspaceGraphRecord;
+  sourceSnapshot: ReviewSourceSnapshot | null;
+}
+
+export interface ResolveNodeDetailResult {
+  ok: boolean;
+  reason: 'nodeNotFound' | 'detailUnavailable' | null;
+  message: string | null;
+  detail: NodeDetailSnapshot | null;
+}
+
+const CODE_EXCERPT_LEADING_LINES = 4;
+const CODE_EXCERPT_TRAILING_LINES = 8;
+const RELATION_LIMIT = 6;
+const MAX_MODULE_HUNK_COUNT = 2;
+
+export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNodeDetailResult {
+  const { record, nodeId, workspace, revisionId, scopeKey, sourceSnapshot } = context;
+  if (!record.graph) {
+    return {
+      ok: false,
+      reason: 'detailUnavailable',
+      message: 'Graph snapshot が見つかりません。',
+      detail: null,
+    };
+  }
+
+  const renderSnapshot = toRenderSnapshot(record);
+  const renderNode = renderSnapshot.nodes.find((node) => node.nodeId === nodeId);
+  if (!renderNode) {
+    return {
+      ok: false,
+      reason: 'nodeNotFound',
+      message: '指定された node が見つかりません。',
+      detail: null,
+    };
+  }
+
+  const diagnostics: NodeDetailDiagnostic[] = [];
+  const changedFileByPath = new Map<string, ReviewChangedFile>();
+  if (sourceSnapshot) {
+    for (const file of sourceSnapshot.changedFiles) {
+      changedFileByPath.set(file.path, file);
+    }
+  }
+
+  const diffExcerpt = resolveDiffExcerpt(renderNode, changedFileByPath, diagnostics);
+  const codeExcerpt = resolveCodeExcerpt(renderNode, workspace, diagnostics);
+  const relations = resolveRelations(renderNode, renderSnapshot);
+  const threads = resolveThreads(renderNode, sourceSnapshot);
+  const summary = buildSummary(renderNode);
+  const primaryView = pickPrimaryView(renderNode, diffExcerpt, codeExcerpt);
+  const status = pickStatus(renderNode, diffExcerpt, codeExcerpt);
+
+  const detail: NodeDetailSnapshot = {
+    reviewWorkspaceId: workspace.reviewWorkspaceId,
+    revisionId,
+    scopeKey,
+    nodeId,
+    node: renderNode,
+    primaryView,
+    status,
+    summary,
+    codeExcerpt,
+    diffExcerpt,
+    relations,
+    threads,
+    findings: [],
+    diagnostics,
+  };
+
+  return { ok: true, reason: null, message: null, detail };
+}
+
+function buildSummary(node: GraphRenderNode): NodeDetailSummary {
+  const kindLabel = kindLabelFor(node.kind);
+  const diffStatusLabel = diffStatusLabelFor(node.diffStatus);
+  const subtitle =
+    node.kind === 'module'
+      ? (node.filePath ?? 'module')
+      : node.filePath
+        ? `${node.filePath}${formatRangeSuffix(node.declarationRange)}`
+        : kindLabel;
+  return {
+    title: node.label,
+    subtitle,
+    kindLabel,
+    diffStatusLabel,
+    filePath: node.filePath,
+    declarationRange: node.declarationRange,
+  };
+}
+
+function kindLabelFor(kind: GraphRenderNode['kind']): string {
+  switch (kind) {
+    case 'module':
+      return 'module';
+    case 'function':
+      return 'function';
+    case 'method':
+      return 'method';
+    case 'component':
+      return 'component';
+    case 'hook':
+      return 'hook';
+    case 'external':
+      return 'external';
+    default:
+      return String(kind);
+  }
+}
+
+function diffStatusLabelFor(status: GraphRenderNode['diffStatus']): string {
+  switch (status) {
+    case 'changed':
+      return 'diff';
+    case 'related':
+      return 'related';
+    case 'module':
+      return 'module';
+    case 'external':
+      return 'external';
+    default:
+      return String(status);
+  }
+}
+
+function formatRangeSuffix(range: SourceRange | null): string {
+  if (!range) {
+    return '';
+  }
+  return `:${range.startLine}-${range.endLine}`;
+}
+
+function pickPrimaryView(
+  node: GraphRenderNode,
+  diff: NodeDiffExcerpt | null,
+  code: NodeCodeExcerpt | null,
+): NodeDetailPrimaryView {
+  if (node.kind === 'external') {
+    return 'overview';
+  }
+  if (diff) {
+    return 'diff';
+  }
+  if (code) {
+    return 'code';
+  }
+  return 'overview';
+}
+
+function pickStatus(
+  node: GraphRenderNode,
+  diff: NodeDiffExcerpt | null,
+  code: NodeCodeExcerpt | null,
+): NodeDetailStatus {
+  if (node.kind === 'external') {
+    return 'ready';
+  }
+  if (node.kind === 'module') {
+    return diff || code ? 'ready' : 'partial';
+  }
+  if (node.isDiffNode) {
+    if (!diff) {
+      return code ? 'partial' : 'unavailable';
+    }
+    return 'ready';
+  }
+  if (!code) {
+    return 'unavailable';
+  }
+  return 'ready';
+}
+
+function resolveDiffExcerpt(
+  node: GraphRenderNode,
+  changedFileByPath: Map<string, ReviewChangedFile>,
+  diagnostics: NodeDetailDiagnostic[],
+): NodeDiffExcerpt | null {
+  if (node.kind === 'external') {
+    return null;
+  }
+  if (!node.filePath) {
+    return null;
+  }
+  const changedFile = changedFileByPath.get(node.filePath);
+  if (!changedFile) {
+    return null;
+  }
+
+  const hunks = changedFile.hunks;
+  if (hunks.length === 0 && !changedFile.patch) {
+    return null;
+  }
+
+  const intersectedHunks = intersectHunks(node, hunks);
+  const fallbackHunks = node.kind === 'module' || node.isDiffNode ? hunks : intersectedHunks;
+  const hunkHeaders = fallbackHunks
+    .map((hunk) => normalizeHunkHeader(hunk))
+    .filter((header): header is string => header.length > 0);
+  const changedLineNumbers = Array.from(
+    new Set(
+      (intersectedHunks.length > 0 ? intersectedHunks : fallbackHunks).flatMap(
+        (hunk) => hunk.changedNewLines,
+      ),
+    ),
+  ).sort((a, b) => a - b);
+
+  if (changedFile.patch) {
+    if (intersectedHunks.length > 0 || node.kind === 'module' || node.isDiffNode) {
+      return {
+        filePath: changedFile.path,
+        patch: changedFile.patch,
+        hunkHeaders,
+        changedLineNumbers,
+      };
+    }
+  }
+
+  if (fallbackHunks.length === 0) {
+    return null;
+  }
+  diagnostics.push({
+    code: 'DIFF_PATCH_UNAVAILABLE',
+    message: 'patch 本文を取得できなかったため、hunk metadata のみ表示しています。',
+    severity: 'info',
+  });
+  return {
+    filePath: changedFile.path,
+    patch: '',
+    hunkHeaders,
+    changedLineNumbers,
+  };
+}
+
+function intersectHunks(node: GraphRenderNode, hunks: DiffHunkRange[]): DiffHunkRange[] {
+  if (hunks.length === 0) {
+    return [];
+  }
+  if (node.kind === 'module') {
+    return hunks.slice(0, MAX_MODULE_HUNK_COUNT);
+  }
+  const range = node.declarationRange;
+  if (!range) {
+    return hunks.slice(0, MAX_MODULE_HUNK_COUNT);
+  }
+  const intersected = hunks.filter((hunk) => {
+    const hunkStart = hunk.newStart;
+    const hunkEnd = hunk.newStart + Math.max(hunk.newLines - 1, 0);
+    return hunkEnd >= range.startLine && hunkStart <= range.endLine;
+  });
+  return intersected.length > 0 ? intersected : [];
+}
+
+function normalizeHunkHeader(hunk: DiffHunkRange): string {
+  if (typeof hunk.header === 'string' && hunk.header.startsWith('@@')) {
+    return hunk.header;
+  }
+  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
+}
+
+function resolveCodeExcerpt(
+  node: GraphRenderNode,
+  workspace: ReviewWorkspace,
+  diagnostics: NodeDetailDiagnostic[],
+): NodeCodeExcerpt | null {
+  if (node.kind === 'external') {
+    return null;
+  }
+  if (!node.filePath) {
+    return null;
+  }
+  if (node.kind === 'module') {
+    return null;
+  }
+  const range = node.declarationRange;
+  if (!range) {
+    return null;
+  }
+  const absolutePath = path.isAbsolute(node.filePath)
+    ? node.filePath
+    : path.join(workspace.worktreePath, node.filePath);
+  let content: string;
+  try {
+    content = fs.readFileSync(absolutePath, 'utf8');
+  } catch {
+    diagnostics.push({
+      code: 'CODE_EXCERPT_UNAVAILABLE',
+      message: `worktree から file を読み込めませんでした: ${node.filePath}`,
+      severity: 'warning',
+    });
+    return null;
+  }
+  const lines = content.split(/\r?\n/);
+  if (range.startLine < 1 || range.endLine < range.startLine) {
+    diagnostics.push({
+      code: 'CODE_EXCERPT_UNAVAILABLE',
+      message: 'declaration range が不正なため excerpt を取得できませんでした。',
+      severity: 'warning',
+    });
+    return null;
+  }
+  const startIndex = Math.max(range.startLine - 1 - CODE_EXCERPT_LEADING_LINES, 0);
+  const endIndex = Math.min(range.endLine - 1 + CODE_EXCERPT_TRAILING_LINES, lines.length - 1);
+  if (endIndex < startIndex) {
+    return null;
+  }
+  const excerptLines = lines.slice(startIndex, endIndex + 1);
+  const highlighted: number[] = [];
+  for (let line = range.startLine; line <= range.endLine; line += 1) {
+    highlighted.push(line);
+  }
+  return {
+    filePath: node.filePath,
+    language: detectLanguage(node.filePath),
+    startLine: startIndex + 1,
+    endLine: endIndex + 1,
+    highlightedLineNumbers: highlighted,
+    content: excerptLines.join('\n'),
+  };
+}
+
+function detectLanguage(filePath: string): NodeCodeExcerptLanguage {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.tsx')) {
+    return 'tsx';
+  }
+  if (lower.endsWith('.mts')) {
+    return 'mts';
+  }
+  if (lower.endsWith('.cts')) {
+    return 'cts';
+  }
+  if (lower.endsWith('.ts')) {
+    return 'ts';
+  }
+  return 'text';
+}
+
+function resolveRelations(
+  node: GraphRenderNode,
+  snapshot: GraphRenderSnapshot,
+): NodeRelationSummary {
+  const byNodeId = new Map<string, GraphRenderNode>(
+    snapshot.nodes.map((value) => [value.nodeId, value] as const),
+  );
+  const incoming: NodeRelationItem[] = [];
+  const outgoing: NodeRelationItem[] = [];
+  for (const edge of snapshot.edges) {
+    if (edge.targetNodeId === node.nodeId) {
+      const other = byNodeId.get(edge.sourceNodeId);
+      if (other) {
+        incoming.push(toRelationItem(edge, other));
+      }
+    }
+    if (edge.sourceNodeId === node.nodeId) {
+      const other = byNodeId.get(edge.targetNodeId);
+      if (other) {
+        outgoing.push(toRelationItem(edge, other));
+      }
+    }
+  }
+  const incomingOverflowCount = Math.max(incoming.length - RELATION_LIMIT, 0);
+  const outgoingOverflowCount = Math.max(outgoing.length - RELATION_LIMIT, 0);
+  return {
+    incoming: incoming.slice(0, RELATION_LIMIT),
+    outgoing: outgoing.slice(0, RELATION_LIMIT),
+    incomingOverflowCount,
+    outgoingOverflowCount,
+  };
+}
+
+function toRelationItem(edge: GraphRenderEdge, other: GraphRenderNode): NodeRelationItem {
+  return {
+    edge,
+    nodeId: other.nodeId,
+    label: other.label,
+    kind: other.kind,
+    isDiffNode: other.isDiffNode,
+  };
+}
+
+function resolveThreads(
+  node: GraphRenderNode,
+  sourceSnapshot: ReviewSourceSnapshot | null,
+): NodeThreadSummary {
+  if (!sourceSnapshot || node.kind === 'external' || !node.filePath) {
+    return { remote: [], local: [], agent: [] };
+  }
+  const filtered = sourceSnapshot.remoteThreadsSummary.filter((thread) =>
+    matchesThread(thread, node),
+  );
+  return { remote: filtered, local: [], agent: [] };
+}
+
+function matchesThread(thread: ReviewRemoteThreadSummary, node: GraphRenderNode): boolean {
+  if (thread.filePath !== node.filePath) {
+    return false;
+  }
+  if (node.kind === 'module') {
+    return true;
+  }
+  const range = node.declarationRange;
+  if (!range) {
+    return true;
+  }
+  if (thread.line === null) {
+    return false;
+  }
+  return thread.line >= range.startLine && thread.line <= range.endLine;
+}
+
+function toRenderSnapshot(record: WorkspaceGraphRecord): GraphRenderSnapshot {
+  if (!record.graph) {
+    return {
+      revisionId: record.activeRevision?.revisionId ?? '',
+      graphSnapshotId: '',
+      scopeKey: '',
+      status: 'failed',
+      nodes: [],
+      edges: [],
+      viewport: null,
+      limits: {
+        nodeLimit: 0,
+        edgeLimit: 0,
+        omittedNodeCount: 0,
+        omittedEdgeCount: 0,
+        reason: 'none',
+      },
+      diagnostics: [],
+    };
+  }
+  const graph = record.graph;
+  const layout = record.layout;
+  const positions: Record<string, GraphNodeLayout> = layout?.positions ?? fallbackGridLayout(graph);
+  const diagnostics: GraphDiagnostic[] = [...graph.diagnostics];
+  return {
+    revisionId: graph.revisionId,
+    graphSnapshotId: graph.graphSnapshotId,
+    scopeKey: graph.scopeKey,
+    status: graph.status,
+    nodes: graph.nodes.map((current) => {
+      const position = positions[current.nodeId] ?? {
+        x: 0,
+        y: 0,
+        width: 180,
+        height: 52,
+      };
+      return {
+        ...current,
+        position: { x: position.x, y: position.y },
+        size: { width: position.width, height: position.height },
+        extent: null,
+      };
+    }),
+    edges: graph.edges.map((edge) => ({
+      ...edge,
+      label: edge.kind === 'calls' ? null : edge.kind,
+    })),
+    viewport: layout?.viewport ?? null,
+    limits: graph.limits,
+    diagnostics,
+  };
+}

@@ -3,6 +3,7 @@ import type {
   GraphAnalysisEvent,
   GraphWorkspaceView,
 } from '../poc3-domain/graph';
+import type { NodeDetailSnapshot } from '../poc3-domain/node-detail';
 import type { RevisionContext } from '../poc3-domain/revision';
 import type {
   PublicRepositoryProvider,
@@ -21,6 +22,16 @@ import type {
 } from '../poc3-domain/review-workspace';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
+export type {
+  NodeCodeExcerpt,
+  NodeDetailDiagnostic,
+  NodeDetailSnapshot,
+  NodeDetailSummary,
+  NodeDiffExcerpt,
+  NodeRelationItem,
+  NodeRelationSummary,
+  NodeThreadSummary,
+} from '../poc3-domain/node-detail';
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
@@ -50,6 +61,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   loadWorkspaceGraph: 'poc3:graph:load',
   retryGraphAnalysis: 'poc3:graph:analysis:retry',
   graphAnalysisEvent: 'poc3:graph:analysis:event',
+  loadNodeDetail: 'poc3:node:load-detail',
 } as const;
 
 export interface ListRepositoryProvidersResult {
@@ -175,6 +187,31 @@ export type RetryGraphAnalysisResult =
       analysis: AnalysisRunSnapshot | null;
     };
 
+export interface LoadNodeDetailInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  nodeId: string;
+}
+
+export type LoadNodeDetailFailureReason =
+  | 'workspaceNotFound'
+  | 'revisionNotFound'
+  | 'graphNotReady'
+  | 'nodeNotFound'
+  | 'detailUnavailable';
+
+export type LoadNodeDetailResult =
+  | {
+      ok: true;
+      detail: NodeDetailSnapshot;
+    }
+  | {
+      ok: false;
+      reason: LoadNodeDetailFailureReason;
+      message: string;
+      detail: NodeDetailSnapshot | null;
+    };
+
 export interface Poc3GraphReviewApi {
   listRepositoryProviders(): Promise<ListRepositoryProvidersResult>;
   saveRepositoryProvider(input: SaveRepositoryProviderInput): Promise<SaveRepositoryProviderResult>;
@@ -197,6 +234,7 @@ export interface Poc3GraphReviewApi {
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;
+  loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
   onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
 }

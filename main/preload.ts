@@ -53,6 +53,8 @@ import {
   type ListRepositoryProvidersResult,
   type ListReviewWorkspacesResult,
   type ListWorkspaceCreationJobsResult,
+  type LoadNodeDetailInput,
+  type LoadNodeDetailResult,
   POC3_GRAPH_REVIEW_IPC_CHANNELS,
   type RemoveReviewWorkspaceInput,
   type RemoveReviewWorkspaceResult,
@@ -231,6 +233,9 @@ const poc3GraphReviewApi = {
   },
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis, input);
+  },
+  loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail, input);
   },
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void) {
     const subscription = (_event: IpcRendererEvent, payload: WorkspaceCreationEvent) =>

@@ -2,6 +2,7 @@ import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'ele
 import type {
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
+  LoadNodeDetailInput,
   LoadWorkspaceGraphInput,
   RemoveReviewWorkspaceInput,
   RetryGraphAnalysisInput,
@@ -121,6 +122,13 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis,
     (_event, input: RetryGraphAnalysisInput) => {
       return gateway.retryGraphAnalysis(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail,
+    (_event, input: LoadNodeDetailInput) => {
+      return gateway.loadNodeDetail(input);
     },
   );
 }

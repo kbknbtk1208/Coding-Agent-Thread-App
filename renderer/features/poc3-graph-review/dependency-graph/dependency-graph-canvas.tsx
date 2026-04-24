@@ -5,12 +5,15 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  ReactFlowProvider,
   type ReactFlowInstance,
   useEdgesState,
   useNodesState,
 } from '@xyflow/react';
-import { useEffect, useMemo, useRef } from 'react';
-import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { GraphRenderNode, GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import { NodeDetailPopover } from '../node-detail/node-detail-popover';
+import { useNodeDetail } from '../node-detail/use-node-detail';
 import { Poc3GraphNode } from './graph-node';
 import { toReactFlowElements } from './to-react-flow-elements';
 import type { Poc3FlowEdge, Poc3FlowNode } from './to-react-flow-elements';
@@ -21,18 +24,63 @@ const nodeTypes = {
 
 const FIT_VIEW_OPTIONS = { padding: 0.28, maxZoom: 1.8 };
 
-export function DependencyGraphCanvas({ graph }: { graph: GraphRenderSnapshot }) {
+export interface DependencyGraphCanvasProps {
+  graph: GraphRenderSnapshot;
+  reviewWorkspaceId: string;
+}
+
+export function DependencyGraphCanvas(props: DependencyGraphCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <DependencyGraphCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGraphCanvasProps) {
   const elements = useMemo(() => toReactFlowElements(graph), [graph]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Poc3FlowNode>(elements.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Poc3FlowEdge>(elements.edges);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const nodeById = useMemo(() => {
+    const map = new Map<string, GraphRenderNode>();
+    for (const node of graph.nodes) {
+      map.set(node.nodeId, node);
+    }
+    return map;
+  }, [graph.nodes]);
+
+  const { state: nodeDetailState, reset: resetNodeDetail } = useNodeDetail({
+    reviewWorkspaceId,
+    scopeKey: graph.scopeKey,
+    selectedNodeId,
+  });
 
   useEffect(() => {
     setNodes(elements.nodes);
     setEdges(elements.edges);
   }, [elements.edges, elements.nodes, setEdges, setNodes]);
+
+  useEffect(() => {
+    setSelectedNodeId(null);
+    resetNodeDetail();
+  }, [graph.graphSnapshotId, resetNodeDetail]);
+
+  useEffect(() => {
+    setNodes((current) =>
+      current.map((node) => {
+        const isSelected = node.id === selectedNodeId;
+        if (node.selected === isSelected) {
+          return node;
+        }
+        return { ...node, selected: isSelected };
+      }),
+    );
+  }, [selectedNodeId, setNodes]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -64,10 +112,40 @@ export function DependencyGraphCanvas({ graph }: { graph: GraphRenderSnapshot })
     };
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && selectedNodeId) {
+        setSelectedNodeId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId]);
+
+  const handleNodeClick = useCallback((_: unknown, flowNode: Poc3FlowNode) => {
+    setSelectedNodeId(flowNode.data.graphNode.nodeId);
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const handleSelectRelatedNode = useCallback(
+    (nodeId: string) => {
+      if (!nodeById.has(nodeId)) {
+        return;
+      }
+      setSelectedNodeId(nodeId);
+    },
+    [nodeById],
+  );
+
+  const selectedNode = selectedNodeId ? (nodeById.get(selectedNodeId) ?? null) : null;
+
   return (
     <div
       ref={containerRef}
-      className="h-[calc(100vh-170px)] min-h-[520px] w-full overflow-hidden rounded-[8px] border border-white/[0.1] bg-[#070707]/92"
+      className="relative h-[calc(100vh-170px)] min-h-[520px] w-full overflow-hidden rounded-[8px] border border-white/[0.1] bg-[#070707]/92"
     >
       <ReactFlow<Poc3FlowNode, Poc3FlowEdge>
         nodes={nodes}
@@ -75,6 +153,8 @@ export function DependencyGraphCanvas({ graph }: { graph: GraphRenderSnapshot })
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
         onInit={(instance) => {
           reactFlowRef.current = instance;
         }}
@@ -96,6 +176,15 @@ export function DependencyGraphCanvas({ graph }: { graph: GraphRenderSnapshot })
         />
         <Controls className="!border-white/[0.1] !bg-[#111]/80 [&_button]:!border-white/[0.08] [&_button]:!bg-transparent [&_button]:!text-white" />
       </ReactFlow>
+      {selectedNode ? (
+        <NodeDetailPopover
+          state={nodeDetailState}
+          selectedNode={selectedNode}
+          containerRef={containerRef}
+          onClose={() => setSelectedNodeId(null)}
+          onSelectRelatedNode={handleSelectRelatedNode}
+        />
+      ) : null}
     </div>
   );
 }

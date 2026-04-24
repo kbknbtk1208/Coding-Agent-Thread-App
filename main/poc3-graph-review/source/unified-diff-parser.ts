@@ -21,7 +21,7 @@ export function parseUnifiedDiffHunks(filePath: string, patch: string | null): D
         oldLines: Number(headerMatch[2] ?? '1'),
         newStart: Number(headerMatch[3]),
         newLines: Number(headerMatch[4] ?? '1'),
-        header: headerMatch[5]?.trim() || null,
+        header: line.trim(),
         changedNewLines: [],
         changedOldLines: [],
       };

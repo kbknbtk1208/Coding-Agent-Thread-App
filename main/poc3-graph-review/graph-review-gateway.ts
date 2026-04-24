@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 import type {
+  LoadNodeDetailInput,
+  LoadNodeDetailResult,
   LoadWorkspaceGraphInput,
   LoadWorkspaceGraphResult,
   RemoveReviewWorkspaceInput,
@@ -46,6 +48,7 @@ import { resolveReviewWorkspaceTarget } from './workspace/review-workspace-targe
 import { removeWorktree } from './workspace/worktree-manager';
 import { AnalysisCoordinator } from './analysis/analysis-coordinator';
 import { fallbackGridLayout } from './layout/elk-layout-service';
+import { resolveNodeDetail } from './node-detail/node-detail-resolver';
 import { GraphReviewStore } from './store/graph-review-store';
 
 export interface CreateReviewWorkspaceInput {
@@ -386,6 +389,65 @@ export class GraphReviewGateway {
       revision: record.activeRevision,
       analysis: record.analysis,
       graph: toRenderSnapshot(record.graph, record.layout),
+    };
+  }
+
+  loadNodeDetail(input: LoadNodeDetailInput): LoadNodeDetailResult {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const scopeKey = input.scopeKey ?? INITIAL_GRAPH_SCOPE_KEY;
+    const nodeId = input.nodeId.trim();
+    if (!nodeId) {
+      return {
+        ok: false,
+        reason: 'nodeNotFound',
+        message: 'nodeId が指定されていません。',
+        detail: null,
+      };
+    }
+    const record = this.graphStore.getWorkspaceGraphRecord(reviewWorkspaceId, scopeKey);
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        detail: null,
+      };
+    }
+    if (!record.activeRevision) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Active revision が見つかりません。',
+        detail: null,
+      };
+    }
+    if (!record.graph) {
+      return {
+        ok: false,
+        reason: 'graphNotReady',
+        message: 'Graph snapshot がまだ保存されていません。',
+        detail: null,
+      };
+    }
+    const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(
+      record.activeRevision.revisionId,
+    );
+    const resolved = resolveNodeDetail({
+      workspace: record.workspace,
+      revisionId: record.activeRevision.revisionId,
+      scopeKey,
+      nodeId,
+      record,
+      sourceSnapshot,
+    });
+    if (resolved.ok && resolved.detail) {
+      return { ok: true, detail: resolved.detail };
+    }
+    return {
+      ok: false,
+      reason: resolved.reason ?? 'detailUnavailable',
+      message: resolved.message ?? 'Node detail を解決できませんでした。',
+      detail: resolved.detail,
     };
   }
 

@@ -1,0 +1,97 @@
+import type { GraphRenderEdge, GraphRenderNode, SourceRange } from './graph';
+import type { ReviewRemoteThreadSummary } from './source-snapshot';
+
+export type NodeDetailPrimaryView = 'diff' | 'code' | 'overview';
+export type NodeDetailStatus = 'ready' | 'partial' | 'unavailable';
+
+export type NodeCodeExcerptLanguage = 'ts' | 'tsx' | 'mts' | 'cts' | 'text';
+
+export interface NodeDetailSnapshot {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  scopeKey: string;
+  nodeId: string;
+  node: GraphRenderNode;
+  primaryView: NodeDetailPrimaryView;
+  status: NodeDetailStatus;
+  summary: NodeDetailSummary;
+  codeExcerpt: NodeCodeExcerpt | null;
+  diffExcerpt: NodeDiffExcerpt | null;
+  relations: NodeRelationSummary;
+  threads: NodeThreadSummary;
+  findings: NodeFindingSummary[];
+  diagnostics: NodeDetailDiagnostic[];
+}
+
+export interface NodeDetailSummary {
+  title: string;
+  subtitle: string;
+  kindLabel: string;
+  diffStatusLabel: string;
+  filePath: string | null;
+  declarationRange: SourceRange | null;
+}
+
+export interface NodeCodeExcerpt {
+  filePath: string;
+  language: NodeCodeExcerptLanguage;
+  startLine: number;
+  endLine: number;
+  highlightedLineNumbers: number[];
+  content: string;
+}
+
+export interface NodeDiffExcerpt {
+  filePath: string;
+  patch: string;
+  hunkHeaders: string[];
+  changedLineNumbers: number[];
+}
+
+export interface NodeRelationSummary {
+  incoming: NodeRelationItem[];
+  outgoing: NodeRelationItem[];
+  incomingOverflowCount: number;
+  outgoingOverflowCount: number;
+}
+
+export interface NodeRelationItem {
+  edge: GraphRenderEdge;
+  nodeId: string;
+  label: string;
+  kind: GraphRenderNode['kind'];
+  isDiffNode: boolean;
+}
+
+export interface NodeThreadSummary {
+  remote: ReviewRemoteThreadSummary[];
+  local: LocalNodeThreadSummary[];
+  agent: AgentNodeThreadSummary[];
+}
+
+export interface LocalNodeThreadSummary {
+  threadId: string;
+  title: string;
+  status: 'open' | 'resolved';
+  line: number | null;
+}
+
+export interface AgentNodeThreadSummary {
+  threadId: string;
+  summary: string;
+  status: 'open' | 'resolved';
+  line: number | null;
+}
+
+export interface NodeFindingSummary {
+  findingId: string;
+  severity: 'low' | 'medium' | 'high';
+  title: string;
+  line: number | null;
+}
+
+export interface NodeDetailDiagnostic {
+  code: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+}
