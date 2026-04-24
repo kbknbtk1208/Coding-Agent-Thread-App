@@ -37,6 +37,7 @@ export interface ResolveNodeDetailContext {
   scopeKey: string;
   nodeId: string;
   record: WorkspaceGraphRecord;
+  renderSnapshot?: GraphRenderSnapshot;
   sourceSnapshot: ReviewSourceSnapshot | null;
 }
 
@@ -63,7 +64,7 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     };
   }
 
-  const renderSnapshot = toRenderSnapshot(record);
+  const renderSnapshot = context.renderSnapshot ?? toRenderSnapshot(record);
   const renderNode = renderSnapshot.nodes.find((node) => node.nodeId === nodeId);
   if (!renderNode) {
     return {

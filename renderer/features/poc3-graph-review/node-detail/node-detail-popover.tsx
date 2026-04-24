@@ -155,7 +155,7 @@ function PopoverBody({
   state: NodeDetailState;
   onSelectRelatedNode: (nodeId: string) => void;
 }) {
-  if (state.status === 'loading') {
+  if (state.status === 'loading' && !state.detail) {
     return (
       <div className="flex items-center gap-2 text-[11px] text-white/65">
         <Loader2 className="size-4 animate-spin text-[#d8e071]" aria-hidden="true" />
@@ -181,6 +181,12 @@ function PopoverBody({
 
   return (
     <>
+      {state.status === 'loading' && state.detail ? (
+        <div className="flex items-center gap-2 rounded-[6px] border border-[#d8e071]/25 bg-[#d8e071]/10 px-3 py-2 text-[11px] text-[#f6ffc0]">
+          <Loader2 className="size-4 shrink-0 animate-spin text-[#d8e071]" aria-hidden="true" />
+          <span className="min-w-0">{state.message ?? 'Refreshing node detail…'}</span>
+        </div>
+      ) : null}
       {state.status === 'failed' ? (
         <div className="flex items-start gap-2 rounded-[6px] border border-[#ffbf6b]/35 bg-[#ffbf6b]/10 px-3 py-2 text-[11px] text-[#ffd79a]">
           <AlertTriangle className="size-4 shrink-0 text-[#ffbf6b]" aria-hidden="true" />

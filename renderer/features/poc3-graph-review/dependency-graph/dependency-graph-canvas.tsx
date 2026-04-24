@@ -43,8 +43,9 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
   const [edges, setEdges, onEdgesChange] = useEdgesState<Poc3FlowEdge>(elements.edges);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
-  const resizeFrameRef = useRef<number | null>(null);
+  const appliedViewportSnapshotRef = useRef<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [reactFlowReady, setReactFlowReady] = useState(false);
 
   const nodeById = useMemo(() => {
     const map = new Map<string, GraphRenderNode>();
@@ -57,6 +58,7 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
   const { state: nodeDetailState, reset: resetNodeDetail } = useNodeDetail({
     reviewWorkspaceId,
     scopeKey: graph.scopeKey,
+    graphSnapshotId: graph.graphSnapshotId,
     selectedNodeId,
   });
 
@@ -68,6 +70,7 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
   useEffect(() => {
     setSelectedNodeId(null);
     resetNodeDetail();
+    appliedViewportSnapshotRef.current = null;
   }, [graph.graphSnapshotId, resetNodeDetail]);
 
   useEffect(() => {
@@ -83,34 +86,30 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
   }, [selectedNodeId, setNodes]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || typeof ResizeObserver === 'undefined') {
+    if (!reactFlowReady || !reactFlowRef.current) {
       return;
     }
 
-    const queueFitView = () => {
-      if (resizeFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeFrameRef.current);
-      }
-      resizeFrameRef.current = window.requestAnimationFrame(() => {
-        resizeFrameRef.current = null;
-        void reactFlowRef.current?.fitView(FIT_VIEW_OPTIONS);
-      });
-    };
+    if (appliedViewportSnapshotRef.current === graph.graphSnapshotId) {
+      return;
+    }
 
-    const observer = new ResizeObserver(() => {
-      queueFitView();
+    appliedViewportSnapshotRef.current = graph.graphSnapshotId;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const instance = reactFlowRef.current;
+      if (!instance) {
+        return;
+      }
+      if (graph.viewport) {
+        void instance.setViewport(graph.viewport, { duration: 0 });
+        return;
+      }
+      void instance.fitView(FIT_VIEW_OPTIONS);
     });
-    observer.observe(container);
 
-    return () => {
-      observer.disconnect();
-      if (resizeFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeFrameRef.current);
-        resizeFrameRef.current = null;
-      }
-    };
-  }, []);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [graph.graphSnapshotId, graph.viewport, reactFlowReady]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -157,9 +156,8 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
         onPaneClick={handlePaneClick}
         onInit={(instance) => {
           reactFlowRef.current = instance;
+          setReactFlowReady(true);
         }}
-        fitView
-        fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.2}
         maxZoom={1.8}
         proOptions={{ hideAttribution: true }}

@@ -49,7 +49,7 @@ import { removeWorktree } from './workspace/worktree-manager';
 import { AnalysisCoordinator } from './analysis/analysis-coordinator';
 import { fallbackGridLayout } from './layout/elk-layout-service';
 import { resolveNodeDetail } from './node-detail/node-detail-resolver';
-import { GraphReviewStore } from './store/graph-review-store';
+import { GraphReviewStore, type WorkspaceGraphRecord } from './store/graph-review-store';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -73,6 +73,7 @@ export class GraphReviewGateway {
   private readonly graphStore: GraphReviewStore;
   private readonly analysisCoordinator: AnalysisCoordinator;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
+  private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
   private removingWorkspaceId: string | null = null;
 
   constructor(
@@ -309,6 +310,7 @@ export class GraphReviewGateway {
     try {
       await removeWorktree(profile.localClonePath, workspace.worktreePath, force);
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
+      this.clearWorkspaceCaches(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'git worktree remove が失敗しました。';
@@ -383,12 +385,13 @@ export class GraphReviewGateway {
       };
     }
 
+    const renderSnapshot = this.getRenderSnapshot(reviewWorkspaceId, scopeKey, record);
     return {
       ok: true,
       workspace: this.toListItem(record.workspace),
       revision: record.activeRevision,
       analysis: record.analysis,
-      graph: toRenderSnapshot(record.graph, record.layout),
+      graph: renderSnapshot,
     };
   }
 
@@ -429,6 +432,7 @@ export class GraphReviewGateway {
         detail: null,
       };
     }
+    const renderSnapshot = this.getRenderSnapshot(reviewWorkspaceId, scopeKey, record);
     const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(
       record.activeRevision.revisionId,
     );
@@ -438,6 +442,7 @@ export class GraphReviewGateway {
       scopeKey,
       nodeId,
       record,
+      renderSnapshot,
       sourceSnapshot,
     });
     if (resolved.ok && resolved.detail) {
@@ -509,6 +514,7 @@ export class GraphReviewGateway {
   }
 
   dispose(): void {
+    this.renderSnapshotCache.clear();
     this.providerStore.close();
     this.profileStore.close();
     this.graphStore.close();
@@ -537,6 +543,42 @@ export class GraphReviewGateway {
     return Boolean(
       record?.activeRevision && record.analysis?.status === 'completed' && record.graph,
     );
+  }
+
+  private getRenderSnapshot(
+    reviewWorkspaceId: string,
+    scopeKey: string,
+    record: WorkspaceGraphRecord,
+  ): GraphRenderSnapshot {
+    if (!record.graph) {
+      throw new Error('Graph snapshot が存在しないため render snapshot を作成できません。');
+    }
+    const graphSnapshotId = record.graph.graphSnapshotId;
+    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}`;
+    const cached = this.renderSnapshotCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const prefix = `${reviewWorkspaceId}::${scopeKey}::`;
+    for (const existingKey of Array.from(this.renderSnapshotCache.keys())) {
+      if (existingKey.startsWith(prefix) && existingKey !== cacheKey) {
+        this.renderSnapshotCache.delete(existingKey);
+      }
+    }
+
+    const renderSnapshot = toRenderSnapshot(record.graph, record.layout);
+    this.renderSnapshotCache.set(cacheKey, renderSnapshot);
+    return renderSnapshot;
+  }
+
+  private clearWorkspaceCaches(reviewWorkspaceId: string): void {
+    const prefix = `${reviewWorkspaceId}::`;
+    for (const cacheKey of Array.from(this.renderSnapshotCache.keys())) {
+      if (cacheKey.startsWith(prefix)) {
+        this.renderSnapshotCache.delete(cacheKey);
+      }
+    }
   }
 }
 
