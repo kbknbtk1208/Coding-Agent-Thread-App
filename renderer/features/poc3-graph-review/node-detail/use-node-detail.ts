@@ -104,7 +104,13 @@ export function useNodeDetail({
       selectedNodeId,
       viewMode,
     );
-    const cachedDetail = cacheRef.current.get(cacheKey) ?? null;
+    const fallbackKey =
+      viewMode !== 'function'
+        ? buildCacheKey(reviewWorkspaceId, scopeKey, graphSnapshotId, selectedNodeId, 'function')
+        : null;
+    const cachedDetail =
+      cacheRef.current.get(cacheKey) ??
+      (fallbackKey ? (cacheRef.current.get(fallbackKey) ?? null) : null);
 
     const request = { workspaceId: reviewWorkspaceId, nodeId: selectedNodeId, viewMode };
     activeRequestRef.current = request;

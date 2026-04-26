@@ -3,6 +3,8 @@
 import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/lowlight';
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
   FileCode2,
   FileText,
   FunctionSquare,
@@ -295,60 +297,47 @@ function PrimarySection({
   if (!detail) {
     return <UnavailableSection selectedNode={selectedNode} />;
   }
-  const source = detail.fileContext ?? detail.functionCode ?? detail.codeExcerpt;
+
+  const isExpanded = viewMode !== 'function';
+  const source =
+    isExpanded && detail.fileContext
+      ? detail.fileContext
+      : (detail.functionCode ?? detail.fileContext ?? detail.codeExcerpt);
+  const canExpand = detail.functionCode !== null;
+  const scrollToLine =
+    isExpanded && detail.fileContext ? detail.functionCode?.startLine : undefined;
+
   if (source) {
     return (
       <section className="flex flex-col gap-2">
-        <ViewModeControl
-          activeMode={detail.fileContext?.mode ?? (detail.functionCode ? 'function' : viewMode)}
-          onChange={onViewModeChange}
-        />
-        <SourceCodeSection source={source} />
+        <SourceCodeSection source={source} scrollToLine={scrollToLine} />
+        {canExpand && !isExpanded ? (
+          <button
+            type="button"
+            className="flex items-center justify-center gap-1.5 self-center rounded-full border border-white/[0.1] bg-white/[0.03] px-3 py-1 text-[11px] text-white/55 transition hover:border-white/[0.18] hover:text-white/80"
+            onClick={() => onViewModeChange('file')}
+          >
+            <ChevronDown className="size-3" aria-hidden="true" />
+            ファイルを展開
+          </button>
+        ) : canExpand && isExpanded && detail.fileContext ? (
+          <button
+            type="button"
+            className="flex items-center justify-center gap-1.5 self-center rounded-full border border-white/[0.1] bg-white/[0.03] px-3 py-1 text-[11px] text-white/55 transition hover:border-white/[0.18] hover:text-white/80"
+            onClick={() => onViewModeChange('function')}
+          >
+            <ChevronUp className="size-3" aria-hidden="true" />
+            折りたたむ
+          </button>
+        ) : null}
       </section>
     );
   }
+
   if (detail.diffExcerpt) {
     return <DiffExcerptSection excerpt={detail.diffExcerpt} />;
   }
   return <UnavailableSection selectedNode={selectedNode} detail={detail} />;
-}
-
-function ViewModeControl({
-  activeMode,
-  onChange,
-}: {
-  activeMode: NodeDetailViewMode;
-  onChange(viewMode: NodeDetailViewMode): void;
-}) {
-  const options: Array<{ value: NodeDetailViewMode; label: string }> = [
-    { value: 'function', label: 'Function' },
-    { value: 'context', label: 'Context' },
-    { value: 'file', label: 'File' },
-  ];
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex rounded-[8px] border border-white/[0.08] bg-white/[0.04] p-0.5">
-        {options.map((option) => {
-          const selected = activeMode === option.value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              className={`rounded-[6px] px-2.5 py-1 text-[11px] font-semibold transition ${
-                selected
-                  ? 'bg-[#d8e071]/16 text-[#f6ffc0]'
-                  : 'text-white/55 hover:bg-white/[0.06] hover:text-white/82'
-              }`}
-              onClick={() => onChange(option.value)}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      <span className="text-[11px] text-white/38">{activeMode}</span>
-    </div>
-  );
 }
 
 function DiffExcerptSection({ excerpt }: { excerpt: NodeDiffExcerpt }) {
@@ -501,23 +490,41 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
 
 function SourceCodeSection({
   source,
+  scrollToLine,
 }: {
   source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
+  scrollToLine?: number;
 }) {
+  const scrollContainerRef = useRef<HTMLPreElement | null>(null);
   const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
   const highlighted = new Set(source.highlightedLineNumbers);
   const lines = source.content.split('\n');
 
+  useEffect(() => {
+    if (!scrollToLine || !scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const lineEl = container.querySelector(`[data-line="${scrollToLine}"]`);
+    if (lineEl instanceof HTMLElement) {
+      const containerTop = container.getBoundingClientRect().top;
+      const lineTop = lineEl.getBoundingClientRect().top;
+      container.scrollTop = Math.max(0, container.scrollTop + lineTop - containerTop - 48);
+    }
+  }, [scrollToLine]);
+
   return (
     <section className="node-detail-code diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
       <div className="overflow-hidden rounded-[12px] border border-white/[0.08] bg-black/45">
-        <pre className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]">
+        <pre
+          ref={scrollContainerRef}
+          className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]"
+        >
           {lines.map((line, index) => {
             const actualLine = source.startLine + index;
             const isHighlighted = highlighted.has(actualLine);
             return (
               <div
                 key={actualLine}
+                data-line={actualLine}
                 className={`grid grid-cols-[16px_minmax(0,1fr)] gap-x-1.5 rounded-[4px] px-1 ${
                   isHighlighted ? 'bg-[#d8e071]/10 text-[#f6ffc0]' : ''
                 }`}
