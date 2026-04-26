@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "lint": "oxlint .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "port:clean": "powershell -ExecutionPolicy Bypass -File scripts/port-clean.ps1 8888"
   },
   "dependencies": {
     "@git-diff-view/file": "^0.1.3",
