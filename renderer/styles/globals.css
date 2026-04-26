@@ -75,6 +75,16 @@
     --diff-empty-content--: #050505;
   }
 
+  .node-detail-diff .diff-line-syntax-raw .hljs,
+  .node-detail-code .diff-line-syntax-raw .hljs {
+    background: transparent;
+  }
+
+  .node-detail-diff .diff-line-syntax-raw code.hljs,
+  .node-detail-code .diff-line-syntax-raw code.hljs {
+    padding: 0;
+  }
+
   .glass-panel {
     backdrop-filter: blur(28px);
     background: linear-gradient(

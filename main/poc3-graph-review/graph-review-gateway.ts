@@ -584,12 +584,12 @@ export class GraphReviewGateway {
 
 function nodeSize(node: CodeGraphSnapshot['nodes'][number]): { width: number; height: number } {
   if (node.kind === 'module') {
-    return { width: 220, height: 64 };
+    return { width: 320, height: 72 };
   }
   if (node.kind === 'external') {
-    return { width: 160, height: 44 };
+    return { width: 220, height: 52 };
   }
-  return { width: 180, height: 52 };
+  return { width: 260, height: 60 };
 }
 
 function toRenderSnapshot(

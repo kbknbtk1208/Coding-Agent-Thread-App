@@ -100,9 +100,9 @@ describe('fallbackGridLayout', () => {
   it('ノード間隔を広めに確保する', () => {
     const positions = fallbackGridLayout(createGraph());
 
-    expect(positions['module-app']).toMatchObject({ x: 0, y: 0, width: 220, height: 64 });
-    expect(positions['component-app']).toMatchObject({ x: 320, y: 0, width: 180, height: 52 });
-    expect(positions['hook-useThing']).toMatchObject({ x: 0, y: 180, width: 180, height: 52 });
+    expect(positions['module-app']).toMatchObject({ x: 0, y: 0, width: 320, height: 72 });
+    expect(positions['component-app']).toMatchObject({ x: 420, y: 0, width: 260, height: 60 });
+    expect(positions['hook-useThing']).toMatchObject({ x: 0, y: 220, width: 260, height: 60 });
   });
 });
 
@@ -110,9 +110,9 @@ describe('layoutGraph', () => {
   it('ELK レイアウトにも広い間隔設定を渡す', async () => {
     layoutMock.mockResolvedValueOnce({
       children: [
-        { id: 'module-app', x: 0, y: 0, width: 220, height: 64 },
-        { id: 'component-app', x: 420, y: 0, width: 180, height: 52 },
-        { id: 'hook-useThing', x: 840, y: 0, width: 180, height: 52 },
+        { id: 'module-app', x: 0, y: 0, width: 320, height: 72 },
+        { id: 'component-app', x: 480, y: 0, width: 260, height: 60 },
+        { id: 'hook-useThing', x: 900, y: 0, width: 260, height: 60 },
       ],
     });
 
@@ -127,6 +127,6 @@ describe('layoutGraph', () => {
         }),
       }),
     );
-    expect(result.layout.positions['component-app']).toMatchObject({ x: 420, y: 0 });
+    expect(result.layout.positions['component-app']).toMatchObject({ x: 480, y: 0 });
   });
 });

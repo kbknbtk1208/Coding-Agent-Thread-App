@@ -11,16 +11,16 @@ const NODE_SIZES: Record<
   CodeGraphSnapshot['nodes'][number]['kind'],
   { width: number; height: number }
 > = {
-  module: { width: 220, height: 64 },
-  function: { width: 180, height: 52 },
-  method: { width: 180, height: 52 },
-  component: { width: 180, height: 52 },
-  hook: { width: 180, height: 52 },
-  external: { width: 160, height: 44 },
+  module: { width: 320, height: 72 },
+  function: { width: 260, height: 60 },
+  method: { width: 260, height: 60 },
+  component: { width: 260, height: 60 },
+  hook: { width: 260, height: 60 },
+  external: { width: 220, height: 52 },
 };
 
-const FALLBACK_GRID_HORIZONTAL_GAP = 320;
-const FALLBACK_GRID_VERTICAL_GAP = 180;
+const FALLBACK_GRID_HORIZONTAL_GAP = 420;
+const FALLBACK_GRID_VERTICAL_GAP = 220;
 const ELK_NODE_SPACING_BETWEEN_LAYERS = '160';
 const ELK_NODE_SPACING = '96';
 

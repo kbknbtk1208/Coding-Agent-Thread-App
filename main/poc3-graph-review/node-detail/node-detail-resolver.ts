@@ -482,8 +482,8 @@ function toRenderSnapshot(record: WorkspaceGraphRecord): GraphRenderSnapshot {
       const position = positions[current.nodeId] ?? {
         x: 0,
         y: 0,
-        width: 180,
-        height: 52,
+        width: 260,
+        height: 60,
       };
       return {
         ...current,
