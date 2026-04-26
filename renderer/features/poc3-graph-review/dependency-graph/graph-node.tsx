@@ -9,14 +9,14 @@ import type { Poc3FlowNode } from './to-react-flow-elements';
 export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
   const graphNode = data.graphNode;
   const Icon =
-    graphNode.kind === 'module'
+    graphNode.kind === 'module' || graphNode.kind === 'file-scope'
       ? FileCode2
-      : graphNode.kind === 'external'
+      : graphNode.kind === 'external' || graphNode.kind === 'external-symbol'
         ? Package
         : FunctionSquare;
   const tone = graphNode.isDiffNode
     ? 'border-[#d8e071]/55 bg-[#d8e071]/14 text-[#f6ffc0]'
-    : graphNode.kind === 'module'
+    : graphNode.kind === 'module' || graphNode.kind === 'file-scope'
       ? 'border-white/[0.12] bg-white/[0.045] text-white/82'
       : 'border-[#58d7ff]/28 bg-[#58d7ff]/10 text-[#dff7ff]';
 

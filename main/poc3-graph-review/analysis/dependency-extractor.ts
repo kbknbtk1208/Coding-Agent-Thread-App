@@ -10,14 +10,24 @@ export interface ExtractedSymbolNode {
   filePath: string;
   range: SourceRange;
   isDiffNode: boolean;
+  changedLineNumbers: number[];
   changedLines: number;
 }
 
-export interface ExtractedCallEdge {
+export interface ExtractedUsageEdge {
   sourceKey: string;
   targetKey: string;
+  kind: 'calls' | 'constructs' | 'renders';
   confidence: 'high' | 'medium' | 'low';
+  usage: {
+    filePath: string;
+    range: SourceRange;
+    imported: boolean;
+    importSource: string | null;
+  };
 }
+
+export type ExtractedCallEdge = ExtractedUsageEdge;
 
 export interface ExtractedImportEdge {
   sourceFilePath: string;
@@ -29,6 +39,8 @@ export interface ExtractedImportEdge {
 export interface DependencyExtractionResult {
   symbols: ExtractedSymbolNode[];
   calls: ExtractedCallEdge[];
+  constructs?: ExtractedUsageEdge[];
+  renders?: ExtractedUsageEdge[];
   imports: ExtractedImportEdge[];
   diagnostics: GraphDiagnostic[];
 }
@@ -47,8 +59,14 @@ function classifySymbol(
 }
 
 function rangeForNode(worktreePath: string, sourceFile: ts.SourceFile, node: ts.Node): SourceRange {
-  const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-  const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+  const rangeNode =
+    ts.isVariableDeclaration(node) &&
+    ts.isVariableDeclarationList(node.parent) &&
+    ts.isVariableStatement(node.parent.parent)
+      ? node.parent.parent
+      : node;
+  const start = sourceFile.getLineAndCharacterOfPosition(rangeNode.getStart(sourceFile));
+  const end = sourceFile.getLineAndCharacterOfPosition(rangeNode.getEnd());
   return {
     filePath: normalizeRepoPath(toRepoRelativePath(worktreePath, sourceFile.fileName)),
     startLine: start.line + 1,
@@ -58,10 +76,10 @@ function rangeForNode(worktreePath: string, sourceFile: ts.SourceFile, node: ts.
   };
 }
 
-function changedLineCount(range: SourceRange, diffScope: DiffScope): number {
+function changedLinesInRange(range: SourceRange, diffScope: DiffScope): number[] {
   const file = diffScope.files.find((candidate) => candidate.filePath === range.filePath);
   if (!file) {
-    return 0;
+    return [];
   }
   const changed = new Set<number>();
   for (const changedRange of file.changedRanges) {
@@ -71,7 +89,7 @@ function changedLineCount(range: SourceRange, diffScope: DiffScope): number {
       }
     }
   }
-  return changed.size;
+  return Array.from(changed).sort((a, b) => a - b);
 }
 
 function isInNodeModules(fileName: string): boolean {
@@ -81,6 +99,7 @@ function isInNodeModules(fileName: string): boolean {
 function getDeclarationName(node: ts.Node): string | null {
   if (
     (ts.isFunctionDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
       ts.isMethodDeclaration(node) ||
       ts.isMethodSignature(node)) &&
     node.name
@@ -101,6 +120,7 @@ function getDeclarationName(node: ts.Node): string | null {
 function getNameNode(node: ts.Node): ts.Node | null {
   if (
     (ts.isFunctionDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
       ts.isMethodDeclaration(node) ||
       ts.isMethodSignature(node)) &&
     node.name
@@ -116,6 +136,7 @@ function getNameNode(node: ts.Node): ts.Node | null {
 function shouldCollectNode(node: ts.Node): boolean {
   return (
     ts.isFunctionDeclaration(node) ||
+    ts.isClassDeclaration(node) ||
     ts.isMethodDeclaration(node) ||
     ts.isMethodSignature(node) ||
     (ts.isVariableDeclaration(node) &&
@@ -148,6 +169,48 @@ function resolveImportTargetFilePath(input: {
   return normalizeRepoPath(toRepoRelativePath(input.worktreePath, resolved.resolvedFileName));
 }
 
+function rangeForUsage(
+  worktreePath: string,
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+): SourceRange {
+  const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+  return {
+    filePath: normalizeRepoPath(toRepoRelativePath(worktreePath, sourceFile.fileName)),
+    startLine: start.line + 1,
+    startColumn: start.character + 1,
+    endLine: end.line + 1,
+    endColumn: end.character + 1,
+  };
+}
+
+function getImportSourceByLocalName(sourceFile: ts.SourceFile): Map<string, string> {
+  const importSourceByLocalName = new Map<string, string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+    const importClause = statement.importClause;
+    if (!importClause) {
+      continue;
+    }
+    if (importClause.name) {
+      importSourceByLocalName.set(importClause.name.text, statement.moduleSpecifier.text);
+    }
+    const namedBindings = importClause.namedBindings;
+    if (namedBindings && ts.isNamedImports(namedBindings)) {
+      for (const element of namedBindings.elements) {
+        importSourceByLocalName.set(element.name.text, statement.moduleSpecifier.text);
+      }
+    }
+    if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+      importSourceByLocalName.set(namedBindings.name.text, statement.moduleSpecifier.text);
+    }
+  }
+  return importSourceByLocalName;
+}
+
 export function extractDependencies(input: {
   worktreePath: string;
   program: ts.Program;
@@ -171,18 +234,23 @@ export function extractDependencies(input: {
         const nameNode = getNameNode(node);
         if (name && nameNode) {
           const fallbackKind =
-            ts.isMethodDeclaration(node) || ts.isMethodSignature(node) ? 'method' : 'function';
+            ts.isMethodDeclaration(node) ||
+            ts.isMethodSignature(node) ||
+            ts.isClassDeclaration(node)
+              ? 'method'
+              : 'function';
           const range = rangeForNode(input.worktreePath, sourceFile, node);
-          const changedLines = changedLineCount(range, input.diffScope);
+          const changedLineNumbers = changedLinesInRange(range, input.diffScope);
           const key = `${filePath}:${name}:${range.startLine}`;
           const extracted: ExtractedSymbolNode = {
             key,
             name,
-            kind: classifySymbol(name, fallbackKind),
+            kind: ts.isClassDeclaration(node) ? 'method' : classifySymbol(name, fallbackKind),
             filePath,
             range,
-            isDiffNode: changedLines > 0,
-            changedLines,
+            isDiffNode: changedLineNumbers.length > 0,
+            changedLineNumbers,
+            changedLines: changedLineNumbers.length,
           };
           symbols.push(extracted);
           symbolKeyByDeclaration.set(node as ts.Declaration, key);
@@ -198,6 +266,8 @@ export function extractDependencies(input: {
   }
 
   const calls: ExtractedCallEdge[] = [];
+  const constructs: ExtractedUsageEdge[] = [];
+  const renders: ExtractedUsageEdge[] = [];
   const imports: ExtractedImportEdge[] = [];
   const currentSymbolStack: string[] = [];
 
@@ -208,6 +278,68 @@ export function extractDependencies(input: {
     const sourceFilePath = normalizeRepoPath(
       toRepoRelativePath(input.worktreePath, sourceFile.fileName),
     );
+    const importSourceByLocalName = getImportSourceByLocalName(sourceFile);
+
+    const resolveTargetKey = (target: ts.Node): string | null => {
+      const symbol = checker.getSymbolAtLocation(target);
+      const aliased =
+        symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0
+          ? checker.getAliasedSymbol(symbol)
+          : symbol;
+      const declaration = aliased?.declarations?.[0];
+      return declaration
+        ? (symbolKeyByDeclaration.get(declaration) ?? null)
+        : aliased
+          ? (symbolKeyByTsSymbol.get(aliased) ?? null)
+          : null;
+    };
+
+    const usageImportSource = (target: ts.Node): string | null => {
+      if (ts.isIdentifier(target)) {
+        return importSourceByLocalName.get(target.text) ?? null;
+      }
+      if (ts.isPropertyAccessExpression(target) && ts.isIdentifier(target.expression)) {
+        return importSourceByLocalName.get(target.expression.text) ?? null;
+      }
+      return null;
+    };
+
+    const pushUsage = (
+      collection: ExtractedUsageEdge[],
+      kind: ExtractedUsageEdge['kind'],
+      target: ts.Node,
+      usageNode: ts.Node,
+    ) => {
+      if (currentSymbolStack.length === 0) {
+        return;
+      }
+      const sourceKey = currentSymbolStack[currentSymbolStack.length - 1];
+      const targetKey = resolveTargetKey(target);
+      if (targetKey && targetKey !== sourceKey) {
+        const importSource = usageImportSource(target);
+        collection.push({
+          sourceKey,
+          targetKey,
+          kind,
+          confidence: 'high',
+          usage: {
+            filePath: sourceFilePath,
+            range: rangeForUsage(input.worktreePath, sourceFile, usageNode),
+            imported: importSource !== null,
+            importSource,
+          },
+        });
+        return;
+      }
+      if (!targetKey) {
+        diagnostics.push({
+          code: `${kind.toUpperCase()}_SYMBOL_UNRESOLVED`,
+          message: '利用先 symbol を解決できませんでした。',
+          severity: 'info',
+          filePath: sourceFilePath,
+        });
+      }
+    };
 
     const visit = (node: ts.Node) => {
       let pushed = false;
@@ -234,28 +366,27 @@ export function extractDependencies(input: {
       }
 
       if (ts.isCallExpression(node) && currentSymbolStack.length > 0) {
-        const sourceKey = currentSymbolStack[currentSymbolStack.length - 1];
-        const symbol = checker.getSymbolAtLocation(node.expression);
-        const aliased =
-          symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0
-            ? checker.getAliasedSymbol(symbol)
-            : symbol;
-        const declaration = aliased?.declarations?.[0];
-        const targetKey = declaration
-          ? symbolKeyByDeclaration.get(declaration)
-          : aliased
-            ? symbolKeyByTsSymbol.get(aliased)
-            : null;
-        if (targetKey && targetKey !== sourceKey) {
-          calls.push({ sourceKey, targetKey, confidence: 'high' });
-        } else if (!targetKey) {
-          diagnostics.push({
-            code: 'CALL_SYMBOL_UNRESOLVED',
-            message: '呼び出し先 symbol を解決できませんでした。',
-            severity: 'info',
-            filePath: sourceFilePath,
-          });
-        }
+        pushUsage(calls, 'calls', node.expression, node);
+      }
+
+      if (ts.isNewExpression(node) && currentSymbolStack.length > 0) {
+        pushUsage(constructs, 'constructs', node.expression, node);
+      }
+
+      if (
+        ts.isJsxOpeningElement(node) &&
+        currentSymbolStack.length > 0 &&
+        !/^[a-z]/.test(node.tagName.getText(sourceFile))
+      ) {
+        pushUsage(renders, 'renders', node.tagName, node);
+      }
+
+      if (
+        ts.isJsxSelfClosingElement(node) &&
+        currentSymbolStack.length > 0 &&
+        !/^[a-z]/.test(node.tagName.getText(sourceFile))
+      ) {
+        pushUsage(renders, 'renders', node.tagName, node);
       }
 
       ts.forEachChild(node, visit);
@@ -269,6 +400,8 @@ export function extractDependencies(input: {
   return {
     symbols,
     calls,
+    constructs,
+    renders,
     imports,
     diagnostics,
   };

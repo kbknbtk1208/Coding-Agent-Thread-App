@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphRenderNode, GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import type { NodeDetailViewMode } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import { NodeDetailPanel } from '../node-detail/node-detail-panel';
 import { useNodeDetail } from '../node-detail/use-node-detail';
 import { Poc3GraphNode } from './graph-node';
@@ -44,6 +45,7 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
   const appliedViewportSnapshotRef = useRef<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [detailViewMode, setDetailViewMode] = useState<NodeDetailViewMode>('function');
   const [reactFlowReady, setReactFlowReady] = useState(false);
 
   const nodeById = useMemo(() => {
@@ -59,6 +61,7 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
     scopeKey: graph.scopeKey,
     graphSnapshotId: graph.graphSnapshotId,
     selectedNodeId,
+    viewMode: detailViewMode,
   });
 
   useEffect(() => {
@@ -72,6 +75,7 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
 
   useEffect(() => {
     setSelectedNodeId(null);
+    setDetailViewMode('function');
     resetNodeDetail();
   }, [resetNodeDetail, reviewWorkspaceId]);
 
@@ -114,6 +118,7 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
   }, [graph.graphSnapshotId, graph.viewport, reactFlowReady]);
 
   const handleNodeClick = useCallback((_: unknown, flowNode: Poc3FlowNode) => {
+    setDetailViewMode('function');
     setSelectedNodeId(flowNode.data.graphNode.nodeId);
   }, []);
 
@@ -156,6 +161,12 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
         <NodeDetailPanel
           state={nodeDetailState}
           selectedNode={selectedNode}
+          viewMode={detailViewMode}
+          onViewModeChange={setDetailViewMode}
+          onSelectNode={(nodeId) => {
+            setDetailViewMode('function');
+            setSelectedNodeId(nodeId);
+          }}
           onClose={() => setSelectedNodeId(null)}
         />
       ) : null}

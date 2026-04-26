@@ -16,7 +16,9 @@ const NODE_SIZES: Record<
   method: { width: 260, height: 60 },
   component: { width: 260, height: 60 },
   hook: { width: 260, height: 60 },
+  'file-scope': { width: 280, height: 60 },
   external: { width: 220, height: 52 },
+  'external-symbol': { width: 220, height: 52 },
 };
 
 const FALLBACK_GRID_HORIZONTAL_GAP = 420;

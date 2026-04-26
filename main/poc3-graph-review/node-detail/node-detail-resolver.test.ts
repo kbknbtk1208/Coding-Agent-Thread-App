@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { CodeGraphSnapshot } from '../../../shared/poc3-domain/graph';
 import type { RevisionContext } from '../../../shared/poc3-domain/revision';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
@@ -6,7 +9,49 @@ import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspa
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
 import { resolveNodeDetail } from './node-detail-resolver';
 
-function createWorkspace(): ReviewWorkspace {
+const tempDirs: string[] = [];
+
+function createTempWorkspace(): string {
+  const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'node-detail-'));
+  tempDirs.push(worktreePath);
+  fs.mkdirSync(path.join(worktreePath, 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(worktreePath, 'src', 'example.ts'),
+    [
+      'const before1 = 1;',
+      'const before2 = 2;',
+      'const before3 = 3;',
+      'const before4 = 4;',
+      'const before5 = 5;',
+      'const before6 = 6;',
+      'const before7 = 7;',
+      'const before8 = 8;',
+      'const inserted = 2;',
+      'export function example() {',
+      '  return inserted;',
+      '  // body 12',
+      '  // body 13',
+      '  // body 14',
+      '  // body 15',
+      '  // body 16',
+      '  // body 17',
+      '  // body 18',
+      '  // body 19',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  return worktreePath;
+}
+
+afterEach(() => {
+  for (const tempDir of tempDirs.splice(0)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+function createWorkspace(worktreePath: string): ReviewWorkspace {
   return {
     reviewWorkspaceId: 'workspace-1',
     repositoryProfileId: 'profile-1',
@@ -17,7 +62,7 @@ function createWorkspace(): ReviewWorkspace {
     baseSha: 'a'.repeat(40),
     headSha: 'b'.repeat(40),
     sourceBranchName: 'feature/node-detail',
-    worktreePath: 'C:\\worktrees\\project-pr-123',
+    worktreePath,
     setupStatus: 'completed',
     status: 'active',
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -51,23 +96,24 @@ function createGraph(): CodeGraphSnapshot {
     status: 'ready',
     nodes: [
       {
-        nodeId: 'node-module-1',
-        stableSymbolId: 'symbol-module-1',
+        nodeId: 'node-file-scope-1',
+        stableSymbolId: 'symbol-file-scope-1',
         parentNodeId: null,
-        kind: 'module',
-        label: 'example.ts',
+        kind: 'file-scope',
+        label: 'example.ts file scope',
         filePath: 'src/example.ts',
         declarationRange: {
           filePath: 'src/example.ts',
-          startLine: 1,
+          startLine: 9,
           startColumn: 1,
-          endLine: 1,
+          endLine: 9,
           endColumn: 1,
         },
-        diffStatus: 'module',
-        isDiffNode: false,
+        diffStatus: 'file-scope',
+        isDiffNode: true,
+        changedLineNumbers: [9],
         badges: {
-          changedLines: 3,
+          changedLines: 1,
           remoteThreadCount: 0,
           findingCount: 0,
         },
@@ -88,8 +134,32 @@ function createGraph(): CodeGraphSnapshot {
         },
         diffStatus: 'changed',
         isDiffNode: true,
+        changedLineNumbers: [11],
         badges: {
-          changedLines: 3,
+          changedLines: 1,
+          remoteThreadCount: 0,
+          findingCount: 0,
+        },
+      },
+      {
+        nodeId: 'node-related-1',
+        stableSymbolId: 'symbol-related-1',
+        parentNodeId: null,
+        kind: 'function',
+        label: 'related',
+        filePath: 'src/example.ts',
+        declarationRange: {
+          filePath: 'src/example.ts',
+          startLine: 16,
+          startColumn: 1,
+          endLine: 19,
+          endColumn: 1,
+        },
+        diffStatus: 'related',
+        isDiffNode: false,
+        changedLineNumbers: [],
+        badges: {
+          changedLines: 0,
           remoteThreadCount: 0,
           findingCount: 0,
         },
@@ -145,7 +215,7 @@ function createSourceSnapshot(): ReviewSourceSnapshot {
             newStart: 8,
             newLines: 7,
             header: 'export function example() {',
-            changedNewLines: [9],
+            changedNewLines: [11],
             changedOldLines: [9],
           },
         ],
@@ -157,9 +227,9 @@ function createSourceSnapshot(): ReviewSourceSnapshot {
   };
 }
 
-function createRecord(): WorkspaceGraphRecord {
+function createRecord(worktreePath: string): WorkspaceGraphRecord {
   return {
-    workspace: createWorkspace(),
+    workspace: createWorkspace(worktreePath),
     activeRevision: createRevision(),
     analysis: null,
     graph: createGraph(),
@@ -168,38 +238,84 @@ function createRecord(): WorkspaceGraphRecord {
 }
 
 describe('resolveNodeDetail', () => {
-  it('module node では file patch 全量を返し、壊れた hunk header を補正する', () => {
+  it('file-scope node では hunk 周辺 context と diff summary を返す', () => {
+    const worktreePath = createTempWorkspace();
     const sourceSnapshot = createSourceSnapshot();
 
     const result = resolveNodeDetail({
-      workspace: createWorkspace(),
+      workspace: createWorkspace(worktreePath),
       revisionId: 'revision-1',
       scopeKey: 'initial:diff-plus-1-hop:v1',
-      nodeId: 'node-module-1',
-      record: createRecord(),
+      nodeId: 'node-file-scope-1',
+      record: createRecord(worktreePath),
       sourceSnapshot,
     });
 
     expect(result.ok).toBe(true);
-    expect(result.detail?.primaryView).toBe('diff');
+    expect(result.detail?.primaryView).toBe('file-scope');
+    expect(result.detail?.fileContext?.highlightedLineNumbers).toEqual([9]);
+    expect(result.detail?.diffSummary.changedLineNumbers).toEqual([9]);
     expect(result.detail?.diffExcerpt?.patch).toBe(sourceSnapshot.changedFiles[0]?.patch ?? null);
     expect(result.detail?.diffExcerpt?.hunkHeaders).toEqual(['@@ -8,6 +8,7 @@']);
   });
 
-  it('diff node でも intersect する hunk があれば file patch 全量を返す', () => {
+  it('diff node では関数全体 code と diff 行 highlight を返す', () => {
+    const worktreePath = createTempWorkspace();
     const sourceSnapshot = createSourceSnapshot();
 
     const result = resolveNodeDetail({
-      workspace: createWorkspace(),
+      workspace: createWorkspace(worktreePath),
       revisionId: 'revision-1',
       scopeKey: 'initial:diff-plus-1-hop:v1',
       nodeId: 'node-function-1',
-      record: createRecord(),
+      record: createRecord(worktreePath),
       sourceSnapshot,
     });
 
     expect(result.ok).toBe(true);
-    expect(result.detail?.primaryView).toBe('diff');
+    expect(result.detail?.primaryView).toBe('function');
+    expect(result.detail?.functionCode?.startLine).toBe(10);
+    expect(result.detail?.functionCode?.endLine).toBe(20);
+    expect(result.detail?.functionCode?.highlightedLineNumbers).toEqual([11]);
+    expect(result.detail?.diffSummary.changedLineNumbers).toEqual([11]);
     expect(result.detail?.diffExcerpt?.patch?.split('\n')).toHaveLength(7);
+  });
+
+  it('viewMode=file では file context を返し、patch がなくても code が読めれば ready になる', () => {
+    const worktreePath = createTempWorkspace();
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-function-1',
+      viewMode: 'file',
+      record: createRecord(worktreePath),
+      sourceSnapshot: null,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.status).toBe('ready');
+    expect(result.detail?.fileContext?.mode).toBe('file');
+    expect(result.detail?.diffSummary.hasDiff).toBe(true);
+    expect(result.detail?.diffExcerpt).toBeNull();
+  });
+
+  it('同じ file の related node には無関係な diff summary を付けない', () => {
+    const worktreePath = createTempWorkspace();
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-related-1',
+      record: createRecord(worktreePath),
+      sourceSnapshot: createSourceSnapshot(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.primaryView).toBe('function');
+    expect(result.detail?.diffSummary.hasDiff).toBe(false);
+    expect(result.detail?.diffSummary.patch).toBeNull();
   });
 });

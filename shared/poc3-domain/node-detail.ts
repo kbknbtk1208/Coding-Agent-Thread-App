@@ -1,10 +1,17 @@
 import type { GraphRenderEdge, GraphRenderNode, SourceRange } from './graph';
 import type { ReviewRemoteThreadSummary } from './source-snapshot';
 
-export type NodeDetailPrimaryView = 'diff' | 'code' | 'overview';
+export type NodeDetailPrimaryView =
+  | 'function'
+  | 'file-scope'
+  | 'external'
+  | 'diff'
+  | 'code'
+  | 'overview';
 export type NodeDetailStatus = 'ready' | 'partial' | 'unavailable';
 
 export type NodeCodeExcerptLanguage = 'ts' | 'tsx' | 'mts' | 'cts' | 'text';
+export type NodeDetailViewMode = 'function' | 'context' | 'file';
 
 export interface NodeDetailSnapshot {
   reviewWorkspaceId: string;
@@ -15,6 +22,9 @@ export interface NodeDetailSnapshot {
   primaryView: NodeDetailPrimaryView;
   status: NodeDetailStatus;
   summary: NodeDetailSummary;
+  functionCode: NodeFunctionCode | null;
+  fileContext: NodeFileContext | null;
+  diffSummary: NodeDiffSummary;
   codeExcerpt: NodeCodeExcerpt | null;
   diffExcerpt: NodeDiffExcerpt | null;
   relations: NodeRelationSummary;
@@ -41,11 +51,48 @@ export interface NodeCodeExcerpt {
   content: string;
 }
 
+export interface NodeFunctionCode {
+  filePath: string;
+  language: NodeCodeExcerptLanguage;
+  declarationRange: SourceRange;
+  startLine: number;
+  endLine: number;
+  highlightedLineNumbers: number[];
+  content: string;
+}
+
+export interface NodeFileContext {
+  filePath: string;
+  language: NodeCodeExcerptLanguage;
+  mode: NodeDetailViewMode;
+  startLine: number;
+  endLine: number;
+  highlightedLineNumbers: number[];
+  content: string;
+}
+
 export interface NodeDiffExcerpt {
   filePath: string;
   patch: string;
   hunkHeaders: string[];
   changedLineNumbers: number[];
+}
+
+export interface NodeDiffSummary {
+  hasDiff: boolean;
+  changedLineNumbers: number[];
+  hunks: NodeDiffHunkSummary[];
+  patch: string | null;
+}
+
+export interface NodeDiffHunkSummary {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  changedNewLines: number[];
+  changedOldLines: number[];
 }
 
 export interface NodeRelationSummary {

@@ -35,6 +35,7 @@ function createGraph(): CodeGraphSnapshot {
         },
         diffStatus: 'module',
         isDiffNode: false,
+        changedLineNumbers: [1, 2, 3, 4],
         badges: { changedLines: 4, remoteThreadCount: 0, findingCount: 0 },
       },
       {
@@ -53,6 +54,7 @@ function createGraph(): CodeGraphSnapshot {
         },
         diffStatus: 'changed',
         isDiffNode: true,
+        changedLineNumbers: [10, 11, 12, 13],
         badges: { changedLines: 4, remoteThreadCount: 0, findingCount: 0 },
       },
       {
@@ -71,6 +73,7 @@ function createGraph(): CodeGraphSnapshot {
         },
         diffStatus: 'related',
         isDiffNode: false,
+        changedLineNumbers: [],
         badges: { changedLines: 0, remoteThreadCount: 0, findingCount: 0 },
       },
     ],

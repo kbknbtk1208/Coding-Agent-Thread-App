@@ -1,14 +1,26 @@
 'use client';
 
 import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/lowlight';
-import { AlertTriangle, FileCode2, FunctionSquare, Loader2, Package, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  FileCode2,
+  FileText,
+  FunctionSquare,
+  GitBranch,
+  Loader2,
+  Package,
+  X,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useMemo, useRef, type RefObject } from 'react';
 import type { GraphRenderNode } from '../../../../shared/poc3-domain/graph';
 import type {
   NodeCodeExcerpt,
   NodeDetailSnapshot,
+  NodeDetailViewMode,
   NodeDiffExcerpt,
+  NodeFileContext,
+  NodeFunctionCode,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { NodeDetailState } from './use-node-detail';
 
@@ -17,10 +29,20 @@ const PANEL_WIDTH_CLASS = 'w-[min(660px,calc(100vw-28px))]';
 export interface NodeDetailPanelProps {
   state: NodeDetailState;
   selectedNode: GraphRenderNode | null;
+  viewMode: NodeDetailViewMode;
+  onViewModeChange(viewMode: NodeDetailViewMode): void;
+  onSelectNode(nodeId: string): void;
   onClose(): void;
 }
 
-export function NodeDetailPanel({ state, selectedNode, onClose }: NodeDetailPanelProps) {
+export function NodeDetailPanel({
+  state,
+  selectedNode,
+  viewMode,
+  onViewModeChange,
+  onSelectNode,
+  onClose,
+}: NodeDetailPanelProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -76,7 +98,13 @@ export function NodeDetailPanel({ state, selectedNode, onClose }: NodeDetailPane
                 closeButtonRef={closeButtonRef}
               />
               <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-                <PanelBody state={state} selectedNode={selectedNode} />
+                <PanelBody
+                  state={state}
+                  selectedNode={selectedNode}
+                  viewMode={viewMode}
+                  onViewModeChange={onViewModeChange}
+                  onSelectNode={onSelectNode}
+                />
               </div>
             </div>
           </motion.aside>
@@ -100,13 +128,17 @@ function PanelHeader({
   closeButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
   const Icon =
-    node.kind === 'module' ? FileCode2 : node.kind === 'external' ? Package : FunctionSquare;
+    node.kind === 'module' || node.kind === 'file-scope'
+      ? FileCode2
+      : node.kind === 'external' || node.kind === 'external-symbol'
+        ? Package
+        : FunctionSquare;
   const detail = state.detail;
   const nodeName = detail?.summary.title || node.label;
   const filePath = detail?.summary.filePath ?? node.filePath;
   const toneClass = node.isDiffNode
     ? 'border-[#d8e071]/45 bg-[#d8e071]/14 text-[#f6ffc0]'
-    : node.kind === 'external'
+    : node.kind === 'external' || node.kind === 'external-symbol'
       ? 'border-white/[0.14] bg-white/[0.05] text-white/80'
       : 'border-[#58d7ff]/28 bg-[#58d7ff]/10 text-[#dff7ff]';
 
@@ -173,9 +205,15 @@ function HeaderBadge({ label, tone }: { label: string; tone: 'muted' | 'diff' })
 function PanelBody({
   state,
   selectedNode,
+  viewMode,
+  onViewModeChange,
+  onSelectNode,
 }: {
   state: NodeDetailState;
   selectedNode: GraphRenderNode;
+  viewMode: NodeDetailViewMode;
+  onViewModeChange(viewMode: NodeDetailViewMode): void;
+  onSelectNode(nodeId: string): void;
 }) {
   const detail = state.detail;
 
@@ -205,7 +243,15 @@ function PanelBody({
         <InlineNotice tone="error" message={state.message} />
       ) : null}
       <SignalsSection detail={detail} selectedNode={selectedNode} />
-      <PrimarySection detail={detail} selectedNode={selectedNode} />
+      <PrimarySection
+        detail={detail}
+        selectedNode={selectedNode}
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+      />
+      {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
+      {detail ? <DiffPatchSummary detail={detail} /> : null}
+      {detail ? <DiagnosticsSection detail={detail} /> : null}
     </div>
   );
 }
@@ -238,20 +284,71 @@ function InlineNotice({ tone, message }: { tone: 'loading' | 'error'; message: s
 function PrimarySection({
   detail,
   selectedNode,
+  viewMode,
+  onViewModeChange,
 }: {
   detail: NodeDetailSnapshot | null;
   selectedNode: GraphRenderNode;
+  viewMode: NodeDetailViewMode;
+  onViewModeChange(viewMode: NodeDetailViewMode): void;
 }) {
   if (!detail) {
     return <UnavailableSection selectedNode={selectedNode} />;
   }
-  if (detail.primaryView === 'diff' && detail.diffExcerpt) {
+  const source = detail.fileContext ?? detail.functionCode ?? detail.codeExcerpt;
+  if (source) {
+    return (
+      <section className="flex flex-col gap-2">
+        <ViewModeControl
+          activeMode={detail.fileContext?.mode ?? (detail.functionCode ? 'function' : viewMode)}
+          onChange={onViewModeChange}
+        />
+        <SourceCodeSection source={source} />
+      </section>
+    );
+  }
+  if (detail.diffExcerpt) {
     return <DiffExcerptSection excerpt={detail.diffExcerpt} />;
   }
-  if (detail.primaryView === 'code' && detail.codeExcerpt) {
-    return <CodeExcerptSection excerpt={detail.codeExcerpt} />;
-  }
   return <UnavailableSection selectedNode={selectedNode} detail={detail} />;
+}
+
+function ViewModeControl({
+  activeMode,
+  onChange,
+}: {
+  activeMode: NodeDetailViewMode;
+  onChange(viewMode: NodeDetailViewMode): void;
+}) {
+  const options: Array<{ value: NodeDetailViewMode; label: string }> = [
+    { value: 'function', label: 'Function' },
+    { value: 'context', label: 'Context' },
+    { value: 'file', label: 'File' },
+  ];
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex rounded-[8px] border border-white/[0.08] bg-white/[0.04] p-0.5">
+        {options.map((option) => {
+          const selected = activeMode === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              className={`rounded-[6px] px-2.5 py-1 text-[11px] font-semibold transition ${
+                selected
+                  ? 'bg-[#d8e071]/16 text-[#f6ffc0]'
+                  : 'text-white/55 hover:bg-white/[0.06] hover:text-white/82'
+              }`}
+              onClick={() => onChange(option.value)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <span className="text-[11px] text-white/38">{activeMode}</span>
+    </div>
+  );
 }
 
 function DiffExcerptSection({ excerpt }: { excerpt: NodeDiffExcerpt }) {
@@ -402,17 +499,21 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
   };
 }
 
-function CodeExcerptSection({ excerpt }: { excerpt: NodeCodeExcerpt }) {
-  const language = useMemo(() => resolveHighlightLanguage(excerpt.filePath), [excerpt.filePath]);
-  const highlighted = new Set(excerpt.highlightedLineNumbers);
-  const lines = excerpt.content.split('\n');
+function SourceCodeSection({
+  source,
+}: {
+  source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
+}) {
+  const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
+  const highlighted = new Set(source.highlightedLineNumbers);
+  const lines = source.content.split('\n');
 
   return (
     <section className="node-detail-code diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
       <div className="overflow-hidden rounded-[12px] border border-white/[0.08] bg-black/45">
         <pre className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]">
           {lines.map((line, index) => {
-            const actualLine = excerpt.startLine + index;
+            const actualLine = source.startLine + index;
             const isHighlighted = highlighted.has(actualLine);
             return (
               <div
@@ -424,7 +525,7 @@ function CodeExcerptSection({ excerpt }: { excerpt: NodeCodeExcerpt }) {
                 <span className="overflow-hidden text-right text-white/28">{actualLine}</span>
                 <span className="min-w-0 whitespace-pre-wrap break-all">
                   <HighlightedSourceLine
-                    filePath={excerpt.filePath}
+                    filePath={source.filePath}
                     language={language}
                     text={line}
                   />
@@ -455,6 +556,123 @@ function UnavailableSection({
   return (
     <section className="rounded-[12px] border border-white/[0.08] bg-white/[0.03] p-4">
       <p className="text-[12px] leading-6 text-white/68">{message}</p>
+    </section>
+  );
+}
+
+function RelationsSection({
+  detail,
+  onSelectNode,
+}: {
+  detail: NodeDetailSnapshot;
+  onSelectNode(nodeId: string): void;
+}) {
+  const incoming = detail.relations.incoming;
+  const outgoing = detail.relations.outgoing;
+  if (incoming.length + outgoing.length === 0) {
+    return null;
+  }
+  return (
+    <section className="border-t border-white/[0.08] pt-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/48">
+        <GitBranch className="size-3.5" aria-hidden="true" />
+        Relations
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <RelationGroup title="Incoming" items={incoming} onSelectNode={onSelectNode} />
+        <RelationGroup title="Outgoing" items={outgoing} onSelectNode={onSelectNode} />
+      </div>
+    </section>
+  );
+}
+
+function RelationGroup({
+  title,
+  items,
+  onSelectNode,
+}: {
+  title: string;
+  items: NodeDetailSnapshot['relations']['incoming'];
+  onSelectNode(nodeId: string): void;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="mb-1 text-[11px] text-white/42">{title}</p>
+      {items.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          {items.map((item) => (
+            <button
+              key={`${item.edge.edgeId}:${item.nodeId}`}
+              type="button"
+              className="min-w-0 rounded-[7px] border border-white/[0.08] bg-white/[0.035] px-2.5 py-2 text-left transition hover:border-[#58d7ff]/28 hover:bg-[#58d7ff]/10"
+              onClick={() => onSelectNode(item.nodeId)}
+            >
+              <span className="block truncate text-[12px] font-semibold text-white/82">
+                {item.label}
+              </span>
+              <span className="mt-0.5 block text-[10px] uppercase tracking-[0.1em] text-white/38">
+                {item.edge.kind} / {item.kind}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-[7px] border border-white/[0.06] bg-white/[0.025] px-2.5 py-2 text-[11px] text-white/34">
+          None
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DiffPatchSummary({ detail }: { detail: NodeDetailSnapshot }) {
+  const patch = detail.diffSummary.patch ?? detail.diffExcerpt?.patch ?? null;
+  if (!detail.diffSummary.hasDiff && !patch) {
+    return null;
+  }
+  return (
+    <details className="border-t border-white/[0.08] pt-3">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/48">
+        <FileText className="size-3.5" aria-hidden="true" />
+        Diff Patch
+      </summary>
+      <div className="mt-2">
+        {patch ? (
+          <DiffExcerptSection
+            excerpt={{
+              filePath: detail.summary.filePath ?? detail.node.filePath ?? '',
+              patch,
+              hunkHeaders: detail.diffSummary.hunks.map((hunk) => hunk.header),
+              changedLineNumbers: detail.diffSummary.changedLineNumbers,
+            }}
+          />
+        ) : (
+          <p className="text-[12px] text-white/42">
+            {detail.diffSummary.changedLineNumbers.length} changed lines
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function DiagnosticsSection({ detail }: { detail: NodeDetailSnapshot }) {
+  const diagnostics = detail.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info');
+  if (diagnostics.length === 0) {
+    return null;
+  }
+  return (
+    <section className="border-t border-white/[0.08] pt-3">
+      <div className="flex flex-col gap-1.5">
+        {diagnostics.map((diagnostic) => (
+          <p
+            key={`${diagnostic.code}:${diagnostic.message}`}
+            className="rounded-[7px] border border-[#ffbf6b]/20 bg-[#ffbf6b]/8 px-2.5 py-2 text-[11px] leading-5 text-[#ffd79a]"
+          >
+            {diagnostic.message}
+          </p>
+        ))}
+      </div>
     </section>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   LoadNodeDetailResult,
+  NodeDetailViewMode,
   NodeDetailSnapshot,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
 
@@ -34,6 +35,7 @@ export interface UseNodeDetailOptions {
   scopeKey?: string;
   graphSnapshotId?: string | null;
   selectedNodeId: string | null;
+  viewMode?: NodeDetailViewMode;
 }
 
 export interface UseNodeDetailResult {
@@ -46,9 +48,14 @@ export function useNodeDetail({
   scopeKey,
   graphSnapshotId,
   selectedNodeId,
+  viewMode = 'function',
 }: UseNodeDetailOptions): UseNodeDetailResult {
   const [state, setState] = useState<NodeDetailState>(IDLE_STATE);
-  const activeRequestRef = useRef<{ workspaceId: string; nodeId: string } | null>(null);
+  const activeRequestRef = useRef<{
+    workspaceId: string;
+    nodeId: string;
+    viewMode: NodeDetailViewMode;
+  } | null>(null);
   const cacheRef = useRef<Map<string, NodeDetailSnapshot>>(new Map());
 
   const buildCacheKey = useCallback(
@@ -57,7 +64,9 @@ export function useNodeDetail({
       nextScopeKey: string | undefined,
       nextGraphSnapshotId: string | null | undefined,
       nodeId: string,
-    ) => `${workspaceId}::${nextScopeKey ?? ''}::${nextGraphSnapshotId ?? ''}::${nodeId}`,
+      nextViewMode: NodeDetailViewMode,
+    ) =>
+      `${workspaceId}::${nextScopeKey ?? ''}::${nextGraphSnapshotId ?? ''}::${nodeId}::${nextViewMode}`,
     [],
   );
 
@@ -88,10 +97,16 @@ export function useNodeDetail({
       return;
     }
 
-    const cacheKey = buildCacheKey(reviewWorkspaceId, scopeKey, graphSnapshotId, selectedNodeId);
+    const cacheKey = buildCacheKey(
+      reviewWorkspaceId,
+      scopeKey,
+      graphSnapshotId,
+      selectedNodeId,
+      viewMode,
+    );
     const cachedDetail = cacheRef.current.get(cacheKey) ?? null;
 
-    const request = { workspaceId: reviewWorkspaceId, nodeId: selectedNodeId };
+    const request = { workspaceId: reviewWorkspaceId, nodeId: selectedNodeId, viewMode };
     activeRequestRef.current = request;
     setState({
       status: 'loading',
@@ -107,11 +122,13 @@ export function useNodeDetail({
           reviewWorkspaceId,
           scopeKey,
           nodeId: selectedNodeId,
+          viewMode,
         });
       } catch (err) {
         if (
           activeRequestRef.current?.workspaceId !== request.workspaceId ||
-          activeRequestRef.current?.nodeId !== request.nodeId
+          activeRequestRef.current?.nodeId !== request.nodeId ||
+          activeRequestRef.current?.viewMode !== request.viewMode
         ) {
           return;
         }
@@ -126,7 +143,8 @@ export function useNodeDetail({
       }
       if (
         activeRequestRef.current?.workspaceId !== request.workspaceId ||
-        activeRequestRef.current?.nodeId !== request.nodeId
+        activeRequestRef.current?.nodeId !== request.nodeId ||
+        activeRequestRef.current?.viewMode !== request.viewMode
       ) {
         return;
       }
@@ -142,7 +160,7 @@ export function useNodeDetail({
         message: result.message,
       });
     })();
-  }, [buildCacheKey, graphSnapshotId, reviewWorkspaceId, scopeKey, selectedNodeId]);
+  }, [buildCacheKey, graphSnapshotId, reviewWorkspaceId, scopeKey, selectedNodeId, viewMode]);
 
   return { state, reset };
 }

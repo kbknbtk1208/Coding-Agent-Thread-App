@@ -8,7 +8,11 @@ import type {
 } from '../../../shared/poc3-domain/graph';
 import { INITIAL_GRAPH_SCOPE_KEY } from '../../../shared/poc3-domain/graph';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
-import type { DependencyExtractionResult, ExtractedSymbolNode } from './dependency-extractor';
+import type {
+  DependencyExtractionResult,
+  ExtractedSymbolNode,
+  ExtractedUsageEdge,
+} from './dependency-extractor';
 import { normalizeRepoPath } from './graph-id';
 import { snapshotEdgeId, snapshotNodeId, stableSymbolId } from './graph-id';
 
@@ -20,13 +24,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function moduleNodeId(filePath: string): string {
-  return snapshotNodeId(
-    stableSymbolId({ filePath, symbolName: '(module)', kind: 'module', startLine: 0 }),
-  );
-}
-
-function toSymbolNode(symbol: ExtractedSymbolNode, parentNodeId: string): CodeGraphNode {
+function toSymbolNode(symbol: ExtractedSymbolNode): CodeGraphNode {
   const stableId = stableSymbolId({
     filePath: symbol.filePath,
     symbolName: symbol.name,
@@ -36,13 +34,14 @@ function toSymbolNode(symbol: ExtractedSymbolNode, parentNodeId: string): CodeGr
   return {
     nodeId: snapshotNodeId(stableId),
     stableSymbolId: stableId,
-    parentNodeId,
+    parentNodeId: null,
     kind: symbol.kind,
     label: symbol.name,
     filePath: symbol.filePath,
     declarationRange: symbol.range,
     diffStatus: symbol.isDiffNode ? 'changed' : 'related',
     isDiffNode: symbol.isDiffNode,
+    changedLineNumbers: symbol.changedLineNumbers,
     badges: {
       changedLines: symbol.changedLines,
       remoteThreadCount: 0,
@@ -51,31 +50,34 @@ function toSymbolNode(symbol: ExtractedSymbolNode, parentNodeId: string): CodeGr
   };
 }
 
-function createModuleNode(filePath: string, changedLines: number): CodeGraphNode {
+function createFileScopeNode(filePath: string, changedLineNumbers: number[]): CodeGraphNode {
+  const startLine = Math.min(...changedLineNumbers);
+  const endLine = Math.max(...changedLineNumbers);
   const stableId = stableSymbolId({
     filePath,
-    symbolName: '(module)',
-    kind: 'module',
-    startLine: 0,
+    symbolName: '(file-scope)',
+    kind: 'file-scope',
+    startLine,
   });
   return {
     nodeId: snapshotNodeId(stableId),
     stableSymbolId: stableId,
     parentNodeId: null,
-    kind: 'module',
-    label: filePath.split('/').pop() ?? filePath,
+    kind: 'file-scope',
+    label: `${filePath.split('/').pop() ?? filePath} file scope`,
     filePath,
     declarationRange: {
       filePath,
-      startLine: 1,
+      startLine,
       startColumn: 1,
-      endLine: 1,
+      endLine,
       endColumn: 1,
     },
-    diffStatus: changedLines > 0 ? 'module' : 'related',
-    isDiffNode: false,
+    diffStatus: 'file-scope',
+    isDiffNode: true,
+    changedLineNumbers,
     badges: {
-      changedLines,
+      changedLines: changedLineNumbers.length,
       remoteThreadCount: 0,
       findingCount: 0,
     },
@@ -87,8 +89,8 @@ function isTypeScriptPath(filePath: string): boolean {
   return Array.from(TYPESCRIPT_EXTENSIONS).some((extension) => normalized.endsWith(extension));
 }
 
-function collectChangedLineCounts(sourceSnapshot: ReviewSourceSnapshot): Map<string, number> {
-  const changedLineCounts = new Map<string, number>();
+function collectChangedLines(sourceSnapshot: ReviewSourceSnapshot): Map<string, number[]> {
+  const changedLinesByFile = new Map<string, number[]>();
 
   for (const file of sourceSnapshot.changedFiles) {
     const filePath = normalizeRepoPath(file.path);
@@ -96,10 +98,17 @@ function collectChangedLineCounts(sourceSnapshot: ReviewSourceSnapshot): Map<str
       continue;
     }
     const changedLines = new Set(file.hunks.flatMap((hunk) => hunk.changedNewLines));
-    changedLineCounts.set(filePath, changedLines.size);
+    changedLinesByFile.set(
+      filePath,
+      Array.from(changedLines).sort((a, b) => a - b),
+    );
   }
 
-  return changedLineCounts;
+  return changedLinesByFile;
+}
+
+function usageEdges(extraction: DependencyExtractionResult): ExtractedUsageEdge[] {
+  return [...extraction.calls, ...(extraction.constructs ?? []), ...(extraction.renders ?? [])];
 }
 
 export function buildInitialGraph(input: {
@@ -114,8 +123,9 @@ export function buildInitialGraph(input: {
     input.extraction.symbols.filter((symbol) => symbol.isDiffNode).map((symbol) => symbol.key),
   );
   const selectedKeys = new Set(diffKeys);
+  const extractedUsageEdges = usageEdges(input.extraction);
 
-  for (const edge of input.extraction.calls) {
+  for (const edge of extractedUsageEdges) {
     if (diffKeys.has(edge.sourceKey)) {
       selectedKeys.add(edge.targetKey);
     }
@@ -137,65 +147,57 @@ export function buildInitialGraph(input: {
       );
     });
 
-  const limitApplied = selectedSymbols.length > INITIAL_GRAPH_NODE_LIMIT;
-  const limitedSymbols = selectedSymbols.slice(0, INITIAL_GRAPH_NODE_LIMIT);
-  const limitedKeys = new Set(limitedSymbols.map((symbol) => symbol.key));
-  const nodes: CodeGraphNode[] = [];
-  const changedLineCounts = collectChangedLineCounts(input.sourceSnapshot);
-  const changedModulePaths = new Set(
-    Array.from(changedLineCounts.keys()).filter((filePath) => isTypeScriptPath(filePath)),
-  );
-  const modulePaths = new Set<string>(changedModulePaths);
-
-  for (const symbol of limitedSymbols) {
-    modulePaths.add(symbol.filePath);
-  }
-
-  for (const imported of input.extraction.imports) {
-    if (!imported.targetFilePath) {
+  const changedLinesByFile = collectChangedLines(input.sourceSnapshot);
+  const fallbackNodes: CodeGraphNode[] = [];
+  for (const [filePath, changedLines] of Array.from(changedLinesByFile.entries())) {
+    if (!isTypeScriptPath(filePath)) {
       continue;
     }
-    if (
-      changedModulePaths.has(imported.sourceFilePath) ||
-      changedModulePaths.has(imported.targetFilePath)
-    ) {
-      modulePaths.add(imported.sourceFilePath);
-      modulePaths.add(imported.targetFilePath);
+    const covered = new Set<number>();
+    for (const symbol of input.extraction.symbols) {
+      if (symbol.filePath !== filePath || !symbol.isDiffNode) {
+        continue;
+      }
+      for (const line of symbol.changedLineNumbers) {
+        covered.add(line);
+      }
+    }
+    const uncovered = changedLines.filter((line: number) => !covered.has(line));
+    if (uncovered.length > 0) {
+      fallbackNodes.push(createFileScopeNode(filePath, uncovered));
     }
   }
 
-  for (const filePath of Array.from(modulePaths).sort()) {
-    nodes.push(createModuleNode(filePath, changedLineCounts.get(filePath) ?? 0));
-  }
+  const sortedFallbackNodes = fallbackNodes.sort((a, b) => a.filePath!.localeCompare(b.filePath!));
+  const limitedSymbols = selectedSymbols.slice(0, INITIAL_GRAPH_NODE_LIMIT);
+  const remainingNodeLimit = Math.max(0, INITIAL_GRAPH_NODE_LIMIT - limitedSymbols.length);
+  const limitedFallbackNodes = sortedFallbackNodes.slice(0, remainingNodeLimit);
+  const limitedKeys = new Set(limitedSymbols.map((symbol) => symbol.key));
+  const limitApplied =
+    selectedSymbols.length > limitedSymbols.length ||
+    sortedFallbackNodes.length > limitedFallbackNodes.length;
+  const nodes: CodeGraphNode[] = [];
   for (const symbol of limitedSymbols) {
-    nodes.push(toSymbolNode(symbol, moduleNodeId(symbol.filePath)));
+    nodes.push(toSymbolNode(symbol));
   }
+  nodes.push(...limitedFallbackNodes);
 
   const edges: CodeGraphEdge[] = [];
   const edgeKeys = new Set<string>();
   const keyToNodeId = new Map(
-    limitedSymbols.map((symbol) => [
-      symbol.key,
-      toSymbolNode(symbol, moduleNodeId(symbol.filePath)).nodeId,
-    ]),
-  );
-  const modulePathToNodeId = new Map(
-    Array.from(modulePaths).map((filePath) => [filePath, moduleNodeId(filePath)]),
+    limitedSymbols.map((symbol) => [symbol.key, toSymbolNode(symbol).nodeId]),
   );
 
-  for (const imported of input.extraction.imports) {
-    if (!imported.targetFilePath || imported.sourceFilePath === imported.targetFilePath) {
+  for (const usageEdge of extractedUsageEdges) {
+    if (!limitedKeys.has(usageEdge.sourceKey) || !limitedKeys.has(usageEdge.targetKey)) {
       continue;
     }
-    if (!modulePaths.has(imported.sourceFilePath) || !modulePaths.has(imported.targetFilePath)) {
-      continue;
-    }
-    const sourceNodeId = modulePathToNodeId.get(imported.sourceFilePath);
-    const targetNodeId = modulePathToNodeId.get(imported.targetFilePath);
+    const sourceNodeId = keyToNodeId.get(usageEdge.sourceKey);
+    const targetNodeId = keyToNodeId.get(usageEdge.targetKey);
     if (!sourceNodeId || !targetNodeId) {
       continue;
     }
-    const edgeId = snapshotEdgeId(sourceNodeId, targetNodeId, 'imports');
+    const edgeId = snapshotEdgeId(sourceNodeId, targetNodeId, usageEdge.kind);
     if (edgeKeys.has(edgeId)) {
       continue;
     }
@@ -204,31 +206,9 @@ export function buildInitialGraph(input: {
       edgeId,
       sourceNodeId,
       targetNodeId,
-      kind: 'imports',
-      confidence: imported.confidence,
-    });
-  }
-
-  for (const call of input.extraction.calls) {
-    if (!limitedKeys.has(call.sourceKey) || !limitedKeys.has(call.targetKey)) {
-      continue;
-    }
-    const sourceNodeId = keyToNodeId.get(call.sourceKey);
-    const targetNodeId = keyToNodeId.get(call.targetKey);
-    if (!sourceNodeId || !targetNodeId) {
-      continue;
-    }
-    const edgeId = snapshotEdgeId(sourceNodeId, targetNodeId, 'calls');
-    if (edgeKeys.has(edgeId)) {
-      continue;
-    }
-    edgeKeys.add(edgeId);
-    edges.push({
-      edgeId,
-      sourceNodeId,
-      targetNodeId,
-      kind: 'calls',
-      confidence: call.confidence,
+      kind: usageEdge.kind,
+      confidence: usageEdge.confidence,
+      usage: usageEdge.usage,
     });
   }
 
@@ -236,7 +216,9 @@ export function buildInitialGraph(input: {
   const limits: GraphLimitSummary = {
     nodeLimit: INITIAL_GRAPH_NODE_LIMIT,
     edgeLimit: INITIAL_GRAPH_EDGE_LIMIT,
-    omittedNodeCount: Math.max(0, selectedSymbols.length - limitedSymbols.length),
+    omittedNodeCount:
+      Math.max(0, selectedSymbols.length - limitedSymbols.length) +
+      Math.max(0, sortedFallbackNodes.length - limitedFallbackNodes.length),
     omittedEdgeCount: Math.max(0, edges.length - limitedEdges.length),
     reason:
       selectedSymbols.length > limitedSymbols.length

@@ -16,7 +16,11 @@ import type {
   NodeDetailSnapshot,
   NodeDetailStatus,
   NodeDetailSummary,
+  NodeDetailViewMode,
   NodeDiffExcerpt,
+  NodeDiffSummary,
+  NodeFileContext,
+  NodeFunctionCode,
   NodeRelationItem,
   NodeRelationSummary,
   NodeThreadSummary,
@@ -36,6 +40,7 @@ export interface ResolveNodeDetailContext {
   revisionId: string;
   scopeKey: string;
   nodeId: string;
+  viewMode?: NodeDetailViewMode;
   record: WorkspaceGraphRecord;
   renderSnapshot?: GraphRenderSnapshot;
   sourceSnapshot: ReviewSourceSnapshot | null;
@@ -48,13 +53,14 @@ export interface ResolveNodeDetailResult {
   detail: NodeDetailSnapshot | null;
 }
 
-const CODE_EXCERPT_LEADING_LINES = 4;
-const CODE_EXCERPT_TRAILING_LINES = 8;
+const CONTEXT_EXPAND_LINES = 40;
+const FILE_CONTEXT_LINE_LIMIT = 800;
 const RELATION_LIMIT = 6;
 const MAX_MODULE_HUNK_COUNT = 2;
 
 export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNodeDetailResult {
   const { record, nodeId, workspace, revisionId, scopeKey, sourceSnapshot } = context;
+  const viewMode = context.viewMode ?? 'function';
   if (!record.graph) {
     return {
       ok: false,
@@ -84,12 +90,15 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
   }
 
   const diffExcerpt = resolveDiffExcerpt(renderNode, changedFileByPath, diagnostics);
-  const codeExcerpt = resolveCodeExcerpt(renderNode, workspace, diagnostics);
+  const diffSummary = resolveDiffSummary(renderNode, changedFileByPath);
+  const functionCode = resolveFunctionCode(renderNode, workspace, diagnostics);
+  const fileContext = resolveFileContext(renderNode, workspace, diagnostics, viewMode);
+  const codeExcerpt = toLegacyCodeExcerpt(functionCode, fileContext);
   const relations = resolveRelations(renderNode, renderSnapshot);
   const threads = resolveThreads(renderNode, sourceSnapshot);
   const summary = buildSummary(renderNode);
-  const primaryView = pickPrimaryView(renderNode, diffExcerpt, codeExcerpt);
-  const status = pickStatus(renderNode, diffExcerpt, codeExcerpt);
+  const primaryView = pickPrimaryView(renderNode, functionCode, fileContext, codeExcerpt);
+  const status = pickStatus(renderNode, functionCode, fileContext, codeExcerpt);
 
   const detail: NodeDetailSnapshot = {
     reviewWorkspaceId: workspace.reviewWorkspaceId,
@@ -100,6 +109,9 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     primaryView,
     status,
     summary,
+    functionCode,
+    fileContext,
+    diffSummary,
     codeExcerpt,
     diffExcerpt,
     relations,
@@ -142,6 +154,10 @@ function kindLabelFor(kind: GraphRenderNode['kind']): string {
       return 'component';
     case 'hook':
       return 'hook';
+    case 'file-scope':
+      return 'file scope';
+    case 'external-symbol':
+      return 'external symbol';
     case 'external':
       return 'external';
     default:
@@ -157,6 +173,8 @@ function diffStatusLabelFor(status: GraphRenderNode['diffStatus']): string {
       return 'related';
     case 'module':
       return 'module';
+    case 'file-scope':
+      return 'file scope';
     case 'external':
       return 'external';
     default:
@@ -173,42 +191,38 @@ function formatRangeSuffix(range: SourceRange | null): string {
 
 function pickPrimaryView(
   node: GraphRenderNode,
-  diff: NodeDiffExcerpt | null,
+  functionCode: NodeFunctionCode | null,
+  fileContext: NodeFileContext | null,
   code: NodeCodeExcerpt | null,
 ): NodeDetailPrimaryView {
-  if (node.kind === 'external') {
-    return 'overview';
+  if (node.kind === 'external' || node.kind === 'external-symbol') {
+    return 'external';
   }
-  if (diff) {
-    return 'diff';
+  if (node.kind === 'file-scope') {
+    return 'file-scope';
   }
-  if (code) {
-    return 'code';
+  if (functionCode || fileContext || code) {
+    return 'function';
   }
   return 'overview';
 }
 
 function pickStatus(
   node: GraphRenderNode,
-  diff: NodeDiffExcerpt | null,
+  functionCode: NodeFunctionCode | null,
+  fileContext: NodeFileContext | null,
   code: NodeCodeExcerpt | null,
 ): NodeDetailStatus {
-  if (node.kind === 'external') {
+  if (node.kind === 'external' || node.kind === 'external-symbol') {
     return 'ready';
   }
-  if (node.kind === 'module') {
-    return diff || code ? 'ready' : 'partial';
+  if (node.kind === 'file-scope') {
+    return fileContext || code ? 'ready' : 'partial';
   }
-  if (node.isDiffNode) {
-    if (!diff) {
-      return code ? 'partial' : 'unavailable';
-    }
+  if (functionCode) {
     return 'ready';
   }
-  if (!code) {
-    return 'unavailable';
-  }
-  return 'ready';
+  return code ? 'partial' : 'unavailable';
 }
 
 function resolveDiffExcerpt(
@@ -298,12 +312,59 @@ function normalizeHunkHeader(hunk: DiffHunkRange): string {
   return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
 }
 
-function resolveCodeExcerpt(
+function resolveDiffSummary(
+  node: GraphRenderNode,
+  changedFileByPath: Map<string, ReviewChangedFile>,
+): NodeDiffSummary {
+  if (!node.filePath) {
+    return { hasDiff: false, changedLineNumbers: [], hunks: [], patch: null };
+  }
+  const changedFile = changedFileByPath.get(node.filePath);
+  const changedLineNumbers = Array.from(new Set(node.changedLineNumbers ?? [])).sort(
+    (a, b) => a - b,
+  );
+  if (!changedFile) {
+    return {
+      hasDiff: changedLineNumbers.length > 0,
+      changedLineNumbers,
+      hunks: [],
+      patch: null,
+    };
+  }
+  const intersectedHunks = intersectHunks(node, changedFile.hunks);
+  const fallbackHunks =
+    node.kind === 'file-scope' && intersectedHunks.length === 0
+      ? changedFile.hunks.slice(0, MAX_MODULE_HUNK_COUNT)
+      : intersectedHunks;
+  const hunkSource = fallbackHunks;
+  const hasRelevantDiff = changedLineNumbers.length > 0 || hunkSource.length > 0;
+  return {
+    hasDiff: hasRelevantDiff,
+    changedLineNumbers:
+      changedLineNumbers.length > 0
+        ? changedLineNumbers
+        : Array.from(new Set(hunkSource.flatMap((hunk) => hunk.changedNewLines))).sort(
+            (a, b) => a - b,
+          ),
+    hunks: hunkSource.map((hunk) => ({
+      header: normalizeHunkHeader(hunk),
+      oldStart: hunk.oldStart,
+      oldLines: hunk.oldLines,
+      newStart: hunk.newStart,
+      newLines: hunk.newLines,
+      changedNewLines: hunk.changedNewLines,
+      changedOldLines: hunk.changedOldLines,
+    })),
+    patch: hasRelevantDiff ? (changedFile.patch ?? null) : null,
+  };
+}
+
+function resolveFunctionCode(
   node: GraphRenderNode,
   workspace: ReviewWorkspace,
   diagnostics: NodeDetailDiagnostic[],
-): NodeCodeExcerpt | null {
-  if (node.kind === 'external') {
+): NodeFunctionCode | null {
+  if (node.kind === 'external' || node.kind === 'external-symbol' || node.kind === 'file-scope') {
     return null;
   }
   if (!node.filePath) {
@@ -334,28 +395,110 @@ function resolveCodeExcerpt(
   if (range.startLine < 1 || range.endLine < range.startLine) {
     diagnostics.push({
       code: 'CODE_EXCERPT_UNAVAILABLE',
-      message: 'declaration range が不正なため excerpt を取得できませんでした。',
+      message: 'declaration range が不正なため function code を取得できませんでした。',
       severity: 'warning',
     });
     return null;
   }
-  const startIndex = Math.max(range.startLine - 1 - CODE_EXCERPT_LEADING_LINES, 0);
-  const endIndex = Math.min(range.endLine - 1 + CODE_EXCERPT_TRAILING_LINES, lines.length - 1);
+  const startIndex = Math.max(range.startLine - 1, 0);
+  const endIndex = Math.min(range.endLine - 1, lines.length - 1);
   if (endIndex < startIndex) {
     return null;
   }
   const excerptLines = lines.slice(startIndex, endIndex + 1);
-  const highlighted: number[] = [];
-  for (let line = range.startLine; line <= range.endLine; line += 1) {
-    highlighted.push(line);
-  }
   return {
     filePath: node.filePath,
     language: detectLanguage(node.filePath),
+    declarationRange: range,
     startLine: startIndex + 1,
     endLine: endIndex + 1,
-    highlightedLineNumbers: highlighted,
+    highlightedLineNumbers: node.changedLineNumbers ?? [],
     content: excerptLines.join('\n'),
+  };
+}
+
+function resolveFileContext(
+  node: GraphRenderNode,
+  workspace: ReviewWorkspace,
+  diagnostics: NodeDetailDiagnostic[],
+  viewMode: NodeDetailViewMode,
+): NodeFileContext | null {
+  if (node.kind === 'external' || node.kind === 'external-symbol' || !node.filePath) {
+    return null;
+  }
+  if (viewMode === 'function' && node.kind !== 'file-scope') {
+    return null;
+  }
+  const absolutePath = path.isAbsolute(node.filePath)
+    ? node.filePath
+    : path.join(workspace.worktreePath, node.filePath);
+  let content: string;
+  try {
+    content = fs.readFileSync(absolutePath, 'utf8');
+  } catch {
+    diagnostics.push({
+      code: 'FILE_CONTEXT_UNAVAILABLE',
+      message: `worktree から file context を読み込めませんでした: ${node.filePath}`,
+      severity: 'warning',
+    });
+    return null;
+  }
+  const lines = content.split(/\r?\n/);
+  if (lines.length === 0) {
+    return null;
+  }
+  const highlightedLineNumbers = node.changedLineNumbers ?? [];
+  const range = node.declarationRange;
+  let startLine = range?.startLine ?? highlightedLineNumbers[0] ?? 1;
+  let endLine = range?.endLine ?? highlightedLineNumbers[highlightedLineNumbers.length - 1] ?? 1;
+  let mode = viewMode;
+
+  if (node.kind === 'file-scope' && viewMode === 'function') {
+    mode = 'context';
+  }
+  if (mode === 'context') {
+    startLine = Math.max(1, startLine - CONTEXT_EXPAND_LINES);
+    endLine = Math.min(lines.length, endLine + CONTEXT_EXPAND_LINES);
+  }
+  if (mode === 'file') {
+    startLine = 1;
+    endLine = Math.min(lines.length, FILE_CONTEXT_LINE_LIMIT);
+    if (lines.length > FILE_CONTEXT_LINE_LIMIT) {
+      diagnostics.push({
+        code: 'FILE_CONTEXT_TRUNCATED',
+        message: `file context は ${FILE_CONTEXT_LINE_LIMIT} 行まで表示しています。`,
+        severity: 'info',
+      });
+    }
+  }
+  const startIndex = Math.max(0, startLine - 1);
+  const endIndex = Math.max(startIndex, Math.min(lines.length - 1, endLine - 1));
+  return {
+    filePath: node.filePath,
+    language: detectLanguage(node.filePath),
+    mode,
+    startLine: startIndex + 1,
+    endLine: endIndex + 1,
+    highlightedLineNumbers,
+    content: lines.slice(startIndex, endIndex + 1).join('\n'),
+  };
+}
+
+function toLegacyCodeExcerpt(
+  functionCode: NodeFunctionCode | null,
+  fileContext: NodeFileContext | null,
+): NodeCodeExcerpt | null {
+  const source = functionCode ?? fileContext;
+  if (!source) {
+    return null;
+  }
+  return {
+    filePath: source.filePath,
+    language: source.language,
+    startLine: source.startLine,
+    endLine: source.endLine,
+    highlightedLineNumbers: source.highlightedLineNumbers,
+    content: source.content,
   };
 }
 
@@ -494,7 +637,7 @@ function toRenderSnapshot(record: WorkspaceGraphRecord): GraphRenderSnapshot {
     }),
     edges: graph.edges.map((edge) => ({
       ...edge,
-      label: edge.kind === 'calls' ? null : edge.kind,
+      label: edge.kind === 'imports' || edge.kind === 'exports' ? edge.kind : null,
     })),
     viewport: layout?.viewport ?? null,
     limits: graph.limits,

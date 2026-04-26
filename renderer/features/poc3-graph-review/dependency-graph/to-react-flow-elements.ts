@@ -38,7 +38,7 @@ export function toReactFlowElements(snapshot: GraphRenderSnapshot): {
       type: 'smoothstep',
       label: edge.label ?? undefined,
       data: { graphEdge: edge },
-      animated: edge.kind === 'calls',
+      animated: edge.kind === 'calls' || edge.kind === 'constructs' || edge.kind === 'renders',
     })),
   };
 }

@@ -22,17 +22,17 @@ function createSourceSnapshot(): ReviewSourceSnapshot {
         status: 'modified',
         additions: 4,
         deletions: 0,
-        patch: '@@ -1,2 +1,4 @@',
+        patch: '@@ -10,2 +10,4 @@',
         hunks: [
           {
             filePath: 'src/App.tsx',
-            oldStart: 1,
+            oldStart: 10,
             oldLines: 2,
-            newStart: 1,
+            newStart: 10,
             newLines: 4,
-            header: '@@ -1,2 +1,4 @@',
-            changedNewLines: [1, 2, 3, 4],
-            changedOldLines: [1, 2],
+            header: '@@ -10,2 +10,4 @@',
+            changedNewLines: [11, 12, 13, 14],
+            changedOldLines: [11, 12],
           },
         ],
       },
@@ -59,6 +59,7 @@ function createExtraction(): DependencyExtractionResult {
           endColumn: 1,
         },
         isDiffNode: true,
+        changedLineNumbers: [11, 12, 13, 14],
         changedLines: 4,
       },
       {
@@ -74,6 +75,7 @@ function createExtraction(): DependencyExtractionResult {
           endColumn: 1,
         },
         isDiffNode: false,
+        changedLineNumbers: [],
         changedLines: 0,
       },
     ],
@@ -81,7 +83,20 @@ function createExtraction(): DependencyExtractionResult {
       {
         sourceKey: 'src/App.tsx:App:10',
         targetKey: 'src/useThing.ts:useThing:5',
+        kind: 'calls',
         confidence: 'high',
+        usage: {
+          filePath: 'src/App.tsx',
+          range: {
+            filePath: 'src/App.tsx',
+            startLine: 15,
+            startColumn: 10,
+            endLine: 15,
+            endColumn: 18,
+          },
+          imported: true,
+          importSource: './useThing',
+        },
       },
     ],
     imports: [
@@ -109,7 +124,7 @@ function createExtraction(): DependencyExtractionResult {
 }
 
 describe('buildInitialGraph', () => {
-  it('外部ライブラリ由来の import node を含めず local import の 1-hop を維持する', () => {
+  it('module/import edge を通常表示せず function usage の 1-hop を維持する', () => {
     const graph = buildInitialGraph({
       revisionId: 'revision-1',
       sourceSnapshot: createSourceSnapshot(),
@@ -117,22 +132,20 @@ describe('buildInitialGraph', () => {
       diagnostics: [],
     });
 
-    expect(graph.nodes.map((node) => node.label)).toEqual([
-      'App.tsx',
-      'useThing.ts',
-      'App',
-      'useThing',
-    ]);
-    expect(graph.nodes.some((node) => node.kind === 'external')).toBe(false);
+    expect(graph.nodes.map((node) => node.label)).toEqual(['App', 'useThing']);
+    expect(graph.nodes.some((node) => node.kind === 'module')).toBe(false);
     expect(
       graph.edges.map((edge) => edge.kind).sort((left, right) => left.localeCompare(right)),
-    ).toEqual(['calls', 'imports']);
+    ).toEqual(['calls']);
+    expect(graph.edges[0]?.usage?.importSource).toBe('./useThing');
   });
 
-  it('import 行だけ変更された diff でも local module の依存グラフが孤立しない', () => {
+  it('関数外変更だけの場合は file-scope fallback node を作り import edge は作らない', () => {
+    const sourceSnapshot = createSourceSnapshot();
+    sourceSnapshot.changedFiles[0]!.hunks[0]!.changedNewLines = [1, 2, 3, 4];
     const graph = buildInitialGraph({
       revisionId: 'revision-1',
-      sourceSnapshot: createSourceSnapshot(),
+      sourceSnapshot,
       extraction: {
         symbols: [],
         calls: [],
@@ -160,12 +173,16 @@ describe('buildInitialGraph', () => {
         label: node.label,
         kind: node.kind,
         diffStatus: node.diffStatus,
+        changedLineNumbers: node.changedLineNumbers,
       })),
     ).toEqual([
-      { label: 'App.tsx', kind: 'module', diffStatus: 'module' },
-      { label: 'useThing.ts', kind: 'module', diffStatus: 'related' },
+      {
+        label: 'App.tsx file scope',
+        kind: 'file-scope',
+        diffStatus: 'file-scope',
+        changedLineNumbers: [1, 2, 3, 4],
+      },
     ]);
-    expect(graph.edges).toHaveLength(1);
-    expect(graph.edges[0]?.kind).toBe('imports');
+    expect(graph.edges).toHaveLength(0);
   });
 });

@@ -3,7 +3,7 @@ import type {
   GraphAnalysisEvent,
   GraphWorkspaceView,
 } from '../poc3-domain/graph';
-import type { NodeDetailSnapshot } from '../poc3-domain/node-detail';
+import type { NodeDetailSnapshot, NodeDetailViewMode } from '../poc3-domain/node-detail';
 import type { RevisionContext } from '../poc3-domain/revision';
 import type {
   PublicRepositoryProvider,
@@ -25,9 +25,13 @@ export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/gra
 export type {
   NodeCodeExcerpt,
   NodeDetailDiagnostic,
+  NodeDetailViewMode,
   NodeDetailSnapshot,
   NodeDetailSummary,
+  NodeDiffSummary,
   NodeDiffExcerpt,
+  NodeFileContext,
+  NodeFunctionCode,
   NodeRelationItem,
   NodeRelationSummary,
   NodeThreadSummary,
@@ -191,6 +195,7 @@ export interface LoadNodeDetailInput {
   reviewWorkspaceId: string;
   scopeKey?: string;
   nodeId: string;
+  viewMode?: NodeDetailViewMode;
 }
 
 export type LoadNodeDetailFailureReason =

@@ -39,16 +39,38 @@ export interface CodeGraphSnapshot {
   updatedAt: string;
 }
 
+export type CodeGraphNodeKind =
+  | 'module'
+  | 'function'
+  | 'method'
+  | 'component'
+  | 'hook'
+  | 'file-scope'
+  | 'external'
+  | 'external-symbol';
+
+export type CodeGraphDiffStatus = 'changed' | 'related' | 'module' | 'file-scope' | 'external';
+
+export type CodeGraphEdgeKind =
+  | 'imports'
+  | 'exports'
+  | 'calls'
+  | 'constructs'
+  | 'renders'
+  | 'reads'
+  | 'typeReferences';
+
 export interface CodeGraphNode {
   nodeId: string;
   stableSymbolId: string;
   parentNodeId: string | null;
-  kind: 'module' | 'function' | 'method' | 'component' | 'hook' | 'external';
+  kind: CodeGraphNodeKind;
   label: string;
   filePath: string | null;
   declarationRange: SourceRange | null;
-  diffStatus: 'changed' | 'related' | 'module' | 'external';
+  diffStatus: CodeGraphDiffStatus;
   isDiffNode: boolean;
+  changedLineNumbers: number[];
   badges: {
     changedLines: number;
     remoteThreadCount: number;
@@ -60,8 +82,14 @@ export interface CodeGraphEdge {
   edgeId: string;
   sourceNodeId: string;
   targetNodeId: string;
-  kind: 'imports' | 'exports' | 'calls';
+  kind: CodeGraphEdgeKind;
   confidence: 'high' | 'medium' | 'low';
+  usage?: {
+    filePath: string;
+    range: SourceRange;
+    imported: boolean;
+    importSource: string | null;
+  };
 }
 
 export interface SourceRange {

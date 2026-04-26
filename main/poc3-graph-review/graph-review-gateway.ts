@@ -441,6 +441,7 @@ export class GraphReviewGateway {
       revisionId: record.activeRevision.revisionId,
       scopeKey,
       nodeId,
+      viewMode: input.viewMode,
       record,
       renderSnapshot,
       sourceSnapshot,
