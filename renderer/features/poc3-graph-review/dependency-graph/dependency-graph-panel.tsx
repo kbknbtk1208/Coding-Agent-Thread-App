@@ -1,6 +1,8 @@
 'use client';
 
 import { Network } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FileTreeDock } from '../file-tree/file-tree-dock';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { DependencyGraphCanvas } from './dependency-graph-canvas';
 import { GraphAnalysisState } from './graph-analysis-state';
@@ -13,6 +15,11 @@ export function DependencyGraphPanel({
   selectedWorkspace: ReviewWorkspaceListItem | null;
 }) {
   const { state, retry } = useWorkspaceGraph(selectedWorkspace);
+  const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHighlightedFilePath(null);
+  }, [selectedWorkspace?.reviewWorkspaceId]);
 
   if (!selectedWorkspace) {
     return <GraphSetupState />;
@@ -35,10 +42,14 @@ export function DependencyGraphPanel({
         <GraphEmptyState />
       ) : null}
       {state.status === 'ready' && state.result.graph && state.result.graph.nodes.length > 0 ? (
-        <DependencyGraphCanvas
-          graph={state.result.graph}
-          reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
-        />
+        <>
+          <FileTreeDock graph={state.result.graph} onFileSelect={setHighlightedFilePath} />
+          <DependencyGraphCanvas
+            graph={state.result.graph}
+            reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
+            highlightedFilePath={highlightedFilePath}
+          />
+        </>
       ) : null}
     </section>
   );

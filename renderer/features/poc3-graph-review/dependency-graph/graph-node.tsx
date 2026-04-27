@@ -8,6 +8,7 @@ import type { Poc3FlowNode } from './to-react-flow-elements';
 
 export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
   const graphNode = data.graphNode;
+  const isFileHighlighted = data.isFileHighlighted;
   const Icon =
     graphNode.kind === 'module' || graphNode.kind === 'file-scope'
       ? FileCode2
@@ -40,10 +41,12 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
         />
       ) : null}
       <div
-        className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 shadow-[0_14px_36px_rgba(0,0,0,0.25)] backdrop-blur-[12px] ${tone} ${
+        className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 backdrop-blur-[12px] ${tone} ${
           selected
             ? 'border-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.3)]'
-            : ''
+            : isFileHighlighted
+              ? 'shadow-[0_0_0_2px_rgba(251,146,60,0.65),0_0_16px_rgba(251,146,60,0.22),0_14px_36px_rgba(0,0,0,0.25)]'
+              : 'shadow-[0_14px_36px_rgba(0,0,0,0.25)]'
         }`}
       >
         <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-white/70" />

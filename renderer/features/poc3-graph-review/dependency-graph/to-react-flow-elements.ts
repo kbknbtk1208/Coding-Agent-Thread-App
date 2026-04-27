@@ -7,6 +7,7 @@ import type {
 
 export interface Poc3FlowNodeData extends Record<string, unknown> {
   graphNode: GraphRenderNode;
+  isFileHighlighted: boolean;
 }
 
 export interface Poc3FlowEdgeData extends Record<string, unknown> {
@@ -25,7 +26,7 @@ export function toReactFlowElements(snapshot: GraphRenderSnapshot): {
       id: node.nodeId,
       type: 'poc3GraphNode',
       position: node.position,
-      data: { graphNode: node },
+      data: { graphNode: node, isFileHighlighted: false },
       style: {
         width: node.size.width,
         height: node.size.height,

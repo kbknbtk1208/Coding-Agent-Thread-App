@@ -28,6 +28,7 @@ const FIT_VIEW_OPTIONS = { padding: 0.28, maxZoom: 1.8 };
 export interface DependencyGraphCanvasProps {
   graph: GraphRenderSnapshot;
   reviewWorkspaceId: string;
+  highlightedFilePath?: string | null;
 }
 
 export function DependencyGraphCanvas(props: DependencyGraphCanvasProps) {
@@ -38,7 +39,11 @@ export function DependencyGraphCanvas(props: DependencyGraphCanvasProps) {
   );
 }
 
-function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGraphCanvasProps) {
+function DependencyGraphCanvasInner({
+  graph,
+  reviewWorkspaceId,
+  highlightedFilePath,
+}: DependencyGraphCanvasProps) {
   const elements = useMemo(() => toReactFlowElements(graph), [graph]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Poc3FlowNode>(elements.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Poc3FlowEdge>(elements.edges);
@@ -90,6 +95,19 @@ function DependencyGraphCanvasInner({ graph, reviewWorkspaceId }: DependencyGrap
       }),
     );
   }, [selectedNodeId, setNodes]);
+
+  useEffect(() => {
+    setNodes((current) =>
+      current.map((node) => {
+        const highlighted =
+          highlightedFilePath != null
+            ? node.data.graphNode.filePath === highlightedFilePath
+            : false;
+        if (node.data.isFileHighlighted === highlighted) return node;
+        return { ...node, data: { ...node.data, isFileHighlighted: highlighted } };
+      }),
+    );
+  }, [highlightedFilePath, setNodes]);
 
   useEffect(() => {
     if (!reactFlowReady || !reactFlowRef.current) {
