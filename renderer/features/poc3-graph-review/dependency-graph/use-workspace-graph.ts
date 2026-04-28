@@ -100,12 +100,22 @@ export function useWorkspaceGraph(selectedWorkspace: ReviewWorkspaceListItem | n
     return result;
   }, [selectedWorkspaceId]);
 
+  const reload = useCallback(async () => {
+    if (!selectedWorkspaceId) return;
+    const result = await window.poc3GraphReviewApi.loadWorkspaceGraph({
+      reviewWorkspaceId: selectedWorkspaceId,
+    });
+    if (result.ok) {
+      setState({ status: 'ready', result, message: null });
+    }
+  }, [selectedWorkspaceId]);
+
   return useMemo(
     () => ({
       state,
-      reload: load,
+      reload,
       retry,
     }),
-    [load, retry, state],
+    [reload, retry, state],
   );
 }

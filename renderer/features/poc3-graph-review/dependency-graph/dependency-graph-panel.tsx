@@ -1,7 +1,8 @@
 'use client';
 
 import { Network } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { AgentControlCenter } from '../agent-review/agent-control-center';
 import { FileTreeDock } from '../file-tree/file-tree-dock';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { DependencyGraphCanvas } from './dependency-graph-canvas';
@@ -14,8 +15,9 @@ export function DependencyGraphPanel({
 }: {
   selectedWorkspace: ReviewWorkspaceListItem | null;
 }) {
-  const { state, retry } = useWorkspaceGraph(selectedWorkspace);
+  const { state, reload, retry } = useWorkspaceGraph(selectedWorkspace);
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
+  const handleCompleted = useCallback(() => void reload(), [reload]);
 
   useEffect(() => {
     setHighlightedFilePath(null);
@@ -48,6 +50,11 @@ export function DependencyGraphPanel({
             graph={state.result.graph}
             reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
             highlightedFilePath={highlightedFilePath}
+          />
+          <AgentControlCenter
+            graph={state.result.graph}
+            selectedWorkspace={selectedWorkspace}
+            onCompleted={handleCompleted}
           />
         </>
       ) : null}

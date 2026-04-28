@@ -1,14 +1,21 @@
 import { randomUUID } from 'crypto';
 import type {
+  AwaitAgentReviewResultInput,
+  AwaitAgentReviewResultResult,
+  ListAgentReviewRunsInput,
+  ListAgentReviewRunsResult,
   LoadNodeDetailInput,
   LoadNodeDetailResult,
   LoadWorkspaceGraphInput,
   LoadWorkspaceGraphResult,
   RemoveReviewWorkspaceInput,
   RemoveReviewWorkspaceResult,
+  StartAgentReviewInput,
+  StartAgentReviewResult,
   RetryGraphAnalysisInput,
   RetryGraphAnalysisResult,
 } from '../../shared/poc3-contracts/graph-review-ipc';
+import type { AgentEventPayload, RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import type {
   CodeGraphSnapshot,
   GraphAnalysisEvent,
@@ -18,6 +25,10 @@ import type {
   LayoutSnapshot,
 } from '../../shared/poc3-domain/graph';
 import { INITIAL_GRAPH_SCOPE_KEY } from '../../shared/poc3-domain/graph';
+import type {
+  Poc3AgentReviewEvent,
+  Poc3AgentReviewRun,
+} from '../../shared/poc3-domain/agent-review';
 import type {
   PublicRepositoryProvider,
   RepositoryProfile,
@@ -47,9 +58,12 @@ import { ReviewWorkspaceCreationCoordinator } from './workspace/review-workspace
 import { resolveReviewWorkspaceTarget } from './workspace/review-workspace-target-resolver';
 import { removeWorktree } from './workspace/worktree-manager';
 import { AnalysisCoordinator } from './analysis/analysis-coordinator';
+import { Poc3AgentReviewCoordinator } from './agent/coordinator';
+import { Poc3AgentReviewStore } from './agent/store';
 import { fallbackGridLayout } from './layout/elk-layout-service';
 import { resolveNodeDetail } from './node-detail/node-detail-resolver';
 import { GraphReviewStore, type WorkspaceGraphRecord } from './store/graph-review-store';
+import type { AgentGateway } from '../agent-gateway/agent-gateway';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -71,6 +85,8 @@ export class GraphReviewGateway {
   private readonly providerStore: RepositoryProviderStore;
   private readonly profileStore: RepositoryProfileStore;
   private readonly graphStore: GraphReviewStore;
+  private readonly agentReviewStore: Poc3AgentReviewStore;
+  private readonly agentReviewCoordinator: Poc3AgentReviewCoordinator | null;
   private readonly analysisCoordinator: AnalysisCoordinator;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
   private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
@@ -80,10 +96,22 @@ export class GraphReviewGateway {
     userDataPath: string,
     private readonly emitWorkspaceCreationEvent: (event: WorkspaceCreationEvent) => void,
     private readonly emitGraphAnalysisEvent: (event: GraphAnalysisEvent) => void = () => undefined,
+    private readonly emitAgentReviewEvent: (event: Poc3AgentReviewEvent) => void = () => undefined,
+    private readonly agentGateway?: Pick<
+      AgentGateway,
+      'startSession' | 'awaitSettled' | 'listSessions' | 'respondPermission'
+    >,
   ) {
     this.providerStore = new RepositoryProviderStore(userDataPath);
     this.profileStore = new RepositoryProfileStore(userDataPath);
     this.graphStore = new GraphReviewStore(userDataPath);
+    this.agentReviewStore = new Poc3AgentReviewStore(userDataPath);
+    this.agentReviewCoordinator = this.agentGateway
+      ? new Poc3AgentReviewCoordinator({
+          agentGateway: this.agentGateway,
+          store: this.agentReviewStore,
+        })
+      : null;
     this.analysisCoordinator = new AnalysisCoordinator(this.graphStore, (event) =>
       this.emitGraphAnalysisEvent(event),
     );
@@ -310,6 +338,7 @@ export class GraphReviewGateway {
     try {
       await removeWorktree(profile.localClonePath, workspace.worktreePath, force);
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
+      this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
       this.clearWorkspaceCaches(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
     } catch (err) {
@@ -436,6 +465,11 @@ export class GraphReviewGateway {
     const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(
       record.activeRevision.revisionId,
     );
+    const agentThreads = this.agentReviewStore.listThreadsForNode({
+      reviewWorkspaceId,
+      revisionId: record.activeRevision.revisionId,
+      nodeId,
+    });
     const resolved = resolveNodeDetail({
       workspace: record.workspace,
       revisionId: record.activeRevision.revisionId,
@@ -445,6 +479,7 @@ export class GraphReviewGateway {
       record,
       renderSnapshot,
       sourceSnapshot,
+      agentThreads,
     });
     if (resolved.ok && resolved.detail) {
       return { ok: true, detail: resolved.detail };
@@ -454,6 +489,218 @@ export class GraphReviewGateway {
       reason: resolved.reason ?? 'detailUnavailable',
       message: resolved.message ?? 'Node detail を解決できませんでした。',
       detail: resolved.detail,
+    };
+  }
+
+  async startAgentReview(input: StartAgentReviewInput): Promise<StartAgentReviewResult> {
+    if (!this.agentReviewCoordinator) {
+      return {
+        ok: false,
+        reason: 'agentUnavailable',
+        message: 'AgentGateway が設定されていません。',
+        run: null,
+        session: null,
+      };
+    }
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const scopeKey = input.scopeKey ?? INITIAL_GRAPH_SCOPE_KEY;
+    const record = this.graphStore.getWorkspaceGraphRecord(reviewWorkspaceId, scopeKey);
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        run: null,
+        session: null,
+      };
+    }
+    if (!record.activeRevision) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Active revision が見つかりません。',
+        run: null,
+        session: null,
+      };
+    }
+    if (!record.graph) {
+      return {
+        ok: false,
+        reason: 'graphNotReady',
+        message: 'Graph snapshot がまだ保存されていません。',
+        run: null,
+        session: null,
+      };
+    }
+
+    const { run, session } = await this.agentReviewCoordinator.begin({
+      reviewWorkspaceId,
+      scopeKey,
+      reviewAgent: input.agent,
+      instructions: input.instructions,
+      lensId: input.lensId,
+      cwd: record.workspace.worktreePath,
+      record,
+    });
+    this.emitAgentReviewEvent({ type: 'agent-review.started', run, session });
+    void this.finalizeAgentReviewRun(run.runId);
+    return { ok: true, run, session };
+  }
+
+  async respondAgentReviewPermission(input: RespondPermissionInput): Promise<void> {
+    if (!this.agentGateway) {
+      throw new Error('AgentGateway が設定されていません。');
+    }
+    await this.agentGateway.respondPermission(input);
+  }
+
+  handleAgentEvent(event: AgentEventPayload): void {
+    if (!this.agentGateway) {
+      return;
+    }
+    const run = this.agentReviewStore.getRunByAppSessionId(event.appSessionId);
+    if (!run) {
+      return;
+    }
+    const updatedRun = this.applyAgentEventToRun(run, event);
+    if (updatedRun !== run) {
+      this.agentReviewStore.saveRun(updatedRun);
+    }
+    const session = this.agentGateway
+      .listSessions()
+      .find((item) => item.appSessionId === event.appSessionId);
+    if (session) {
+      this.emitAgentReviewEvent({
+        type: 'agent-review.session',
+        run: updatedRun,
+        session,
+        agentEvent: event,
+      });
+    }
+  }
+
+  async awaitAgentReviewResult(
+    input: AwaitAgentReviewResultInput,
+  ): Promise<AwaitAgentReviewResultResult> {
+    if (!this.agentReviewCoordinator) {
+      return {
+        ok: false,
+        reason: 'agentUnavailable',
+        message: 'AgentGateway が設定されていません。',
+        envelope: null,
+      };
+    }
+    const run = this.agentReviewStore.getRun(input.runId.trim());
+    if (!run) {
+      return {
+        ok: false,
+        reason: 'runNotFound',
+        message: 'Agent Review run が見つかりません。',
+        envelope: null,
+      };
+    }
+    const existing = this.agentReviewStore.getEnvelope(run.runId);
+    if (existing) {
+      return { ok: true, envelope: existing };
+    }
+    const record = this.graphStore.getWorkspaceGraphRecord(run.reviewWorkspaceId, run.scopeKey);
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        envelope: null,
+      };
+    }
+    if (!record.activeRevision) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Active revision が見つかりません。',
+        envelope: null,
+      };
+    }
+    if (!record.graph) {
+      return {
+        ok: false,
+        reason: 'graphNotReady',
+        message: 'Graph snapshot がまだ保存されていません。',
+        envelope: null,
+      };
+    }
+    const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(run.revisionId);
+    if (!sourceSnapshot) {
+      return {
+        ok: false,
+        reason: 'sourceSnapshotNotFound',
+        message: 'Review source snapshot が見つかりません。',
+        envelope: null,
+      };
+    }
+    try {
+      const envelope = await this.agentReviewCoordinator.awaitResult({
+        run,
+        record,
+        sourceSnapshot,
+      });
+      this.clearWorkspaceCaches(run.reviewWorkspaceId);
+      this.emitAgentReviewEvent({ type: 'agent-review.completed', envelope });
+      return { ok: true, envelope };
+    } catch (err) {
+      const failedRun = this.agentReviewStore.getRun(run.runId) ?? {
+        ...run,
+        status: 'failed' as const,
+        completedAt: new Date().toISOString(),
+      };
+      this.emitAgentReviewEvent({
+        type: 'agent-review.failed',
+        run: failedRun,
+        message: err instanceof Error ? err.message : 'Agent Review が失敗しました。',
+      });
+      return {
+        ok: false,
+        reason: 'agentFailed',
+        message: err instanceof Error ? err.message : 'Agent Review が失敗しました。',
+        envelope: null,
+      };
+    }
+  }
+
+  listAgentReviewRuns(input: ListAgentReviewRunsInput): ListAgentReviewRunsResult {
+    return {
+      runs: this.agentReviewStore.listRuns(input.reviewWorkspaceId.trim()),
+    };
+  }
+
+  private async finalizeAgentReviewRun(runId: string): Promise<void> {
+    await this.awaitAgentReviewResult({ runId });
+  }
+
+  private applyAgentEventToRun(
+    run: Poc3AgentReviewRun,
+    event: AgentEventPayload,
+  ): Poc3AgentReviewRun {
+    if (event.type !== 'status.changed') {
+      return run;
+    }
+    const status =
+      event.status === 'starting' ||
+      event.status === 'running' ||
+      event.status === 'waiting_permission' ||
+      event.status === 'completed' ||
+      event.status === 'failed'
+        ? event.status
+        : run.status;
+    if (status === run.status) {
+      return run;
+    }
+    return {
+      ...run,
+      status,
+      completedAt:
+        status === 'completed' || status === 'failed'
+          ? (run.completedAt ?? new Date().toISOString())
+          : run.completedAt,
     };
   }
 
@@ -519,6 +766,7 @@ export class GraphReviewGateway {
     this.providerStore.close();
     this.profileStore.close();
     this.graphStore.close();
+    this.agentReviewStore.close();
   }
 
   private toListItem(workspace: ReviewWorkspace): ReviewWorkspaceListItem {
@@ -568,7 +816,19 @@ export class GraphReviewGateway {
       }
     }
 
-    const renderSnapshot = toRenderSnapshot(record.graph, record.layout);
+    const agentFindingCounts = new Map<string, number>();
+    if (record.activeRevision) {
+      for (const thread of this.agentReviewStore.listThreadsForWorkspace({
+        reviewWorkspaceId,
+        revisionId: record.activeRevision.revisionId,
+      })) {
+        if (thread.nodeId) {
+          agentFindingCounts.set(thread.nodeId, (agentFindingCounts.get(thread.nodeId) ?? 0) + 1);
+        }
+      }
+    }
+
+    const renderSnapshot = toRenderSnapshot(record.graph, record.layout, agentFindingCounts);
     this.renderSnapshotCache.set(cacheKey, renderSnapshot);
     return renderSnapshot;
   }
@@ -596,6 +856,7 @@ function nodeSize(node: CodeGraphSnapshot['nodes'][number]): { width: number; he
 function toRenderSnapshot(
   graph: CodeGraphSnapshot,
   layout: LayoutSnapshot | null,
+  agentFindingCounts: Map<string, number> = new Map(),
 ): GraphRenderSnapshot {
   const diagnostics: GraphDiagnostic[] = [...graph.diagnostics];
   const positions: Record<string, GraphNodeLayout> = layout?.positions ?? fallbackGridLayout(graph);
@@ -613,8 +874,13 @@ function toRenderSnapshot(
     status: graph.status,
     nodes: graph.nodes.map((node) => {
       const position = positions[node.nodeId] ?? { x: 0, y: 0, ...nodeSize(node) };
+      const findingCount = node.badges.findingCount + (agentFindingCounts.get(node.nodeId) ?? 0);
       return {
         ...node,
+        badges: {
+          ...node.badges,
+          findingCount,
+        },
         position: { x: position.x, y: position.y },
         size: { width: position.width, height: position.height },
         extent: null,

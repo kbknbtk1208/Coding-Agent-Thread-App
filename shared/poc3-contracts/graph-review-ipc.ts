@@ -1,4 +1,11 @@
 import type {
+  Poc3AgentReviewEnvelope,
+  Poc3AgentReviewEvent,
+  Poc3AgentReviewRun,
+} from '../poc3-domain/agent-review';
+import type { AgentKind } from '../domain/agent';
+import type { AgentSessionSnapshot, RespondPermissionInput } from '../contracts/agent-ipc';
+import type {
   AnalysisRunSnapshot,
   GraphAnalysisEvent,
   GraphWorkspaceView,
@@ -22,6 +29,14 @@ import type {
 } from '../poc3-domain/review-workspace';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
+export type {
+  Poc3AgentReviewEnvelope,
+  Poc3AgentReviewEvent,
+  Poc3AgentReviewLocation,
+  Poc3AgentReviewRun,
+  Poc3AgentReviewRunStatus,
+  Poc3AgentReviewThread,
+} from '../poc3-domain/agent-review';
 export type {
   NodeCodeExcerpt,
   NodeDetailDiagnostic,
@@ -66,6 +81,11 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   retryGraphAnalysis: 'poc3:graph:analysis:retry',
   graphAnalysisEvent: 'poc3:graph:analysis:event',
   loadNodeDetail: 'poc3:node:load-detail',
+  startAgentReview: 'poc3:agent-review:start',
+  awaitAgentReviewResult: 'poc3:agent-review:await-result',
+  listAgentReviewRuns: 'poc3:agent-review:list-runs',
+  respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
+  agentReviewEvent: 'poc3:agent-review:event',
 } as const;
 
 export interface ListRepositoryProvidersResult {
@@ -217,6 +237,59 @@ export type LoadNodeDetailResult =
       detail: NodeDetailSnapshot | null;
     };
 
+export interface StartAgentReviewInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  agent: AgentKind;
+  instructions: string;
+  lensId?: string;
+}
+
+export type StartAgentReviewResult =
+  | {
+      ok: true;
+      run: Poc3AgentReviewRun;
+      session: AgentSessionSnapshot;
+    }
+  | {
+      ok: false;
+      reason: 'agentUnavailable' | 'workspaceNotFound' | 'revisionNotFound' | 'graphNotReady';
+      message: string;
+      run: null;
+      session: null;
+    };
+
+export interface AwaitAgentReviewResultInput {
+  runId: string;
+}
+
+export type AwaitAgentReviewResultResult =
+  | {
+      ok: true;
+      envelope: Poc3AgentReviewEnvelope;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'agentUnavailable'
+        | 'runNotFound'
+        | 'workspaceNotFound'
+        | 'revisionNotFound'
+        | 'graphNotReady'
+        | 'sourceSnapshotNotFound'
+        | 'agentFailed';
+      message: string;
+      envelope: Poc3AgentReviewEnvelope | null;
+    };
+
+export interface ListAgentReviewRunsInput {
+  reviewWorkspaceId: string;
+}
+
+export interface ListAgentReviewRunsResult {
+  runs: Poc3AgentReviewRun[];
+}
+
 export interface Poc3GraphReviewApi {
   listRepositoryProviders(): Promise<ListRepositoryProvidersResult>;
   saveRepositoryProvider(input: SaveRepositoryProviderInput): Promise<SaveRepositoryProviderResult>;
@@ -240,6 +313,11 @@ export interface Poc3GraphReviewApi {
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;
   loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult>;
+  startAgentReview(input: StartAgentReviewInput): Promise<StartAgentReviewResult>;
+  awaitAgentReviewResult(input: AwaitAgentReviewResultInput): Promise<AwaitAgentReviewResultResult>;
+  listAgentReviewRuns(input: ListAgentReviewRunsInput): Promise<ListAgentReviewRunsResult>;
+  respondAgentReviewPermission(input: RespondPermissionInput): Promise<void>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
   onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
+  onAgentReviewEvent(callback: (event: Poc3AgentReviewEvent) => void): () => void;
 }

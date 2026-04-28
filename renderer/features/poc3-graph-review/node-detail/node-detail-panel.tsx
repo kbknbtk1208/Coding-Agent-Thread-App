@@ -245,6 +245,7 @@ function PanelBody({
         <InlineNotice tone="error" message={state.message} />
       ) : null}
       <SignalsSection detail={detail} selectedNode={selectedNode} />
+      {detail ? <FindingsOverviewSection detail={detail} /> : null}
       <PrimarySection
         detail={detail}
         selectedNode={selectedNode}
@@ -310,7 +311,7 @@ function PrimarySection({
   if (source) {
     return (
       <section className="flex flex-col gap-2">
-        <SourceCodeSection source={source} scrollToLine={scrollToLine} />
+        <SourceCodeSection source={source} scrollToLine={scrollToLine} findings={detail.findings} />
         {canExpand && !isExpanded ? (
           <button
             type="button"
@@ -489,15 +490,18 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
 }
 
 function SourceCodeSection({
+  findings,
   source,
   scrollToLine,
 }: {
+  findings?: NodeDetailSnapshot['findings'];
   source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
   scrollToLine?: number;
 }) {
   const scrollContainerRef = useRef<HTMLPreElement | null>(null);
   const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
   const highlighted = new Set(source.highlightedLineNumbers);
+  const findingsByLine = useMemo(() => groupFindingsByLine(findings ?? []), [findings]);
   const lines = source.content.split('\n');
 
   useEffect(() => {
@@ -521,16 +525,26 @@ function SourceCodeSection({
           {lines.map((line, index) => {
             const actualLine = source.startLine + index;
             const isHighlighted = highlighted.has(actualLine);
+            const lineFindings = findingsByLine.get(actualLine) ?? [];
             return (
               <div
                 key={actualLine}
                 data-line={actualLine}
                 className={`grid grid-cols-[16px_minmax(0,1fr)] gap-x-1.5 rounded-[4px] px-1 ${
-                  isHighlighted ? 'bg-[#d8e071]/10 text-[#f6ffc0]' : ''
+                  lineFindings.length > 0
+                    ? 'bg-[#ffbf6b]/12 text-[#ffe0b5]'
+                    : isHighlighted
+                      ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
+                      : ''
                 }`}
               >
                 <span className="overflow-hidden text-right text-white/28">{actualLine}</span>
                 <span className="min-w-0 whitespace-pre-wrap break-all">
+                  {lineFindings.length > 0 ? (
+                    <span className="mr-2 inline-flex rounded-[4px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/12 px-1.5 py-0.5 text-[10px] font-semibold text-[#ffe0b5]">
+                      F{lineFindings.length}
+                    </span>
+                  ) : null}
                   <HighlightedSourceLine
                     filePath={source.filePath}
                     language={language}
@@ -544,6 +558,73 @@ function SourceCodeSection({
       </div>
     </section>
   );
+}
+
+function FindingsOverviewSection({ detail }: { detail: NodeDetailSnapshot }) {
+  if (detail.findings.length === 0) {
+    return null;
+  }
+  const overviewFindings = detail.findings.filter((finding) => finding.line === null);
+  const inlineFindings = detail.findings.filter((finding) => finding.line !== null);
+  return (
+    <section className="border-t border-white/[0.08] pt-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/48">
+        <AlertTriangle className="size-3.5" aria-hidden="true" />
+        Findings
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {overviewFindings.map((finding) => (
+          <FindingRow key={finding.findingId} finding={finding} label="overview" />
+        ))}
+        {inlineFindings.map((finding) => (
+          <FindingRow
+            key={finding.findingId}
+            finding={finding}
+            label={finding.line ? `line ${finding.line}` : 'inline'}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FindingRow({
+  finding,
+  label,
+}: {
+  finding: NodeDetailSnapshot['findings'][number];
+  label: string;
+}) {
+  const tone =
+    finding.severity === 'high'
+      ? 'border-[#ff7d7d]/25 bg-[#ff7d7d]/10 text-[#ffd4d4]'
+      : finding.severity === 'medium'
+        ? 'border-[#ffbf6b]/25 bg-[#ffbf6b]/10 text-[#ffe0b5]'
+        : 'border-[#58d7ff]/25 bg-[#58d7ff]/10 text-[#dff7ff]';
+  return (
+    <div className={`rounded-[7px] border px-2.5 py-2 ${tone}`}>
+      <div className="flex items-center gap-2">
+        <span className="rounded-full border border-current/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase">
+          {finding.severity}
+        </span>
+        <span className="text-[10px] uppercase tracking-[0.1em] opacity-70">{label}</span>
+      </div>
+      <p className="mt-1 text-[12px] leading-5">{finding.title}</p>
+    </div>
+  );
+}
+
+function groupFindingsByLine(findings: NodeDetailSnapshot['findings']) {
+  const map = new Map<number, NodeDetailSnapshot['findings']>();
+  for (const finding of findings) {
+    if (finding.line === null) {
+      continue;
+    }
+    const current = map.get(finding.line) ?? [];
+    current.push(finding);
+    map.set(finding.line, current);
+  }
+  return map;
 }
 
 function UnavailableSection({

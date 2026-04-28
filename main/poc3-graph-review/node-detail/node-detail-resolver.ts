@@ -31,6 +31,7 @@ import type {
   ReviewRemoteThreadSummary,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
+import type { Poc3AgentReviewThread } from '../../../shared/poc3-domain/agent-review';
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
@@ -44,6 +45,7 @@ export interface ResolveNodeDetailContext {
   record: WorkspaceGraphRecord;
   renderSnapshot?: GraphRenderSnapshot;
   sourceSnapshot: ReviewSourceSnapshot | null;
+  agentThreads?: Poc3AgentReviewThread[];
 }
 
 export interface ResolveNodeDetailResult {
@@ -95,7 +97,7 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
   const fileContext = resolveFileContext(renderNode, workspace, diagnostics, viewMode);
   const codeExcerpt = toLegacyCodeExcerpt(functionCode, fileContext);
   const relations = resolveRelations(renderNode, renderSnapshot);
-  const threads = resolveThreads(renderNode, sourceSnapshot);
+  const threads = resolveThreads(renderNode, sourceSnapshot, context.agentThreads ?? []);
   const summary = buildSummary(renderNode);
   const primaryView = pickPrimaryView(renderNode, functionCode, fileContext, codeExcerpt);
   const status = pickStatus(renderNode, functionCode, fileContext, codeExcerpt);
@@ -116,7 +118,12 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     diffExcerpt,
     relations,
     threads,
-    findings: [],
+    findings: (context.agentThreads ?? []).map((thread) => ({
+      findingId: thread.findingId,
+      severity: thread.severity,
+      title: thread.title,
+      line: thread.location.kind === 'diff' ? thread.location.startLine : null,
+    })),
     diagnostics,
   };
 
@@ -565,14 +572,32 @@ function toRelationItem(edge: GraphRenderEdge, other: GraphRenderNode): NodeRela
 function resolveThreads(
   node: GraphRenderNode,
   sourceSnapshot: ReviewSourceSnapshot | null,
+  agentThreads: Poc3AgentReviewThread[],
 ): NodeThreadSummary {
   if (!sourceSnapshot || node.kind === 'external' || !node.filePath) {
-    return { remote: [], local: [], agent: [] };
+    return {
+      remote: [],
+      local: [],
+      agent: agentThreads.map((thread) => toAgentThreadSummary(thread)),
+    };
   }
   const filtered = sourceSnapshot.remoteThreadsSummary.filter((thread) =>
     matchesThread(thread, node),
   );
-  return { remote: filtered, local: [], agent: [] };
+  return {
+    remote: filtered,
+    local: [],
+    agent: agentThreads.map((thread) => toAgentThreadSummary(thread)),
+  };
+}
+
+function toAgentThreadSummary(thread: Poc3AgentReviewThread): NodeThreadSummary['agent'][number] {
+  return {
+    threadId: thread.localThreadId,
+    summary: thread.title,
+    status: thread.status === 'dismissed' ? 'resolved' : 'open',
+    line: thread.location.kind === 'diff' ? thread.location.startLine : null,
+  };
 }
 
 function matchesThread(thread: ReviewRemoteThreadSummary, node: GraphRenderNode): boolean {

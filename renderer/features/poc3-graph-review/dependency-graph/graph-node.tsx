@@ -2,7 +2,7 @@
 
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
-import { FileCode2, FunctionSquare, Package } from 'lucide-react';
+import { AlertTriangle, FileCode2, FunctionSquare, MessageSquare, Package } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Poc3FlowNode } from './to-react-flow-elements';
 
@@ -64,6 +64,24 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
         {graphNode.badges.changedLines > 0 ? (
           <span className="rounded-[5px] border border-[#d8e071]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#d8e071]">
             +{graphNode.badges.changedLines}
+          </span>
+        ) : null}
+        {graphNode.badges.findingCount > 0 ? (
+          <span
+            className="flex items-center gap-1 rounded-[5px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#ffe0b5]"
+            title={`${graphNode.badges.findingCount} findings`}
+          >
+            <AlertTriangle className="size-3" aria-hidden="true" />
+            {graphNode.badges.findingCount}
+          </span>
+        ) : null}
+        {graphNode.badges.remoteThreadCount > 0 ? (
+          <span
+            className="flex items-center gap-1 rounded-[5px] border border-[#58d7ff]/25 bg-[#58d7ff]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#dff7ff]"
+            title={`${graphNode.badges.remoteThreadCount} remote threads`}
+          >
+            <MessageSquare className="size-3" aria-hidden="true" />
+            {graphNode.badges.remoteThreadCount}
           </span>
         ) : null}
         <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-white/70" />

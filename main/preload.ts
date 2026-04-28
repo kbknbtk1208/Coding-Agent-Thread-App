@@ -42,6 +42,8 @@ import {
   type UpdatePublishDraftsResult,
 } from '../shared/contracts/review-ipc';
 import {
+  type AwaitAgentReviewResultInput,
+  type AwaitAgentReviewResultResult,
   type BrowseDirectoryInput,
   type BrowseDirectoryResult,
   type CreateReviewWorkspaceInput,
@@ -51,6 +53,8 @@ import {
   type LoadWorkspaceGraphResult,
   type ListRepositoryProfilesResult,
   type ListRepositoryProvidersResult,
+  type ListAgentReviewRunsInput,
+  type ListAgentReviewRunsResult,
   type ListReviewWorkspacesResult,
   type ListWorkspaceCreationJobsResult,
   type LoadNodeDetailInput,
@@ -68,11 +72,14 @@ import {
   type SaveRepositoryProfileResult,
   type SaveRepositoryProviderInput,
   type SaveRepositoryProviderResult,
+  type StartAgentReviewInput,
+  type StartAgentReviewResult,
   type TestRepositoryProviderInput,
   type TestRepositoryProviderResult,
   type ValidateRepositoryProfileInput,
   type ValidateRepositoryProfileResult,
   type WorkspaceCreationEvent,
+  type Poc3AgentReviewEvent,
 } from '../shared/poc3-contracts/graph-review-ipc';
 
 const handler = {
@@ -237,6 +244,20 @@ const poc3GraphReviewApi = {
   loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail, input);
   },
+  startAgentReview(input: StartAgentReviewInput): Promise<StartAgentReviewResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.startAgentReview, input);
+  },
+  awaitAgentReviewResult(
+    input: AwaitAgentReviewResultInput,
+  ): Promise<AwaitAgentReviewResultResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.awaitAgentReviewResult, input);
+  },
+  listAgentReviewRuns(input: ListAgentReviewRunsInput): Promise<ListAgentReviewRunsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentReviewRuns, input);
+  },
+  respondAgentReviewPermission(input: RespondPermissionInput): Promise<void> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.respondAgentReviewPermission, input);
+  },
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void) {
     const subscription = (_event: IpcRendererEvent, payload: WorkspaceCreationEvent) =>
       callback(payload);
@@ -254,6 +275,14 @@ const poc3GraphReviewApi = {
     ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, subscription);
     return () => {
       ipcRenderer.removeListener(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, subscription);
+    };
+  },
+  onAgentReviewEvent(callback: (event: Poc3AgentReviewEvent) => void) {
+    const subscription = (_event: IpcRendererEvent, payload: Poc3AgentReviewEvent) =>
+      callback(payload);
+    ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.agentReviewEvent, subscription);
+    return () => {
+      ipcRenderer.removeListener(POC3_GRAPH_REVIEW_IPC_CHANNELS.agentReviewEvent, subscription);
     };
   },
 };

@@ -1,7 +1,9 @@
 import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'electron';
 import type {
+  AwaitAgentReviewResultInput,
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
+  ListAgentReviewRunsInput,
   LoadNodeDetailInput,
   LoadWorkspaceGraphInput,
   RemoveReviewWorkspaceInput,
@@ -9,9 +11,11 @@ import type {
   ResolveReviewWorkspaceTargetInput,
   SaveRepositoryProfileInput,
   SaveRepositoryProviderInput,
+  StartAgentReviewInput,
   TestRepositoryProviderInput,
   ValidateRepositoryProfileInput,
 } from '../../shared/poc3-contracts/graph-review-ipc';
+import type { RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import { POC3_GRAPH_REVIEW_IPC_CHANNELS } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { GraphReviewGateway } from './graph-review-gateway';
 
@@ -129,6 +133,34 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail,
     (_event, input: LoadNodeDetailInput) => {
       return gateway.loadNodeDetail(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.startAgentReview,
+    (_event, input: StartAgentReviewInput) => {
+      return gateway.startAgentReview(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.awaitAgentReviewResult,
+    (_event, input: AwaitAgentReviewResultInput) => {
+      return gateway.awaitAgentReviewResult(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentReviewRuns,
+    (_event, input: ListAgentReviewRunsInput) => {
+      return gateway.listAgentReviewRuns(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.respondAgentReviewPermission,
+    (_event, input: RespondPermissionInput) => {
+      return gateway.respondAgentReviewPermission(input);
     },
   );
 }

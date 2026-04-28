@@ -138,6 +138,46 @@ vi.mock('./store/graph-review-store', () => ({
   },
 }));
 
+vi.mock('./agent/store', () => ({
+  Poc3AgentReviewStore: class Poc3AgentReviewStoreMock {
+    saveRun(run: unknown): unknown {
+      return run;
+    }
+
+    getRun(): null {
+      return null;
+    }
+
+    getRunByAppSessionId(): null {
+      return null;
+    }
+
+    listRuns(): unknown[] {
+      return [];
+    }
+
+    getEnvelope(): null {
+      return null;
+    }
+
+    saveEnvelope(envelope: unknown): unknown {
+      return envelope;
+    }
+
+    listThreadsForNode(): unknown[] {
+      return [];
+    }
+
+    listThreadsForWorkspace(): unknown[] {
+      return [];
+    }
+
+    deleteWorkspaceRuns(): void {}
+
+    close(): void {}
+  },
+}));
+
 function createTempDir(tempDirs: string[]): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-thread-app-'));
   tempDirs.push(tempDir);

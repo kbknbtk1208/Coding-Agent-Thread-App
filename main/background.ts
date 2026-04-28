@@ -81,7 +81,9 @@ if (isProd) {
   await createMainAppWindow();
 
   const sessionStore = new SqliteSessionStore(app.getPath('userData'));
+  let graphReviewGateway: GraphReviewGateway | null = null;
   const gateway = new AgentGateway((event) => {
+    graphReviewGateway?.handleAgentEvent(event);
     if (!mainWindow || mainWindow.isDestroyed()) {
       return;
     }
@@ -124,7 +126,7 @@ if (isProd) {
   });
 
   const reviewGateway = new ReviewGateway({ agentGateway: gateway });
-  const graphReviewGateway = new GraphReviewGateway(
+  graphReviewGateway = new GraphReviewGateway(
     app.getPath('userData'),
     (event) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
@@ -138,6 +140,13 @@ if (isProd) {
       }
       mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, event);
     },
+    (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.agentReviewEvent, event);
+    },
+    gateway,
   );
 
   ipcMain.handle(REVIEW_IPC_CHANNELS.loadReviewSource, (_event, input: LoadReviewSourceInput) => {
@@ -240,7 +249,7 @@ if (isProd) {
 
   app.on('before-quit', () => {
     void gateway.dispose();
-    graphReviewGateway.dispose();
+    graphReviewGateway?.dispose();
   });
 
   app.on('activate', () => {
