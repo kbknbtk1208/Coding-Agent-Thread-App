@@ -1,5 +1,7 @@
-import type { AgentStatus } from '../../../../shared/domain/agent';
+import type { AgentKind, AgentStatus } from '../../../../shared/domain/agent';
+import type { StartAgentReviewInput } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { AgentReviewPromptContext, AgentReviewRunStatus } from './agent-review-types';
+import type { AgentReviewTarget } from './agent-review-types';
 
 export const DEFAULT_AGENT_REVIEW_INSTRUCTIONS =
   '差分ノードを中心に、設計・テスト・保守性の観点でレビューしてください。重大度付きの findings と、必要な追加確認を簡潔に出してください。';
@@ -22,6 +24,24 @@ export function toAgentReviewRunStatus(status: AgentStatus): AgentReviewRunStatu
 
 export function isAgentReviewRunActive(status: AgentReviewRunStatus) {
   return status === 'starting' || status === 'running' || status === 'waiting_permission';
+}
+
+export function buildAgentReviewStartRequest(input: {
+  target: AgentReviewTarget;
+  selectedAgent: AgentKind;
+  instructions: string;
+  codexModel: string;
+  codexReasoningEffort: string;
+}): StartAgentReviewInput {
+  return {
+    reviewWorkspaceId: input.target.workspace.reviewWorkspaceId,
+    scopeKey: input.target.graph.scopeKey,
+    agent: input.selectedAgent,
+    instructions: input.instructions.trim() || DEFAULT_AGENT_REVIEW_INSTRUCTIONS,
+    codexModel: input.selectedAgent === 'codex' ? input.codexModel.trim() || undefined : undefined,
+    codexReasoningEffort:
+      input.selectedAgent === 'codex' ? input.codexReasoningEffort.trim() || undefined : undefined,
+  };
 }
 
 export function buildAgentReviewPrompt({ graph, workspace }: AgentReviewPromptContext): string {

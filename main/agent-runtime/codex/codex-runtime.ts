@@ -1,8 +1,10 @@
 import type {
   AgentCapability,
+  CodexModelOption,
   PendingPermission,
   PermissionAction,
   ProgressHint,
+  SessionModelSelection,
 } from '../../../shared/domain/agent';
 import { STRUCTURED_FALLBACK_VERIFICATION_REASON } from '../../../shared/domain/implementation-checklist';
 import {
@@ -46,6 +48,10 @@ interface CodexTurnStartResult {
   };
 }
 
+interface CodexModelListResult {
+  data?: unknown[];
+}
+
 interface CodexTurnContext {
   messageId: string;
   responseMode: SendPromptInput['responseMode'];
@@ -74,6 +80,19 @@ type PermissionDescriptorResult =
 
 export class CodexRuntime implements AgentRuntime {
   readonly agent = 'codex' as const;
+
+  async listModels(cwd: string): Promise<CodexModelOption[]> {
+    const { client } = await this.createInitializedClient(cwd);
+    try {
+      const result = await client.request<CodexModelListResult>('model/list', {
+        includeHidden: false,
+        limit: 100,
+      });
+      return Array.isArray(result.data) ? result.data.flatMap(normalizeCodexModelOption) : [];
+    } finally {
+      await client.dispose();
+    }
+  }
 
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionHandle> {
     return this.startSession(input, (client) =>
@@ -123,6 +142,9 @@ export class CodexRuntime implements AgentRuntime {
         input.cwd,
         input.emit,
         CODEX_CAPABILITIES,
+        buildCodexModelSelection(
+          'codexModel' in input || 'codexReasoningEffort' in input ? input : {},
+        ),
       );
       setNotificationHandler((method, params) => session.handleNotification(method, params));
       setRequestHandler((id, method, params) => session.handleRequest(id, method, params));
@@ -186,6 +208,7 @@ class CodexRuntimeSession implements RuntimeSessionHandle {
     private readonly cwd: string,
     private readonly emit: (event: RuntimeSessionEvent) => void,
     readonly capabilities: AgentCapability[],
+    readonly modelSelection?: SessionModelSelection,
   ) {}
 
   async sendPrompt(input: SendPromptInput): Promise<void> {
@@ -1296,8 +1319,7 @@ export function buildCodexTurnStartRequest(args: {
   input: SendPromptInput;
 }) {
   const usesOutputSchema = shouldUseCodexOutputSchema(args.input);
-
-  return {
+  const request = {
     approvalPolicy: 'on-request',
     cwd: args.cwd,
     input: [
@@ -1318,6 +1340,87 @@ export function buildCodexTurnStartRequest(args: {
     },
     threadId: args.providerSessionId,
   };
+
+  const model = normalizedOptionalText(args.input.codexModel);
+  const effort = normalizedOptionalText(args.input.codexReasoningEffort);
+  return {
+    ...request,
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+  };
+}
+
+function buildCodexModelSelection(input: {
+  codexModel?: string;
+  codexReasoningEffort?: string;
+}): SessionModelSelection | undefined {
+  const requestedModel = normalizedOptionalText(input.codexModel);
+  const requestedReasoningEffort = normalizedOptionalText(input.codexReasoningEffort);
+  if (!requestedModel && !requestedReasoningEffort) {
+    return undefined;
+  }
+  return {
+    requestedModel,
+    requestedReasoningEffort,
+    isRequestedModelEnforced: true,
+  };
+}
+
+function normalizedOptionalText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeCodexModelOption(value: unknown): CodexModelOption[] {
+  if (!isRecordLike(value)) {
+    return [];
+  }
+  const id = typeof value.id === 'string' ? value.id : undefined;
+  const model = typeof value.model === 'string' ? value.model : id;
+  if (!id || !model) {
+    return [];
+  }
+  const supportedReasoningEfforts = Array.isArray(value.supportedReasoningEfforts)
+    ? value.supportedReasoningEfforts.flatMap(normalizeCodexReasoningEffort)
+    : [];
+  const inputModalities = Array.isArray(value.inputModalities)
+    ? value.inputModalities.filter((item): item is string => typeof item === 'string')
+    : undefined;
+  return [
+    {
+      id,
+      model,
+      displayName: typeof value.displayName === 'string' ? value.displayName : undefined,
+      hidden: typeof value.hidden === 'boolean' ? value.hidden : undefined,
+      defaultReasoningEffort:
+        typeof value.defaultReasoningEffort === 'string' ? value.defaultReasoningEffort : undefined,
+      supportedReasoningEfforts,
+      inputModalities,
+      supportsPersonality:
+        typeof value.supportsPersonality === 'boolean' ? value.supportsPersonality : undefined,
+      isDefault: typeof value.isDefault === 'boolean' ? value.isDefault : undefined,
+      upgrade: typeof value.upgrade === 'string' ? value.upgrade : undefined,
+      upgradeInfo: value.upgradeInfo,
+    },
+  ];
+}
+
+function normalizeCodexReasoningEffort(
+  value: unknown,
+): CodexModelOption['supportedReasoningEfforts'] {
+  if (!isRecordLike(value) || typeof value.reasoningEffort !== 'string') {
+    return [];
+  }
+  return [
+    {
+      reasoningEffort: value.reasoningEffort,
+      description: typeof value.description === 'string' ? value.description : undefined,
+    },
+  ];
+}
+
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 const COMMAND_APPROVAL_FALLBACK_DECISIONS = [

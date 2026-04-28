@@ -68,6 +68,20 @@ export function AgentControlCenter({
   const isCollapsed = stage === 'collapsed';
   const isExpanded = stage === 'fullyExpanded';
   const isRunning = review.activeRun !== null;
+  const selectedCodexModel = review.codexModelState.models.find(
+    (model) => model.model === review.codexModelState.selectedModel,
+  );
+  const codexReasoningOptions =
+    selectedCodexModel &&
+    selectedCodexModel.defaultReasoningEffort &&
+    !selectedCodexModel.supportedReasoningEfforts.some(
+      (option) => option.reasoningEffort === selectedCodexModel.defaultReasoningEffort,
+    )
+      ? [
+          ...selectedCodexModel.supportedReasoningEfforts,
+          { reasoningEffort: selectedCodexModel.defaultReasoningEffort },
+        ]
+      : (selectedCodexModel?.supportedReasoningEfforts ?? []);
 
   const handleExpand = () => {
     setStage('widthExpanding');
@@ -225,6 +239,57 @@ export function AgentControlCenter({
               ))}
             </div>
 
+            {review.selectedAgent === 'codex' ? (
+              <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-1.5">
+                <select
+                  value={review.codexModelState.selectedModel}
+                  onChange={(event) => review.setCodexModel(event.target.value)}
+                  disabled={
+                    !review.canStart ||
+                    review.codexModelState.isLoading ||
+                    review.codexModelState.models.length === 0
+                  }
+                  className="h-8 min-w-0 rounded-[7px] border border-white/[0.06] bg-black/22 px-2 text-[11px] font-medium text-white/70 outline-none transition focus:border-[#58d7ff]/28 disabled:opacity-50"
+                  aria-label="Codex model"
+                >
+                  {review.codexModelState.models.length === 0 ? (
+                    <option value="">
+                      {review.codexModelState.isLoading ? 'Loading models' : 'Provider default'}
+                    </option>
+                  ) : (
+                    review.codexModelState.models.map((model) => (
+                      <option key={model.id} value={model.model}>
+                        {model.displayName ?? model.model}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <select
+                  value={review.codexModelState.selectedReasoningEffort}
+                  onChange={(event) => review.setCodexReasoningEffort(event.target.value)}
+                  disabled={!review.canStart || codexReasoningOptions.length === 0}
+                  className="h-8 min-w-0 rounded-[7px] border border-white/[0.06] bg-black/22 px-2 text-[11px] font-medium text-white/70 outline-none transition focus:border-[#58d7ff]/28 disabled:opacity-50"
+                  aria-label="Codex reasoning effort"
+                >
+                  {codexReasoningOptions.length === 0 ? (
+                    <option value="">effort</option>
+                  ) : (
+                    codexReasoningOptions.map((option) => (
+                      <option key={option.reasoningEffort} value={option.reasoningEffort}>
+                        {option.reasoningEffort}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : null}
+
+            {review.selectedAgent === 'codex' && review.codexModelState.errorMessage ? (
+              <p className="rounded-[6px] border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-2 py-1.5 text-[11px] text-[#ffe0b5]">
+                {review.codexModelState.errorMessage}
+              </p>
+            ) : null}
+
             <textarea
               value={review.instructions}
               onChange={(event) => review.setInstructions(event.target.value)}
@@ -340,6 +405,11 @@ function RunHistoryItem({
           {run.errorMessage ? (
             <p className="mb-2 rounded-[6px] border border-[#ff7d7d]/25 bg-[#ff7d7d]/10 px-2 py-1.5 text-[11px] text-[#ffd4d4]">
               {run.errorMessage}
+            </p>
+          ) : null}
+          {run.codexModel || run.codexReasoningEffort ? (
+            <p className="mb-2 truncate text-[10px] text-white/34">
+              {[run.codexModel, run.codexReasoningEffort].filter(Boolean).join(' / ')}
             </p>
           ) : null}
           {run.session ? (

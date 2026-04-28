@@ -444,6 +444,10 @@ function parseModelSelection(text: string): SessionModelSelection | null {
     }
     return {
       requestedModel: typeof parsed.requestedModel === 'string' ? parsed.requestedModel : undefined,
+      requestedReasoningEffort:
+        typeof parsed.requestedReasoningEffort === 'string'
+          ? parsed.requestedReasoningEffort
+          : undefined,
       isRequestedModelEnforced: parsed.isRequestedModelEnforced,
       warning: typeof parsed.warning === 'string' ? parsed.warning : undefined,
     };

@@ -90,8 +90,28 @@ export interface StreamBuffer {
 
 export interface SessionModelSelection {
   requestedModel?: string;
+  requestedReasoningEffort?: string;
   isRequestedModelEnforced: boolean;
   warning?: string;
+}
+
+export interface CodexReasoningEffortOption {
+  reasoningEffort: string;
+  description?: string;
+}
+
+export interface CodexModelOption {
+  id: string;
+  model: string;
+  displayName?: string;
+  hidden?: boolean;
+  defaultReasoningEffort?: string;
+  supportedReasoningEfforts: CodexReasoningEffortOption[];
+  inputModalities?: string[];
+  supportsPersonality?: boolean;
+  isDefault?: boolean;
+  upgrade?: string;
+  upgradeInfo?: unknown;
 }
 
 export type PermissionActionKind = 'approve' | 'reject' | 'cancel' | 'other';

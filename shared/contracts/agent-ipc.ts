@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AgentKind,
   AppSession,
+  CodexModelOption,
   ConversationResponseMode,
   StructuredOutputMode,
 } from '../domain/agent';
@@ -12,6 +13,7 @@ export const AGENT_IPC_CHANNELS = {
   event: 'agent:event',
   forkSession: 'agent:fork-session',
   getDefaultCwd: 'agent:get-default-cwd',
+  listCodexModels: 'agent:codex-models:list',
   listSessions: 'agent:list-sessions',
   respondPermission: 'agent:respond-permission',
   sendFollowUp: 'agent:send-follow-up',
@@ -26,6 +28,8 @@ export interface StartSessionInput {
   responseMode?: ConversationResponseMode;
   structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
+  codexModel?: string;
+  codexReasoningEffort?: string;
 }
 
 export interface ContinueConversationInput {
@@ -38,6 +42,16 @@ export interface SendFollowUpInput {
   responseMode?: ConversationResponseMode;
   structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
+  codexModel?: string;
+  codexReasoningEffort?: string;
+}
+
+export interface ListCodexModelsInput {
+  cwd?: string;
+}
+
+export interface ListCodexModelsResult {
+  models: CodexModelOption[];
 }
 
 export interface ForkSessionInput {

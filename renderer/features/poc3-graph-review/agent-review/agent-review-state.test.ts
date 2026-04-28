@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
-import { buildAgentReviewPrompt, toAgentReviewRunStatus } from './agent-review-state';
+import {
+  buildAgentReviewPrompt,
+  buildAgentReviewStartRequest,
+  toAgentReviewRunStatus,
+} from './agent-review-state';
 
 const workspace: ReviewWorkspaceListItem = {
   reviewWorkspaceId: 'workspace-1',
@@ -72,5 +76,35 @@ describe('agent-review-state', () => {
     expect(prompt).toContain('Graph snapshot: graph-1');
     expect(prompt).toContain('runReview');
     expect(prompt).toContain('Existing finding nodes: runReview:1');
+  });
+
+  it('includes Codex model and effort only for Codex review starts', () => {
+    expect(
+      buildAgentReviewStartRequest({
+        target: { workspace, graph },
+        selectedAgent: 'codex',
+        instructions: 'Focus.',
+        codexModel: 'gpt-5.4',
+        codexReasoningEffort: 'medium',
+      }),
+    ).toMatchObject({
+      agent: 'codex',
+      codexModel: 'gpt-5.4',
+      codexReasoningEffort: 'medium',
+    });
+
+    expect(
+      buildAgentReviewStartRequest({
+        target: { workspace, graph },
+        selectedAgent: 'copilot',
+        instructions: 'Focus.',
+        codexModel: 'gpt-5.4',
+        codexReasoningEffort: 'medium',
+      }),
+    ).toMatchObject({
+      agent: 'copilot',
+      codexModel: undefined,
+      codexReasoningEffort: undefined,
+    });
   });
 });

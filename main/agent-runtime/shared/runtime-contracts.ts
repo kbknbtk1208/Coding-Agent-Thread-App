@@ -54,6 +54,8 @@ export interface SendPromptInput {
   responseMode: ConversationResponseMode;
   structuredSchemaName?: StructuredSchemaName;
   structuredOutputMode?: StructuredOutputMode;
+  codexModel?: string;
+  codexReasoningEffort?: string;
 }
 
 export interface SteerInput {
@@ -75,6 +77,8 @@ export interface CreateRuntimeSessionInput {
   appSessionId: string;
   cwd: string;
   emit: (event: RuntimeSessionEvent) => void;
+  codexModel?: string;
+  codexReasoningEffort?: string;
 }
 
 export interface ResumeRuntimeSessionInput {

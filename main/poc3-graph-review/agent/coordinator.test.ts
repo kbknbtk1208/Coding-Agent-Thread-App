@@ -149,6 +149,8 @@ describe('Poc3AgentReviewCoordinator', () => {
       scopeKey: 'initial',
       reviewAgent: 'codex',
       instructions: 'Focus on correctness.',
+      codexModel: 'gpt-5.4',
+      codexReasoningEffort: 'medium',
       cwd: workspace.worktreePath,
       record,
     });
@@ -159,6 +161,8 @@ describe('Poc3AgentReviewCoordinator', () => {
         cwd: workspace.worktreePath,
         responseMode: 'structured',
         structuredSchemaName: 'review-draft',
+        codexModel: 'gpt-5.4',
+        codexReasoningEffort: 'medium',
       }),
     );
     expect(result.run).toMatchObject({
@@ -166,6 +170,8 @@ describe('Poc3AgentReviewCoordinator', () => {
       revisionId: 'revision-1',
       status: 'starting',
       rootAppSessionId: 'session-1',
+      codexModel: 'gpt-5.4',
+      codexReasoningEffort: 'medium',
     });
     expect(savedRuns).toEqual([result.run]);
   });

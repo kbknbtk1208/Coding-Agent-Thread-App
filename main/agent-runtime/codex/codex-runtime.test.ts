@@ -59,6 +59,42 @@ describe('shouldUseCodexOutputSchema', () => {
     );
   });
 
+  it('passes Codex model and effort overrides to turn/start when selected', () => {
+    const request = buildCodexTurnStartRequest({
+      cwd: 'C:/workspace',
+      providerSessionId: 'thread-1',
+      input: {
+        messageId: 'message-1',
+        prompt: 'レビューしてください',
+        responseMode: 'structured',
+        structuredSchemaName: 'review-draft',
+        structuredOutputMode: 'normal',
+        codexModel: 'gpt-5.4',
+        codexReasoningEffort: 'medium',
+      },
+    });
+
+    expect(request.model).toBe('gpt-5.4');
+    expect(request.effort).toBe('medium');
+  });
+
+  it('omits Codex model and effort when they are not selected', () => {
+    const request = buildCodexTurnStartRequest({
+      cwd: 'C:/workspace',
+      providerSessionId: 'thread-1',
+      input: {
+        messageId: 'message-1',
+        prompt: 'レビューしてください',
+        responseMode: 'structured',
+        structuredSchemaName: 'review-draft',
+        structuredOutputMode: 'normal',
+      },
+    });
+
+    expect(request).not.toHaveProperty('model');
+    expect(request).not.toHaveProperty('effort');
+  });
+
   it('keeps outputSchema on turn/start for implementation-checklist requests', () => {
     const request = buildCodexTurnStartRequest({
       cwd: 'C:/workspace',

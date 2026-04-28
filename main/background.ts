@@ -5,6 +5,7 @@ import {
   AGENT_IPC_CHANNELS,
   type ContinueConversationInput,
   type ForkSessionInput,
+  type ListCodexModelsInput,
   type RespondPermissionInput,
   type SendFollowUpInput,
   type StartSessionInput,
@@ -92,6 +93,10 @@ if (isProd) {
 
   ipcMain.handle(AGENT_IPC_CHANNELS.listSessions, () => {
     return gateway.listSessions();
+  });
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.listCodexModels, (_event, input?: ListCodexModelsInput) => {
+    return gateway.listCodexModels(input?.cwd?.trim() || process.cwd());
   });
 
   ipcMain.handle(AGENT_IPC_CHANNELS.getDefaultCwd, () => {

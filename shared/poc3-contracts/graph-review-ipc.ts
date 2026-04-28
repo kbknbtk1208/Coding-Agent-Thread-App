@@ -244,6 +244,8 @@ export interface StartAgentReviewInput {
   agent: AgentKind;
   instructions: string;
   lensId?: string;
+  codexModel?: string;
+  codexReasoningEffort?: string;
 }
 
 export type StartAgentReviewResult =

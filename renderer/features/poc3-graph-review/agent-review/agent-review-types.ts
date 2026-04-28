@@ -1,4 +1,5 @@
 import type { AgentKind, AppSession } from '../../../../shared/domain/agent';
+import type { CodexModelOption } from '../../../../shared/domain/agent';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import type { Poc3AgentReviewRun } from '../../../../shared/poc3-domain/agent-review';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
@@ -19,6 +20,8 @@ export interface AgentReviewRun {
   appSessionId: string | null;
   session: AppSession | null;
   errorMessage: string | null;
+  codexModel: string | null;
+  codexReasoningEffort: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -33,7 +36,17 @@ export interface AgentReviewTarget {
 export interface AgentReviewStartInput {
   agent: AgentKind;
   instructions: string;
+  codexModel?: string;
+  codexReasoningEffort?: string;
   target: AgentReviewTarget;
+}
+
+export interface AgentReviewCodexModelState {
+  models: CodexModelOption[];
+  selectedModel: string;
+  selectedReasoningEffort: string;
+  isLoading: boolean;
+  errorMessage: string | null;
 }
 
 export interface AgentReviewPromptContext {

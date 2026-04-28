@@ -25,6 +25,8 @@ export interface BeginPoc3AgentReviewInput {
   reviewAgent: AgentKind;
   instructions: string;
   lensId?: string;
+  codexModel?: string;
+  codexReasoningEffort?: string;
   cwd: string;
   record: WorkspaceGraphRecord;
 }
@@ -61,6 +63,8 @@ export class Poc3AgentReviewCoordinator {
       prompt,
       responseMode: 'structured',
       structuredSchemaName: 'review-draft',
+      codexModel: input.reviewAgent === 'codex' ? input.codexModel : undefined,
+      codexReasoningEffort: input.reviewAgent === 'codex' ? input.codexReasoningEffort : undefined,
     });
     const run: Poc3AgentReviewRun = {
       runId: randomUUID(),
@@ -70,6 +74,9 @@ export class Poc3AgentReviewCoordinator {
       reviewAgent: input.reviewAgent,
       lensId: input.lensId?.trim() || 'general',
       instructions: input.instructions,
+      codexModel: input.reviewAgent === 'codex' ? input.codexModel?.trim() || undefined : undefined,
+      codexReasoningEffort:
+        input.reviewAgent === 'codex' ? input.codexReasoningEffort?.trim() || undefined : undefined,
       rootAppSessionId: session.appSessionId,
       status: 'starting',
       resultSource: 'richText',

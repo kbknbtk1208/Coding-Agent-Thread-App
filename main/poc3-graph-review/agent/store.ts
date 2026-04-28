@@ -14,6 +14,8 @@ interface AgentReviewRunRow {
   review_agent: Poc3AgentReviewRun['reviewAgent'];
   lens_id: string;
   instructions: string;
+  codex_model: string | null;
+  codex_reasoning_effort: string | null;
   root_app_session_id: string;
   status: Poc3AgentReviewRun['status'];
   result_source: Poc3AgentReviewRun['resultSource'];
@@ -47,10 +49,12 @@ export class Poc3AgentReviewStore {
         `
           INSERT OR REPLACE INTO agent_review_runs (
             run_id, review_workspace_id, revision_id, scope_key, review_agent, lens_id,
-            instructions, root_app_session_id, status, result_source, created_at, completed_at
+            instructions, codex_model, codex_reasoning_effort, root_app_session_id, status,
+            result_source, created_at, completed_at
           ) VALUES (
             @run_id, @review_workspace_id, @revision_id, @scope_key, @review_agent, @lens_id,
-            @instructions, @root_app_session_id, @status, @result_source, @created_at, @completed_at
+            @instructions, @codex_model, @codex_reasoning_effort, @root_app_session_id, @status,
+            @result_source, @created_at, @completed_at
           )
         `,
       )
@@ -62,6 +66,8 @@ export class Poc3AgentReviewStore {
         review_agent: run.reviewAgent,
         lens_id: run.lensId,
         instructions: run.instructions,
+        codex_model: run.codexModel ?? null,
+        codex_reasoning_effort: run.codexReasoningEffort ?? null,
         root_app_session_id: run.rootAppSessionId,
         status: run.status,
         result_source: run.resultSource,
@@ -190,6 +196,8 @@ export class Poc3AgentReviewStore {
       reviewAgent: row.review_agent,
       lensId: row.lens_id,
       instructions: row.instructions,
+      codexModel: row.codex_model ?? undefined,
+      codexReasoningEffort: row.codex_reasoning_effort ?? undefined,
       rootAppSessionId: row.root_app_session_id,
       status: row.status,
       resultSource: row.result_source,
@@ -208,6 +216,8 @@ export class Poc3AgentReviewStore {
         review_agent TEXT NOT NULL,
         lens_id TEXT NOT NULL,
         instructions TEXT NOT NULL,
+        codex_model TEXT,
+        codex_reasoning_effort TEXT,
         root_app_session_id TEXT NOT NULL,
         status TEXT NOT NULL,
         result_source TEXT NOT NULL,
@@ -225,5 +235,15 @@ export class Poc3AgentReviewStore {
         updated_at TEXT NOT NULL
       );
     `);
+    try {
+      this.db.exec('ALTER TABLE agent_review_runs ADD COLUMN codex_model TEXT');
+    } catch {
+      /* Column already exists in existing DBs — ignore */
+    }
+    try {
+      this.db.exec('ALTER TABLE agent_review_runs ADD COLUMN codex_reasoning_effort TEXT');
+    } catch {
+      /* Column already exists in existing DBs — ignore */
+    }
   }
 }

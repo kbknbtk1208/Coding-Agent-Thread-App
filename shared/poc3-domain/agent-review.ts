@@ -23,6 +23,8 @@ export interface Poc3AgentReviewRun {
   reviewAgent: AgentKind;
   lensId: string;
   instructions: string;
+  codexModel?: string;
+  codexReasoningEffort?: string;
   rootAppSessionId: string;
   status: Poc3AgentReviewRunStatus;
   resultSource: StructuredResultSource | 'richText';

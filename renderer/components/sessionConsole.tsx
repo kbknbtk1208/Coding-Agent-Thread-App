@@ -331,6 +331,14 @@ function renderModelSelection(session: AppSession) {
             {session.modelSelection.isRequestedModelEnforced ? 'enforced' : 'fallback to default'}
           </span>
         </p>
+        {session.modelSelection.requestedReasoningEffort ? (
+          <p>
+            reasoning effort:{' '}
+            <span className="font-medium text-white">
+              {session.modelSelection.requestedReasoningEffort}
+            </span>
+          </p>
+        ) : null}
       </div>
       {session.modelSelection.warning ? (
         <div className="mt-4 rounded-[1.1rem] border border-amber-200/20 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-50">

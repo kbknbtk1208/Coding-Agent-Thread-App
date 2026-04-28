@@ -545,6 +545,8 @@ export class GraphReviewGateway {
       reviewAgent: input.agent,
       instructions: input.instructions,
       lensId: input.lensId,
+      codexModel: input.agent === 'codex' ? input.codexModel : undefined,
+      codexReasoningEffort: input.agent === 'codex' ? input.codexReasoningEffort : undefined,
       cwd: record.workspace.worktreePath,
       record,
     });

@@ -7,6 +7,7 @@ import type {
   ConversationTurn,
   PendingPermission,
   ResultEnvelope,
+  SessionModelSelection,
   StructuredResultEnvelope,
 } from '../../shared/domain/agent';
 import {
@@ -24,6 +25,7 @@ import type {
   AgentSessionSnapshot,
   ContinueConversationInput,
   ForkSessionInput,
+  ListCodexModelsResult,
   RespondPermissionInput,
   SendFollowUpInput,
   StartSessionInput,
@@ -119,6 +121,18 @@ export class AgentGateway {
     );
   }
 
+  async listCodexModels(cwd = process.cwd()): Promise<ListCodexModelsResult> {
+    const runtime = this.runtimes.codex as AgentRuntime & {
+      listModels?: (cwd: string) => Promise<ListCodexModelsResult['models']>;
+    };
+    if (typeof runtime.listModels !== 'function') {
+      return { models: [] };
+    }
+    return {
+      models: await runtime.listModels(cwd),
+    };
+  }
+
   async awaitSettled(appSessionId: string): Promise<AgentSessionSnapshot> {
     this.assertText(appSessionId, '待機するセッションを選択してください。');
 
@@ -170,6 +184,7 @@ export class AgentGateway {
       streamBuffer: { content: '', messageId: turn.messageId },
       turns: [turn],
       updatedAt: now,
+      modelSelection: this.createModelSelection(input),
     };
 
     this.sessions.set(appSessionId, session);
@@ -179,6 +194,8 @@ export class AgentGateway {
         appSessionId,
         cwd: session.cwd,
         emit: (event) => this.handleRuntimeEvent(appSessionId, event),
+        codexModel: input.codexModel,
+        codexReasoningEffort: input.codexReasoningEffort,
       });
 
       this.attachRuntimeSession(session, runtimeSession);
@@ -193,6 +210,8 @@ export class AgentGateway {
           responseMode: turn.responseMode,
           structuredSchemaName: turn.structuredSchemaName,
           structuredOutputMode: turn.structuredOutputMode,
+          codexModel: input.codexModel,
+          codexReasoningEffort: input.codexReasoningEffort,
         })
         .catch((error) => {
           this.applyError(
@@ -416,6 +435,9 @@ export class AgentGateway {
           responseMode: turn.responseMode,
           structuredSchemaName: turn.structuredSchemaName,
           structuredOutputMode: turn.structuredOutputMode,
+          codexModel: input.codexModel ?? session.modelSelection?.requestedModel,
+          codexReasoningEffort:
+            input.codexReasoningEffort ?? session.modelSelection?.requestedReasoningEffort,
         })
         .catch((error) => {
           this.applyError(
@@ -812,6 +834,26 @@ export class AgentGateway {
       startedAt,
       status: 'starting',
       turnId: randomUUID(),
+    };
+  }
+
+  private createModelSelection(input: {
+    agent: AgentKind;
+    codexModel?: string;
+    codexReasoningEffort?: string;
+  }): SessionModelSelection | undefined {
+    if (input.agent !== 'codex') {
+      return undefined;
+    }
+    const requestedModel = input.codexModel?.trim() || undefined;
+    const requestedReasoningEffort = input.codexReasoningEffort?.trim() || undefined;
+    if (!requestedModel && !requestedReasoningEffort) {
+      return undefined;
+    }
+    return {
+      requestedModel,
+      requestedReasoningEffort,
+      isRequestedModelEnforced: true,
     };
   }
 

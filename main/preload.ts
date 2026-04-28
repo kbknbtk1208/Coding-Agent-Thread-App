@@ -5,6 +5,8 @@ import {
   type AgentSessionSnapshot,
   type ContinueConversationInput,
   type ForkSessionInput,
+  type ListCodexModelsInput,
+  type ListCodexModelsResult,
   type RespondPermissionInput,
   type SendFollowUpInput,
   type StartSessionInput,
@@ -102,6 +104,9 @@ const agentApi = {
   },
   listSessions(): Promise<AgentSessionSnapshot[]> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.listSessions);
+  },
+  listCodexModels(input?: ListCodexModelsInput): Promise<ListCodexModelsResult> {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.listCodexModels, input);
   },
   continueConversation(input: ContinueConversationInput): Promise<AgentSessionSnapshot> {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.continueConversation, input);
