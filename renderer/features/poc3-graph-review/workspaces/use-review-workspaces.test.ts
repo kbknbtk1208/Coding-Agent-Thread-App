@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { shouldHydrateWorkspaceListForGraphEvent } from './use-review-workspaces';
+import {
+  isReviewWorkspaceSelectable,
+  shouldHydrateWorkspaceListForGraphEvent,
+  type ReviewWorkspaceListItem,
+} from './use-review-workspaces';
+
+function createWorkspace(
+  overrides: Partial<ReviewWorkspaceListItem> = {},
+): ReviewWorkspaceListItem {
+  return {
+    reviewWorkspaceId: 'workspace-1',
+    repositoryLabel: 'owner/repo',
+    provider: 'github',
+    reviewId: '123',
+    title: 'Review workspace',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    setupStatus: 'completed',
+    analysisStatus: 'completed',
+    worktreeExists: true,
+    ...overrides,
+  };
+}
+
+describe('isReviewWorkspaceSelectable', () => {
+  it('allows only completed workspaces with an existing worktree', () => {
+    expect(isReviewWorkspaceSelectable(createWorkspace())).toBe(true);
+    expect(isReviewWorkspaceSelectable(createWorkspace({ worktreeExists: false }))).toBe(false);
+    expect(isReviewWorkspaceSelectable(createWorkspace({ analysisStatus: 'running' }))).toBe(false);
+    expect(isReviewWorkspaceSelectable(createWorkspace({ analysisStatus: 'failed' }))).toBe(false);
+  });
+});
 
 describe('shouldHydrateWorkspaceListForGraphEvent', () => {
   it('waits until analysis completion before hydrating the workspace list', () => {

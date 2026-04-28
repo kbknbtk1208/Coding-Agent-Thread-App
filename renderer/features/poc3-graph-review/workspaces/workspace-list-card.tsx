@@ -25,8 +25,30 @@ interface WorkspaceListCardProps {
   removeError: string | null;
   onRemoveWorkspace: (
     reviewWorkspaceId: string,
-    options?: Pick<RemoveReviewWorkspaceInput, 'force'>,
+    options?: Pick<RemoveReviewWorkspaceInput, 'force' | 'purgeDbOnly'>,
   ) => Promise<RemoveReviewWorkspaceResult>;
+}
+
+interface WorkspaceStatusBadge {
+  label: string;
+  tone: 'pending' | 'failed' | 'orphan';
+}
+
+function statusBadgeFor(workspace: ReviewWorkspaceListItem): WorkspaceStatusBadge | null {
+  if (!workspace.worktreeExists) {
+    return { label: '孤児', tone: 'orphan' };
+  }
+  if (workspace.setupStatus === 'failed' || workspace.analysisStatus === 'failed') {
+    return { label: '失敗', tone: 'failed' };
+  }
+  if (workspace.setupStatus !== 'completed') {
+    return { label: '未完了', tone: 'pending' };
+  }
+  return null;
+}
+
+function isSelectableWorkspace(workspace: ReviewWorkspaceListItem): boolean {
+  return workspace.analysisStatus === 'completed' && workspace.worktreeExists;
 }
 
 const COLLAPSED_VISIBLE_COUNT = 3;
@@ -44,6 +66,10 @@ export function WorkspaceListCard({
   const [showAll, setShowAll] = useState(false);
   const [openMenuWorkspaceId, setOpenMenuWorkspaceId] = useState<string | null>(null);
   const [forceTarget, setForceTarget] = useState<{
+    workspace: ReviewWorkspaceListItem;
+    message: string;
+  } | null>(null);
+  const [purgeDbTarget, setPurgeDbTarget] = useState<{
     workspace: ReviewWorkspaceListItem;
     message: string;
   } | null>(null);
@@ -79,25 +105,49 @@ export function WorkspaceListCard({
     if (reviewWorkspaceId === removingWorkspaceId) {
       return;
     }
+    const target =
+      selectedWorkspace?.reviewWorkspaceId === reviewWorkspaceId
+        ? selectedWorkspace
+        : otherWorkspaces.find((item) => item.reviewWorkspaceId === reviewWorkspaceId);
+    if (target && !isSelectableWorkspace(target)) {
+      return;
+    }
     onSelectWorkspace(reviewWorkspaceId);
     setOpen(false);
     setShowAll(false);
     setOpenMenuWorkspaceId(null);
   };
 
-  const handleRemoveWorkspace = async (workspace: ReviewWorkspaceListItem, force = false) => {
+  const handleRemoveWorkspace = async (
+    workspace: ReviewWorkspaceListItem,
+    options: { force?: boolean; purgeDbOnly?: boolean } = {},
+  ) => {
     if (workspace.reviewWorkspaceId === removingWorkspaceId) {
       return;
     }
     setOpenMenuWorkspaceId(null);
-    const result = await onRemoveWorkspace(workspace.reviewWorkspaceId, { force });
+    const result = await onRemoveWorkspace(workspace.reviewWorkspaceId, {
+      force: options.force,
+      purgeDbOnly: options.purgeDbOnly,
+    });
     if (!result.ok) {
-      if (result.reason === 'forceRequired' || force) {
+      if (result.reason === 'forceRequired') {
         setForceTarget({ workspace, message: result.message });
+        setPurgeDbTarget(null);
+        return;
+      }
+      if (result.reason === 'lockHeld') {
+        setPurgeDbTarget({ workspace, message: result.message });
+        setForceTarget(null);
+        return;
+      }
+      if (options.force) {
+        setPurgeDbTarget({ workspace, message: result.message });
       }
       return;
     }
     setForceTarget(null);
+    setPurgeDbTarget(null);
   };
 
   return (
@@ -126,9 +176,14 @@ export function WorkspaceListCard({
               </span>
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
-                  {selectedWorkspace?.repositoryLabel ?? 'Workspace'}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
+                    {selectedWorkspace?.repositoryLabel ?? 'Workspace'}
+                  </p>
+                  {selectedWorkspace ? (
+                    <WorkspaceStatusBadgeView badge={statusBadgeFor(selectedWorkspace)} />
+                  ) : null}
+                </div>
                 <p className="truncate text-xs leading-[17px] text-white/42">{subtitle}</p>
               </div>
             </div>
@@ -228,7 +283,17 @@ export function WorkspaceListCard({
         onCancel={() => setForceTarget(null)}
         onConfirm={() => {
           if (forceTarget) {
-            void handleRemoveWorkspace(forceTarget.workspace, true);
+            void handleRemoveWorkspace(forceTarget.workspace, { force: true });
+          }
+        }}
+      />
+      <PurgeDbOnlyDialog
+        target={purgeDbTarget}
+        removing={purgeDbTarget?.workspace.reviewWorkspaceId === removingWorkspaceId}
+        onCancel={() => setPurgeDbTarget(null)}
+        onConfirm={() => {
+          if (purgeDbTarget) {
+            void handleRemoveWorkspace(purgeDbTarget.workspace, { purgeDbOnly: true });
           }
         }}
       />
@@ -258,6 +323,9 @@ function WorkspaceListItem({
   onRemoveWorkspace: () => void;
 }) {
   const reviewSummary = useMemo(() => formatReviewSummary(workspace), [workspace]);
+  const badge = statusBadgeFor(workspace);
+  const selectable = isSelectableWorkspace(workspace);
+  const selectDisabled = disabled || !selectable;
 
   return (
     <motion.div
@@ -281,12 +349,12 @@ function WorkspaceListItem({
         },
       }}
       className={`relative flex w-full min-w-0 items-center gap-1 rounded-[5px] transition-colors ${
-        removing ? 'opacity-60' : disabled ? '' : 'hover:bg-white/[0.045]'
+        removing ? 'opacity-60' : selectDisabled ? '' : 'hover:bg-white/[0.045]'
       } ${separated ? 'border-t border-white/[0.06]' : ''}`}
     >
       <button
         type="button"
-        disabled={disabled}
+        disabled={selectDisabled}
         onClick={() => onSelectWorkspace(workspace.reviewWorkspaceId)}
         className="flex min-w-0 flex-1 items-center gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
       >
@@ -294,8 +362,11 @@ function WorkspaceListItem({
           <GitPullRequest className="h-4 w-4" aria-hidden="true" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
-            {workspace.repositoryLabel}
+          <span className="flex items-center gap-1.5">
+            <span className="block truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
+              {workspace.repositoryLabel}
+            </span>
+            <WorkspaceStatusBadgeView badge={badge} />
           </span>
           <span className="block truncate text-xs leading-[17px] text-white/42">
             {reviewSummary}
@@ -465,6 +536,113 @@ export function ForceRemoveDialog({
         </motion.div>
       ) : null}
     </AnimatePresence>
+  );
+}
+
+export function PurgeDbOnlyDialog({
+  target,
+  removing,
+  onCancel,
+  onConfirm,
+}: {
+  target: { workspace: ReviewWorkspaceListItem; message: string } | null;
+  removing: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {target ? (
+        <motion.div
+          key="poc3-purge-db-only-layer"
+          className="pointer-events-auto fixed inset-0 z-[70]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18, ease: ACTIVITY_ITEM_EASE }}
+        >
+          <div className="absolute inset-0 bg-black/32 backdrop-blur-[6px]" />
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="poc3-purge-db-only-title"
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: ACTIVITY_ITEM_EASE }}
+              className="w-[min(92vw,460px)] rounded-[8px] border border-white/[0.12] bg-[#171717]/92 p-4 text-white shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-[18px]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 id="poc3-purge-db-only-title" className="text-sm font-semibold text-white">
+                    DB レコードのみ削除しますか
+                  </h2>
+                  <p className="mt-1 truncate text-xs text-white/52">
+                    {target.workspace.repositoryLabel}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={removing}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-[5px] text-white/62 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-wait disabled:opacity-50"
+                  aria-label="Close purge db only dialog"
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </button>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#d5d5d5]">
+                git worktree remove が完了できません (ファイルロックや worktree
+                メタデータの不整合など)。DB レコードだけ削除すると、worktree
+                ディレクトリは手動掃除待ちで残ります。
+              </p>
+              <p className="mt-2 rounded-[6px] border border-[#facc15]/30 bg-[#facc15]/10 px-3 py-2 text-xs leading-5 text-[#fde68a]">
+                {target.message}
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={removing}
+                  className="rounded-[6px] border border-white/[0.12] px-3 py-2 text-sm text-white transition hover:border-white/24 disabled:cursor-wait disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={onConfirm}
+                  disabled={removing}
+                  className="flex items-center gap-2 rounded-[6px] bg-[#facc15] px-3 py-2 text-sm font-semibold text-[#1f1300] transition hover:bg-[#fde047] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {removing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  Purge DB Only
+                </button>
+              </div>
+            </motion.section>
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function WorkspaceStatusBadgeView({ badge }: { badge: WorkspaceStatusBadge | null }) {
+  if (!badge) {
+    return null;
+  }
+  const toneClass =
+    badge.tone === 'orphan'
+      ? 'border-[#facc15]/30 bg-[#facc15]/10 text-[#fde68a]'
+      : badge.tone === 'failed'
+        ? 'border-[#ff5c5c]/30 bg-[#ff5c5c]/10 text-[#ffd1d1]'
+        : 'border-white/15 bg-white/[0.06] text-white/70';
+  return (
+    <span
+      className={`shrink-0 rounded-[3px] border px-1 py-[1px] text-[10px] font-medium leading-[14px] ${toneClass}`}
+    >
+      {badge.label}
+    </span>
   );
 }
 

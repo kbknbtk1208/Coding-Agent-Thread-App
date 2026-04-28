@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import fs from 'fs';
 import type {
   AwaitAgentReviewResultInput,
   AwaitAgentReviewResultResult,
@@ -41,6 +42,8 @@ import type {
 import {
   repositoryLabelFromLocator,
   type ReviewWorkspace,
+  type ReviewWorkspaceListItemAnalysisStatus,
+  type ReviewWorkspaceListItemSetupStatus,
   type ResolveReviewWorkspaceTargetResult,
   type ReviewWorkspaceCreationJobSnapshot,
   type ReviewWorkspaceListItem,
@@ -90,6 +93,7 @@ export class GraphReviewGateway {
   private readonly analysisCoordinator: AnalysisCoordinator;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
   private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
+  private readonly dbOnlyPurgeAllowedWorkspaceIds = new Set<string>();
   private removingWorkspaceId: string | null = null;
 
   constructor(
@@ -239,28 +243,7 @@ export class GraphReviewGateway {
   }
 
   listReviewWorkspaces(): ReviewWorkspaceListItem[] {
-    const profilesById = new Map(
-      this.profileStore.list().map((profile) => [profile.repositoryProfileId, profile] as const),
-    );
-
-    return this.graphStore
-      .listWorkspaces()
-      .filter((workspace) => this.isWorkspaceSelectable(workspace.reviewWorkspaceId))
-      .map((workspace) => {
-        const profile = profilesById.get(workspace.repositoryProfileId);
-
-        return {
-          reviewWorkspaceId: workspace.reviewWorkspaceId,
-          repositoryLabel: profile
-            ? repositoryLabelFromLocator(profile.repoLocator)
-            : workspace.repositoryProfileId,
-          provider: workspace.provider,
-          reviewId: workspace.reviewId,
-          title: workspace.title,
-          createdAt: workspace.createdAt,
-          updatedAt: workspace.updatedAt,
-        };
-      });
+    return this.graphStore.listWorkspaces().map((workspace) => this.toListItem(workspace));
   }
 
   createReviewWorkspace(input: CreateReviewWorkspaceInput): ReviewWorkspaceCreationJobSnapshot {
@@ -323,6 +306,24 @@ export class GraphReviewGateway {
       };
     }
 
+    const worktreeExists = fs.existsSync(workspace.worktreePath);
+    if (input.purgeDbOnly === true) {
+      if (worktreeExists && !this.dbOnlyPurgeAllowedWorkspaceIds.has(reviewWorkspaceId)) {
+        return {
+          ok: false,
+          reviewWorkspaceId,
+          reason: 'gitFailed',
+          message:
+            'DB レコードのみの削除は、孤児 Workspace または直前に git worktree remove が失敗した Workspace に限定されています。',
+        };
+      }
+      this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
+      this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
+      this.clearWorkspaceCaches(reviewWorkspaceId);
+      this.dbOnlyPurgeAllowedWorkspaceIds.delete(reviewWorkspaceId);
+      return { ok: true, reviewWorkspaceId };
+    }
+
     const profile = this.profileStore.get(workspace.repositoryProfileId);
     if (!profile) {
       return {
@@ -340,14 +341,19 @@ export class GraphReviewGateway {
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
       this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
       this.clearWorkspaceCaches(reviewWorkspaceId);
+      this.dbOnlyPurgeAllowedWorkspaceIds.delete(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'git worktree remove が失敗しました。';
+      const reason =
+        !force && isForceRecoverableWorktreeRemoveError(message) ? 'forceRequired' : 'lockHeld';
+      if (reason === 'lockHeld') {
+        this.dbOnlyPurgeAllowedWorkspaceIds.add(reviewWorkspaceId);
+      }
       return {
         ok: false,
         reviewWorkspaceId,
-        reason:
-          !force && isForceRecoverableWorktreeRemoveError(message) ? 'forceRequired' : 'gitFailed',
+        reason,
         message,
       };
     } finally {
@@ -771,6 +777,11 @@ export class GraphReviewGateway {
 
   private toListItem(workspace: ReviewWorkspace): ReviewWorkspaceListItem {
     const profile = this.profileStore.get(workspace.repositoryProfileId);
+    const record = this.graphStore.getWorkspaceGraphRecord(
+      workspace.reviewWorkspaceId,
+      INITIAL_GRAPH_SCOPE_KEY,
+    );
+    const worktreeExists = fs.existsSync(workspace.worktreePath);
     return {
       reviewWorkspaceId: workspace.reviewWorkspaceId,
       repositoryLabel: profile
@@ -781,17 +792,32 @@ export class GraphReviewGateway {
       title: workspace.title,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
+      setupStatus: this.toListItemSetupStatus(workspace, worktreeExists),
+      analysisStatus: this.toListItemAnalysisStatus(record),
+      worktreeExists,
     };
   }
 
-  private isWorkspaceSelectable(reviewWorkspaceId: string): boolean {
-    const record = this.graphStore.getWorkspaceGraphRecord(
-      reviewWorkspaceId,
-      INITIAL_GRAPH_SCOPE_KEY,
-    );
-    return Boolean(
-      record?.activeRevision && record.analysis?.status === 'completed' && record.graph,
-    );
+  private toListItemSetupStatus(
+    workspace: ReviewWorkspace,
+    worktreeExists: boolean,
+  ): ReviewWorkspaceListItemSetupStatus {
+    if (!worktreeExists) {
+      return 'orphan';
+    }
+    if (workspace.setupStatus === 'running') {
+      return 'pending';
+    }
+    return workspace.setupStatus;
+  }
+
+  private toListItemAnalysisStatus(
+    record: WorkspaceGraphRecord | null,
+  ): ReviewWorkspaceListItemAnalysisStatus {
+    if (!record?.activeRevision) {
+      return 'missing';
+    }
+    return record.analysis?.status ?? 'missing';
   }
 
   private getRenderSnapshot(

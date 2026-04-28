@@ -11,6 +11,9 @@ const workspace: ReviewWorkspaceListItem = {
   title: 'Add graph review',
   createdAt: '2026-04-27T00:00:00.000Z',
   updatedAt: '2026-04-27T00:00:00.000Z',
+  setupStatus: 'completed',
+  analysisStatus: 'completed',
+  worktreeExists: true,
 };
 
 const graph: GraphRenderSnapshot = {

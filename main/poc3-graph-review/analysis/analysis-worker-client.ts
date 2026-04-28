@@ -79,20 +79,18 @@ export class AnalysisWorkerClient {
           onProgress?.(message.progress as InitialGraphAnalysisProgress);
           return;
         }
+        if (settled) {
+          return;
+        }
         settled = true;
-        void worker.terminate();
-        if (
-          message &&
+        const isOk =
+          message !== null &&
           typeof message === 'object' &&
           'type' in message &&
           message.type === 'result' &&
           'ok' in message &&
           message.ok === true &&
-          'result' in message
-        ) {
-          resolve(message.result as InitialGraphAnalysisOutput);
-          return;
-        }
+          'result' in message;
         const errorMessage =
           message &&
           typeof message === 'object' &&
@@ -101,15 +99,34 @@ export class AnalysisWorkerClient {
           'message' in message
             ? String(message.message)
             : 'Analysis worker failed';
-        reject(new Error(errorMessage));
+        const resultValue = isOk
+          ? ((message as { result: InitialGraphAnalysisOutput })
+              .result as InitialGraphAnalysisOutput)
+          : null;
+        worker
+          .terminate()
+          .catch(() => undefined)
+          .finally(() => {
+            if (isOk && resultValue !== null) {
+              resolve(resultValue);
+            } else {
+              reject(new Error(errorMessage));
+            }
+          });
       });
       worker.once('error', (err) => {
+        if (settled) {
+          return;
+        }
         settled = true;
-        void worker.terminate();
-        reject(err);
+        worker
+          .terminate()
+          .catch(() => undefined)
+          .finally(() => reject(err));
       });
       worker.once('exit', (code) => {
         if (!settled && code !== 0) {
+          settled = true;
           reject(new Error(`Analysis worker exited with code ${code}`));
         }
       });

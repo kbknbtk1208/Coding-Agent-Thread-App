@@ -106,6 +106,9 @@ export async function addWorktree(
   }
 }
 
+const REMOVE_WORKTREE_MAX_RETRIES = 3;
+const REMOVE_WORKTREE_RETRY_DELAY_MS = 500;
+
 export async function removeWorktree(
   localClonePath: string,
   worktreePath: string,
@@ -115,13 +118,25 @@ export async function removeWorktree(
   const args = force
     ? ['worktree', 'remove', '--force', worktreePath]
     : ['worktree', 'remove', worktreePath];
-  onLog?.(`git ${args.join(' ')}`);
-  const result = await runGitCommand(localClonePath, args, onLog);
-  if (result.code !== 0) {
-    throw new Error(
-      `git worktree remove が失敗しました (exit ${result.code}): ${result.stderr.trim()}`,
-    );
+  let lastError: { code: number; stderr: string } | null = null;
+  for (let attempt = 0; attempt < REMOVE_WORKTREE_MAX_RETRIES; attempt += 1) {
+    onLog?.(`git ${args.join(' ')}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
+    const result = await runGitCommand(localClonePath, args, onLog);
+    if (result.code === 0) {
+      return;
+    }
+    lastError = { code: result.code, stderr: result.stderr };
+    const stderrLower = result.stderr.toLowerCase();
+    const retriable =
+      stderrLower.includes('permission denied') || stderrLower.includes('failed to delete');
+    if (!retriable || attempt === REMOVE_WORKTREE_MAX_RETRIES - 1) {
+      break;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, REMOVE_WORKTREE_RETRY_DELAY_MS));
   }
+  throw new Error(
+    `git worktree remove が失敗しました (exit ${lastError?.code ?? -1}): ${(lastError?.stderr ?? '').trim()}`,
+  );
 }
 
 export async function verifyHeadSha(

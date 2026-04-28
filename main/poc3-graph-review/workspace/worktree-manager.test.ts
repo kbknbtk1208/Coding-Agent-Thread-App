@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { removeWorktree } from './worktree-manager';
 
 const { spawnMock } = vi.hoisted(() => ({
@@ -26,9 +26,22 @@ function createMockChild(code = 0, stderr = '') {
   return child;
 }
 
+function queueChildren(children: Array<{ code: number; stderr?: string }>): void {
+  let index = 0;
+  spawnMock.mockImplementation(() => {
+    const next = children[Math.min(index, children.length - 1)];
+    index += 1;
+    return createMockChild(next.code, next.stderr ?? '');
+  });
+}
+
 describe('removeWorktree', () => {
+  afterEach(() => {
+    spawnMock.mockReset();
+  });
+
   it('runs git worktree remove without force by default', async () => {
-    spawnMock.mockReturnValueOnce(createMockChild());
+    queueChildren([{ code: 0 }]);
 
     await removeWorktree('C:\\repo', 'C:\\worktrees\\repo-pr-1', false);
 
@@ -40,7 +53,7 @@ describe('removeWorktree', () => {
   });
 
   it('runs git worktree remove --force when requested', async () => {
-    spawnMock.mockReturnValueOnce(createMockChild());
+    queueChildren([{ code: 0 }]);
 
     await removeWorktree('C:\\repo', 'C:\\worktrees\\repo-pr-1', true);
 
@@ -52,10 +65,40 @@ describe('removeWorktree', () => {
   });
 
   it('throws when git worktree remove fails', async () => {
-    spawnMock.mockReturnValueOnce(createMockChild(1, 'contains modified files'));
+    queueChildren([{ code: 1, stderr: 'contains modified files' }]);
 
     await expect(removeWorktree('C:\\repo', 'C:\\worktrees\\repo-pr-1', false)).rejects.toThrow(
       'contains modified files',
     );
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries when git worktree remove fails with Permission denied and eventually succeeds', async () => {
+    queueChildren([
+      { code: 255, stderr: "error: failed to delete 'foo': Permission denied" },
+      { code: 0 },
+    ]);
+
+    await removeWorktree('C:\\repo', 'C:\\worktrees\\repo-pr-1', false);
+
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws after exhausting retries when Permission denied persists', async () => {
+    queueChildren([{ code: 255, stderr: "error: failed to delete 'foo': Permission denied" }]);
+
+    await expect(removeWorktree('C:\\repo', 'C:\\worktrees\\repo-pr-1', false)).rejects.toThrow(
+      'Permission denied',
+    );
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry when stderr does not match a retriable pattern', async () => {
+    queueChildren([{ code: 1, stderr: 'contains untracked files' }]);
+
+    await expect(removeWorktree('C:\\repo', 'C:\\worktrees\\repo-pr-1', false)).rejects.toThrow(
+      'contains untracked files',
+    );
+    expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 });

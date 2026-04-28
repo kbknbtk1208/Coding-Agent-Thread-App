@@ -12,6 +12,10 @@ export type ReviewWorkspaceListItem = Awaited<
   ReturnType<typeof window.poc3GraphReviewApi.listReviewWorkspaces>
 >['workspaces'][number];
 
+export function isReviewWorkspaceSelectable(workspace: ReviewWorkspaceListItem): boolean {
+  return workspace.analysisStatus === 'completed' && workspace.worktreeExists;
+}
+
 export function useReviewWorkspaces() {
   const [workspaces, setWorkspaces] = useState<ReviewWorkspaceListItem[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -26,11 +30,14 @@ export function useReviewWorkspaces() {
     setSelectedWorkspaceId((current) => {
       if (
         current &&
-        result.workspaces.some((workspace) => workspace.reviewWorkspaceId === current)
+        result.workspaces.some(
+          (workspace) =>
+            workspace.reviewWorkspaceId === current && isReviewWorkspaceSelectable(workspace),
+        )
       ) {
         return current;
       }
-      return result.workspaces[0]?.reviewWorkspaceId ?? null;
+      return result.workspaces.find(isReviewWorkspaceSelectable)?.reviewWorkspaceId ?? null;
     });
   }, []);
 
@@ -66,7 +73,7 @@ export function useReviewWorkspaces() {
   const removeWorkspace = useCallback(
     async (
       reviewWorkspaceId: string,
-      options: Pick<RemoveReviewWorkspaceInput, 'force'> = {},
+      options: Pick<RemoveReviewWorkspaceInput, 'force' | 'purgeDbOnly'> = {},
     ): Promise<RemoveReviewWorkspaceResult> => {
       if (removingWorkspaceIdRef.current) {
         const message = 'Workspace の削除処理が進行中です。';
@@ -85,12 +92,13 @@ export function useReviewWorkspaces() {
         const result = await window.poc3GraphReviewApi.removeReviewWorkspace({
           reviewWorkspaceId,
           force: options.force,
+          purgeDbOnly: options.purgeDbOnly,
         });
         if (result.ok) {
           await hydrate();
           return result;
         }
-        if (result.reason !== 'forceRequired') {
+        if (result.reason !== 'forceRequired' && result.reason !== 'lockHeld') {
           setRemoveError(result.message);
         }
         return result;

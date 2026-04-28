@@ -162,6 +162,7 @@ export interface ListReviewWorkspacesResult {
 export interface RemoveReviewWorkspaceInput {
   reviewWorkspaceId: string;
   force?: boolean;
+  purgeDbOnly?: boolean;
 }
 
 export type RemoveReviewWorkspaceResult =
@@ -169,7 +170,7 @@ export type RemoveReviewWorkspaceResult =
   | {
       ok: false;
       reviewWorkspaceId: string;
-      reason: 'notFound' | 'forceRequired' | 'gitFailed';
+      reason: 'notFound' | 'forceRequired' | 'lockHeld' | 'gitFailed';
       message: string;
     };
 

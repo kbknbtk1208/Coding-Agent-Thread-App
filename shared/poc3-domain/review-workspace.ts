@@ -23,6 +23,15 @@ export interface ReviewWorkspace {
   updatedAt: string;
 }
 
+export type ReviewWorkspaceListItemSetupStatus = 'completed' | 'pending' | 'failed' | 'orphan';
+
+export type ReviewWorkspaceListItemAnalysisStatus =
+  | 'completed'
+  | 'queued'
+  | 'running'
+  | 'failed'
+  | 'missing';
+
 export interface ReviewWorkspaceListItem {
   reviewWorkspaceId: string;
   repositoryLabel: string;
@@ -31,6 +40,9 @@ export interface ReviewWorkspaceListItem {
   title: string;
   createdAt: string;
   updatedAt: string;
+  setupStatus: ReviewWorkspaceListItemSetupStatus;
+  analysisStatus: ReviewWorkspaceListItemAnalysisStatus;
+  worktreeExists: boolean;
 }
 
 export interface ReviewWorkspaceTarget {

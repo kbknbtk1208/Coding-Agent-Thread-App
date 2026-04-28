@@ -227,7 +227,7 @@ function createWorkspace(overrides: Partial<ReviewWorkspace> = {}): ReviewWorksp
   };
 }
 
-function seedGateway(tempDirs: string[]) {
+function seedGateway(tempDirs: string[], workspaceOverrides: Partial<ReviewWorkspace> = {}) {
   const gateway = new GraphReviewGateway(createTempDir(tempDirs), () => undefined);
   const stores = gateway as unknown as {
     profileStore: { save: (profile: RepositoryProfile) => RepositoryProfile };
@@ -239,7 +239,7 @@ function seedGateway(tempDirs: string[]) {
     };
   };
   stores.profileStore.save(createProfile());
-  stores.graphStore.saveWorkspace(createWorkspace());
+  stores.graphStore.saveWorkspace(createWorkspace(workspaceOverrides));
   return { gateway, stores };
 }
 
@@ -297,7 +297,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
     }
   });
 
-  it('reports gitFailed for normal remove failures that are not force recoverable', async () => {
+  it('reports lockHeld for normal remove failures that are not force recoverable', async () => {
     const { gateway, stores } = seedGateway(tempDirs);
     removeWorktreeMock.mockRejectedValueOnce(new Error('not a git repository'));
 
@@ -309,7 +309,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
       expect(result).toEqual({
         ok: false,
         reviewWorkspaceId: 'workspace-1',
-        reason: 'gitFailed',
+        reason: 'lockHeld',
         message: 'not a git repository',
       });
       expect(stores.graphStore.getWorkspace('workspace-1')).toEqual(createWorkspace());
@@ -403,7 +403,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
     }
   });
 
-  it('keeps the stored workspace and reports gitFailed when forced remove fails', async () => {
+  it('keeps the stored workspace and reports lockHeld when forced remove fails', async () => {
     const { gateway, stores } = seedGateway(tempDirs);
     removeWorktreeMock.mockRejectedValueOnce(new Error('remove failed'));
 
@@ -416,10 +416,79 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
       expect(result).toEqual({
         ok: false,
         reviewWorkspaceId: 'workspace-1',
-        reason: 'gitFailed',
+        reason: 'lockHeld',
         message: 'remove failed',
       });
       expect(stores.graphStore.getWorkspace('workspace-1')).toEqual(createWorkspace());
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('purges only stored records for orphaned workspaces when purgeDbOnly is requested', async () => {
+    const { gateway, stores } = seedGateway(tempDirs, {
+      worktreePath: path.join(createTempDir(tempDirs), 'missing-worktree'),
+    });
+
+    try {
+      const result = await gateway.removeReviewWorkspace({
+        reviewWorkspaceId: 'workspace-1',
+        purgeDbOnly: true,
+      });
+
+      expect(result).toEqual({ ok: true, reviewWorkspaceId: 'workspace-1' });
+      expect(removeWorktreeMock).not.toHaveBeenCalled();
+      expect(stores.graphStore.getWorkspace('workspace-1')).toBeNull();
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('rejects purgeDbOnly for existing worktrees before git remove has failed', async () => {
+    const worktreePath = createTempDir(tempDirs);
+    const { gateway, stores } = seedGateway(tempDirs, { worktreePath });
+
+    try {
+      const result = await gateway.removeReviewWorkspace({
+        reviewWorkspaceId: 'workspace-1',
+        purgeDbOnly: true,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reviewWorkspaceId: 'workspace-1',
+        reason: 'gitFailed',
+        message:
+          'DB レコードのみの削除は、孤児 Workspace または直前に git worktree remove が失敗した Workspace に限定されています。',
+      });
+      expect(removeWorktreeMock).not.toHaveBeenCalled();
+      expect(stores.graphStore.getWorkspace('workspace-1')).toEqual(
+        createWorkspace({ worktreePath }),
+      );
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('allows purgeDbOnly after git remove failed with a lockHeld result', async () => {
+    const worktreePath = createTempDir(tempDirs);
+    const { gateway, stores } = seedGateway(tempDirs, { worktreePath });
+    removeWorktreeMock.mockRejectedValueOnce(new Error('remove failed'));
+
+    try {
+      await expect(
+        gateway.removeReviewWorkspace({ reviewWorkspaceId: 'workspace-1', force: true }),
+      ).resolves.toEqual({
+        ok: false,
+        reviewWorkspaceId: 'workspace-1',
+        reason: 'lockHeld',
+        message: 'remove failed',
+      });
+
+      await expect(
+        gateway.removeReviewWorkspace({ reviewWorkspaceId: 'workspace-1', purgeDbOnly: true }),
+      ).resolves.toEqual({ ok: true, reviewWorkspaceId: 'workspace-1' });
+      expect(stores.graphStore.getWorkspace('workspace-1')).toBeNull();
     } finally {
       gateway.dispose();
     }
@@ -438,6 +507,53 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
         message: 'Review Workspace が見つかりません。',
       });
       expect(removeWorktreeMock).not.toHaveBeenCalled();
+    } finally {
+      gateway.dispose();
+    }
+  });
+});
+
+describe('GraphReviewGateway.listReviewWorkspaces', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    removeWorktreeMock.mockReset();
+    for (const tempDir of tempDirs.splice(0)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes worktree existence and status fields for fresh workspaces', () => {
+    const worktreePath = createTempDir(tempDirs);
+    const { gateway } = seedGateway(tempDirs, { worktreePath });
+
+    try {
+      expect(gateway.listReviewWorkspaces()).toEqual([
+        expect.objectContaining({
+          reviewWorkspaceId: 'workspace-1',
+          setupStatus: 'completed',
+          analysisStatus: 'missing',
+          worktreeExists: true,
+        }),
+      ]);
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('keeps orphaned workspaces visible so they can be removed', () => {
+    const { gateway } = seedGateway(tempDirs, {
+      worktreePath: path.join(createTempDir(tempDirs), 'missing-worktree'),
+    });
+
+    try {
+      expect(gateway.listReviewWorkspaces()).toEqual([
+        expect.objectContaining({
+          reviewWorkspaceId: 'workspace-1',
+          setupStatus: 'orphan',
+          worktreeExists: false,
+        }),
+      ]);
     } finally {
       gateway.dispose();
     }
