@@ -133,8 +133,15 @@ export interface AgentNodeThreadSummary {
 export interface NodeFindingSummary {
   findingId: string;
   severity: 'low' | 'medium' | 'high';
+  category: string;
+  confidence: string;
   title: string;
+  body: string;
+  suggestion?: string;
   line: number | null;
+  endLine: number | null;
+  side: 'old' | 'new' | null;
+  status: 'open' | 'resolved';
 }
 
 export interface NodeDetailDiagnostic {

@@ -121,8 +121,15 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     findings: (context.agentThreads ?? []).map((thread) => ({
       findingId: thread.findingId,
       severity: thread.severity,
+      category: thread.category,
+      confidence: thread.confidence,
       title: thread.title,
+      body: thread.draftBody,
+      suggestion: thread.suggestion,
       line: thread.location.kind === 'diff' ? thread.location.startLine : null,
+      endLine: thread.location.kind === 'diff' ? thread.location.endLine : null,
+      side: thread.location.kind === 'diff' ? thread.location.side : null,
+      status: thread.status === 'dismissed' ? 'resolved' : 'open',
     })),
     diagnostics,
   };

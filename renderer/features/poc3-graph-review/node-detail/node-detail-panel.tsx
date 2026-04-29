@@ -10,6 +10,7 @@ import {
   FunctionSquare,
   GitBranch,
   Loader2,
+  MessageSquareText,
   Package,
   X,
 } from 'lucide-react';
@@ -245,7 +246,6 @@ function PanelBody({
         <InlineNotice tone="error" message={state.message} />
       ) : null}
       <SignalsSection detail={detail} selectedNode={selectedNode} />
-      {detail ? <FindingsOverviewSection detail={detail} /> : null}
       <PrimarySection
         detail={detail}
         selectedNode={selectedNode}
@@ -498,7 +498,7 @@ function SourceCodeSection({
   source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
   scrollToLine?: number;
 }) {
-  const scrollContainerRef = useRef<HTMLPreElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
   const highlighted = new Set(source.highlightedLineNumbers);
   const findingsByLine = useMemo(() => groupFindingsByLine(findings ?? []), [findings]);
@@ -518,100 +518,135 @@ function SourceCodeSection({
   return (
     <section className="node-detail-code diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
       <div className="overflow-hidden rounded-[12px] border border-white/[0.08] bg-black/45">
-        <pre
+        <div
           ref={scrollContainerRef}
-          className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]"
+          className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 text-[11px] leading-[1.35rem] text-[#c9d1d9]"
         >
+          <OverviewFindingThreads findings={findings ?? []} />
           {lines.map((line, index) => {
             const actualLine = source.startLine + index;
             const isHighlighted = highlighted.has(actualLine);
             const lineFindings = findingsByLine.get(actualLine) ?? [];
             return (
-              <div
-                key={actualLine}
-                data-line={actualLine}
-                className={`grid grid-cols-[16px_minmax(0,1fr)] gap-x-1.5 rounded-[4px] px-1 ${
-                  lineFindings.length > 0
-                    ? 'bg-[#ffbf6b]/12 text-[#ffe0b5]'
-                    : isHighlighted
-                      ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
-                      : ''
-                }`}
-              >
-                <span className="overflow-hidden text-right text-white/28">{actualLine}</span>
-                <span className="min-w-0 whitespace-pre-wrap break-all">
-                  {lineFindings.length > 0 ? (
-                    <span className="mr-2 inline-flex rounded-[4px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/12 px-1.5 py-0.5 text-[10px] font-semibold text-[#ffe0b5]">
-                      F{lineFindings.length}
-                    </span>
-                  ) : null}
-                  <HighlightedSourceLine
-                    filePath={source.filePath}
-                    language={language}
-                    text={line}
-                  />
-                </span>
+              <div key={actualLine} data-line={actualLine}>
+                <div
+                  className={`grid grid-cols-[16px_minmax(0,1fr)] gap-x-1.5 rounded-[4px] px-1 font-mono ${
+                    lineFindings.length > 0
+                      ? 'bg-[#ffbf6b]/12 text-[#ffe0b5]'
+                      : isHighlighted
+                        ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
+                        : ''
+                  }`}
+                >
+                  <span className="overflow-hidden text-right text-white/28">{actualLine}</span>
+                  <span className="min-w-0 whitespace-pre-wrap break-all">
+                    {lineFindings.length > 0 ? (
+                      <span className="mr-2 inline-flex rounded-[4px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/12 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#ffe0b5]">
+                        F{lineFindings.length}
+                      </span>
+                    ) : null}
+                    <HighlightedSourceLine
+                      filePath={source.filePath}
+                      language={language}
+                      text={line}
+                    />
+                  </span>
+                </div>
+                {lineFindings.length > 0 ? (
+                  <AgentFindingThreadLayer findings={lineFindings} />
+                ) : null}
               </div>
             );
           })}
-        </pre>
+        </div>
       </div>
     </section>
   );
 }
 
-function FindingsOverviewSection({ detail }: { detail: NodeDetailSnapshot }) {
-  if (detail.findings.length === 0) {
+function OverviewFindingThreads({ findings }: { findings: NodeDetailSnapshot['findings'] }) {
+  const overviewFindings = findings.filter((finding) => finding.line === null);
+  if (overviewFindings.length === 0) {
     return null;
   }
-  const overviewFindings = detail.findings.filter((finding) => finding.line === null);
-  const inlineFindings = detail.findings.filter((finding) => finding.line !== null);
   return (
-    <section className="border-t border-white/[0.08] pt-3">
-      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/48">
-        <AlertTriangle className="size-3.5" aria-hidden="true" />
-        Findings
-      </div>
-      <div className="flex flex-col gap-1.5">
+    <div className="mb-2 border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-3 py-3">
+      <div className="space-y-3">
         {overviewFindings.map((finding) => (
-          <FindingRow key={finding.findingId} finding={finding} label="overview" />
-        ))}
-        {inlineFindings.map((finding) => (
-          <FindingRow
-            key={finding.findingId}
-            finding={finding}
-            label={finding.line ? `line ${finding.line}` : 'inline'}
-          />
+          <AgentFindingThreadCard key={finding.findingId} finding={finding} />
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
-function FindingRow({
-  finding,
-  label,
-}: {
-  finding: NodeDetailSnapshot['findings'][number];
-  label: string;
-}) {
-  const tone =
-    finding.severity === 'high'
-      ? 'border-[#ff7d7d]/25 bg-[#ff7d7d]/10 text-[#ffd4d4]'
-      : finding.severity === 'medium'
-        ? 'border-[#ffbf6b]/25 bg-[#ffbf6b]/10 text-[#ffe0b5]'
-        : 'border-[#58d7ff]/25 bg-[#58d7ff]/10 text-[#dff7ff]';
+function AgentFindingThreadLayer({ findings }: { findings: NodeDetailSnapshot['findings'] }) {
   return (
-    <div className={`rounded-[7px] border px-2.5 py-2 ${tone}`}>
-      <div className="flex items-center gap-2">
-        <span className="rounded-full border border-current/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase">
-          {finding.severity}
-        </span>
-        <span className="text-[10px] uppercase tracking-[0.1em] opacity-70">{label}</span>
+    <div className="border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-3 py-3">
+      <div className="space-y-3">
+        {findings.map((finding) => (
+          <AgentFindingThreadCard key={finding.findingId} finding={finding} />
+        ))}
       </div>
-      <p className="mt-1 text-[12px] leading-5">{finding.title}</p>
     </div>
   );
+}
+
+function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
+  const severityClass =
+    finding.severity === 'high'
+      ? 'border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 text-[#ffd9d9]'
+      : finding.severity === 'medium'
+        ? 'border border-[#FFA16C]/20 bg-[#FFA16C]/10 text-[#ffd9c0]'
+        : 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
+
+  return (
+    <article className="rounded-[12px] border border-white/10 bg-white/[0.03] p-3 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
+          Agent Review
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${severityClass}`}
+        >
+          {finding.severity}
+        </span>
+        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
+          {finding.category}
+        </span>
+        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
+          {finding.confidence}
+        </span>
+        {finding.status === 'resolved' ? (
+          <span className="rounded-full border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d7f5e8]">
+            resolved
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3">
+        <div className="flex items-start gap-2">
+          <MessageSquareText className="mt-0.5 size-4 shrink-0 text-fuchsia-200/80" />
+          <div className="min-w-0">
+            <h4 className="text-[13px] font-semibold leading-5 text-[#f8f7f4]">{finding.title}</h4>
+            <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6 text-[#d0d5db]">
+              {finding.body}
+            </p>
+            <p className="mt-2 text-[11px] text-[#8b949e]">{formatFindingLocation(finding)}</p>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function formatFindingLocation(finding: NodeDetailSnapshot['findings'][number]): string {
+  if (finding.line === null) {
+    return 'Overview finding';
+  }
+  if (finding.endLine !== null && finding.endLine !== finding.line) {
+    return `${finding.side ?? 'new'} L${finding.line}-L${finding.endLine}`;
+  }
+  return `${finding.side ?? 'new'} L${finding.line}`;
 }
 
 function groupFindingsByLine(findings: NodeDetailSnapshot['findings']) {
