@@ -151,6 +151,12 @@ if (isProd) {
       }
       mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.agentReviewEvent, event);
     },
+    (event) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.webContents.send(POC3_GRAPH_REVIEW_IPC_CHANNELS.revisionRefreshEvent, event);
+    },
     gateway,
   );
 

@@ -5,16 +5,25 @@ import type {
   AwaitAgentReviewResultResult,
   ListAgentReviewRunsInput,
   ListAgentReviewRunsResult,
+  ListOutdatedAgentThreadsInput,
+  ListOutdatedAgentThreadsResult,
   LoadNodeDetailInput,
   LoadNodeDetailResult,
   LoadWorkspaceGraphInput,
   LoadWorkspaceGraphResult,
+  LoadWorkspaceRevisionsInput,
+  LoadWorkspaceRevisionsResult,
   RemoveReviewWorkspaceInput,
   RemoveReviewWorkspaceResult,
+  RefreshWorkspaceRevisionsInput,
+  RefreshWorkspaceRevisionsResult,
   StartAgentReviewInput,
   StartAgentReviewResult,
   RetryGraphAnalysisInput,
   RetryGraphAnalysisResult,
+  RevisionRefreshEvent,
+  SelectWorkspaceRevisionInput,
+  SelectWorkspaceRevisionResult,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { AgentEventPayload, RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import type {
@@ -67,6 +76,9 @@ import { fallbackGridLayout } from './layout/elk-layout-service';
 import { resolveNodeDetail } from './node-detail/node-detail-resolver';
 import { GraphReviewStore, type WorkspaceGraphRecord } from './store/graph-review-store';
 import type { AgentGateway } from '../agent-gateway/agent-gateway';
+import { RevisionRefreshCoordinator } from './revision/revision-refresh-coordinator';
+import { RevisionViewBuilder } from './revision/revision-view-builder';
+import { ThreadRetentionService } from './revision/thread-retention-service';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -92,6 +104,9 @@ export class GraphReviewGateway {
   private readonly agentReviewCoordinator: Poc3AgentReviewCoordinator | null;
   private readonly analysisCoordinator: AnalysisCoordinator;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
+  private readonly revisionViewBuilder: RevisionViewBuilder;
+  private readonly threadRetentionService: ThreadRetentionService;
+  private readonly revisionRefreshCoordinator: RevisionRefreshCoordinator;
   private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
   private readonly dbOnlyPurgeAllowedWorkspaceIds = new Set<string>();
   private removingWorkspaceId: string | null = null;
@@ -101,6 +116,8 @@ export class GraphReviewGateway {
     private readonly emitWorkspaceCreationEvent: (event: WorkspaceCreationEvent) => void,
     private readonly emitGraphAnalysisEvent: (event: GraphAnalysisEvent) => void = () => undefined,
     private readonly emitAgentReviewEvent: (event: Poc3AgentReviewEvent) => void = () => undefined,
+    private readonly emitRevisionRefreshEvent: (event: RevisionRefreshEvent) => void = () =>
+      undefined,
     private readonly agentGateway?: Pick<
       AgentGateway,
       'startSession' | 'awaitSettled' | 'listSessions' | 'respondPermission'
@@ -116,9 +133,33 @@ export class GraphReviewGateway {
           store: this.agentReviewStore,
         })
       : null;
-    this.analysisCoordinator = new AnalysisCoordinator(this.graphStore, (event) =>
-      this.emitGraphAnalysisEvent(event),
+    this.analysisCoordinator = new AnalysisCoordinator(this.graphStore, (event) => {
+      if (event.type === 'graph.ready') {
+        const revision = this.graphStore.getRevision(event.revisionId);
+        if (revision?.isActive) {
+          this.threadRetentionService.evaluate(revision.reviewWorkspaceId, revision.revisionId);
+        }
+      }
+      this.emitGraphAnalysisEvent(event);
+    });
+    this.revisionViewBuilder = new RevisionViewBuilder(this.graphStore, this.agentReviewStore);
+    this.threadRetentionService = new ThreadRetentionService(
+      this.graphStore,
+      this.agentReviewStore,
     );
+    this.revisionRefreshCoordinator = new RevisionRefreshCoordinator({
+      graphStore: this.graphStore,
+      analysisCoordinator: this.analysisCoordinator,
+      viewBuilder: this.revisionViewBuilder,
+      threadRetention: this.threadRetentionService,
+      emit: (event) => this.emitRevisionRefreshEvent(event),
+      resolveProvider: (workspace) => {
+        const profile = this.profileStore.get(workspace.repositoryProfileId);
+        return profile ? (this.providerStore.get(profile.repositoryProviderId) ?? null) : null;
+      },
+      resolveProviderToken: (provider) => this.providerStore.getToken(provider.tokenRef),
+      resolveProfile: (workspace) => this.profileStore.get(workspace.repositoryProfileId),
+    });
     this.creationCoordinator = new ReviewWorkspaceCreationCoordinator({
       emit: (event) => this.emitWorkspaceCreationEvent(event),
       saveInitialWorkspaceBundle: (bundle) => this.graphStore.saveInitialWorkspaceBundle(bundle),
@@ -293,6 +334,14 @@ export class GraphReviewGateway {
         reviewWorkspaceId,
         reason: 'gitFailed',
         message: 'Workspace の削除処理が進行中です。',
+      };
+    }
+    if (this.revisionRefreshCoordinator.isRefreshing(reviewWorkspaceId)) {
+      return {
+        ok: false,
+        reviewWorkspaceId,
+        reason: 'lockHeld',
+        message: 'Revision refresh が進行中のため Workspace を削除できません。',
       };
     }
 
@@ -767,6 +816,89 @@ export class GraphReviewGateway {
         analysis: record.analysis,
       };
     }
+  }
+
+  loadWorkspaceRevisions(input: LoadWorkspaceRevisionsInput): LoadWorkspaceRevisionsResult {
+    const view = this.revisionViewBuilder.build(input.reviewWorkspaceId.trim());
+    if (!view) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        view: null,
+      };
+    }
+    return { ok: true, view };
+  }
+
+  async refreshWorkspaceRevisions(
+    input: RefreshWorkspaceRevisionsInput,
+  ): Promise<RefreshWorkspaceRevisionsResult> {
+    const result = await this.revisionRefreshCoordinator.refresh(input.reviewWorkspaceId.trim());
+    if (result.ok && result.refresh.createdRevisionId) {
+      this.clearWorkspaceCaches(input.reviewWorkspaceId.trim());
+    }
+    return result;
+  }
+
+  selectWorkspaceRevision(input: SelectWorkspaceRevisionInput): SelectWorkspaceRevisionResult {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const revision = this.graphStore.getRevision(input.revisionId.trim());
+    if (!this.graphStore.getWorkspace(reviewWorkspaceId)) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+      };
+    }
+    if (!revision || revision.reviewWorkspaceId !== reviewWorkspaceId) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Revision が見つかりません。',
+      };
+    }
+    const workspace = this.graphStore.getWorkspace(reviewWorkspaceId);
+    if (!workspace) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+      };
+    }
+    if (workspace.headSha !== revision.headSha) {
+      return {
+        ok: false,
+        reason: 'analysisUnavailable',
+        message:
+          '過去 revision の worktree 同期は未対応です。最新 revision へ refresh してから表示してください。',
+      };
+    }
+    this.graphStore.setActiveRevision(reviewWorkspaceId, revision.revisionId);
+    this.clearWorkspaceCaches(reviewWorkspaceId);
+    const graph = this.loadWorkspaceGraph({ reviewWorkspaceId });
+    if (!graph.ok && graph.reason === 'graphNotReady') {
+      return {
+        ok: false,
+        reason: 'analysisUnavailable',
+        message: graph.message,
+      };
+    }
+    const view = this.revisionViewBuilder.build(reviewWorkspaceId);
+    if (!view) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+      };
+    }
+    return { ok: true, view, graph };
+  }
+
+  listOutdatedAgentThreads(input: ListOutdatedAgentThreadsInput): ListOutdatedAgentThreadsResult {
+    return {
+      threads: this.threadRetentionService.listOutdated(input.reviewWorkspaceId.trim()),
+    };
   }
 
   dispose(): void {

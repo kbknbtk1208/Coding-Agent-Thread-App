@@ -11,11 +11,13 @@ import { GraphEmptyState } from './graph-empty-state';
 import { useWorkspaceGraph } from './use-workspace-graph';
 
 export function DependencyGraphPanel({
+  reloadNonce = 0,
   selectedWorkspace,
 }: {
+  reloadNonce?: number;
   selectedWorkspace: ReviewWorkspaceListItem | null;
 }) {
-  const { state, reload, retry } = useWorkspaceGraph(selectedWorkspace);
+  const { state, reload, retry } = useWorkspaceGraph(selectedWorkspace, reloadNonce);
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
   const handleCompleted = useCallback(() => void reload(), [reload]);
 

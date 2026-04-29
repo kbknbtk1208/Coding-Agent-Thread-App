@@ -18,7 +18,10 @@ export type WorkspaceGraphLoadState =
       message: string;
     };
 
-export function useWorkspaceGraph(selectedWorkspace: ReviewWorkspaceListItem | null) {
+export function useWorkspaceGraph(
+  selectedWorkspace: ReviewWorkspaceListItem | null,
+  reloadNonce = 0,
+) {
   const [state, setState] = useState<WorkspaceGraphLoadState>({
     status: 'idle',
     result: null,
@@ -52,7 +55,7 @@ export function useWorkspaceGraph(selectedWorkspace: ReviewWorkspaceListItem | n
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadNonce]);
 
   useEffect(() => {
     if (!selectedWorkspaceId) {

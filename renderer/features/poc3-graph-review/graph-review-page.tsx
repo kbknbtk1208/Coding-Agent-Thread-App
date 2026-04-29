@@ -5,6 +5,8 @@ import { Play, Settings } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Poc3AnimatedProfileMenu } from './components/animated-profile-menu';
 import { DependencyGraphPanel } from './dependency-graph/dependency-graph-panel';
+import { CommitListDock } from './revision-timeline/commit-list-dock';
+import { useCommitRevisions } from './revision-timeline/use-commit-revisions';
 import {
   RepositorySettingsDialog,
   SETTINGS_LAYOUT_ID,
@@ -21,6 +23,7 @@ import { WorkspaceListCard } from './workspaces/workspace-list-card';
 export function GraphReviewPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [graphReloadNonce, setGraphReloadNonce] = useState(0);
   const { jobs, toggleExpanded, dismissJob, retryJob, upsertJobSnapshot } =
     useWorkspaceCreationJobs();
   const {
@@ -32,6 +35,9 @@ export function GraphReviewPage() {
     removeWorkspace,
   } = useReviewWorkspaces();
   const workspaceRemovalRunning = removingWorkspaceId !== null;
+  const revisionTimeline = useCommitRevisions(selectedWorkspace, () =>
+    setGraphReloadNonce((value) => value + 1),
+  );
 
   const menuItems = useMemo(
     () => [
@@ -73,8 +79,22 @@ export function GraphReviewPage() {
           }}
         />
         <main className="relative flex min-h-screen w-full flex-col px-4 py-4 sm:px-6 lg:px-8 xl:px-10">
-          <DependencyGraphPanel selectedWorkspace={selectedWorkspace} />
+          <DependencyGraphPanel
+            selectedWorkspace={selectedWorkspace}
+            reloadNonce={graphReloadNonce}
+          />
         </main>
+
+        {selectedWorkspace ? (
+          <CommitListDock
+            selectedWorkspace={selectedWorkspace}
+            revisionView={revisionTimeline.revisionView}
+            refreshing={revisionTimeline.refreshing}
+            refreshError={revisionTimeline.refreshError}
+            onRefresh={revisionTimeline.refresh}
+            onSelectRevision={revisionTimeline.selectRevision}
+          />
+        ) : null}
 
         <div
           className="pointer-events-none fixed left-4 top-4 z-40 flex w-[340px] flex-col gap-3"

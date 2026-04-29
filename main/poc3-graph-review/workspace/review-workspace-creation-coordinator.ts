@@ -301,6 +301,7 @@ export class ReviewWorkspaceCreationCoordinator {
       revision,
       sourceSnapshot,
       analysisRun,
+      commits: snapshot.commits,
     });
     onLog(`[persistWorkspace] reviewWorkspaceId=${reviewWorkspaceId}`);
     this.updateSnapshot(jobId, { reviewWorkspaceId });

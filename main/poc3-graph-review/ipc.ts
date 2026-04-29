@@ -4,13 +4,17 @@ import type {
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
   ListAgentReviewRunsInput,
+  ListOutdatedAgentThreadsInput,
   LoadNodeDetailInput,
   LoadWorkspaceGraphInput,
+  LoadWorkspaceRevisionsInput,
   RemoveReviewWorkspaceInput,
+  RefreshWorkspaceRevisionsInput,
   RetryGraphAnalysisInput,
   ResolveReviewWorkspaceTargetInput,
   SaveRepositoryProfileInput,
   SaveRepositoryProviderInput,
+  SelectWorkspaceRevisionInput,
   StartAgentReviewInput,
   TestRepositoryProviderInput,
   ValidateRepositoryProfileInput,
@@ -130,6 +134,27 @@ export function registerPoc3GraphReviewIpc(
   );
 
   ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceRevisions,
+    (_event, input: LoadWorkspaceRevisionsInput) => {
+      return gateway.loadWorkspaceRevisions(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.refreshWorkspaceRevisions,
+    (_event, input: RefreshWorkspaceRevisionsInput) => {
+      return gateway.refreshWorkspaceRevisions(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.selectWorkspaceRevision,
+    (_event, input: SelectWorkspaceRevisionInput) => {
+      return gateway.selectWorkspaceRevision(input);
+    },
+  );
+
+  ipcMain.handle(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail,
     (_event, input: LoadNodeDetailInput) => {
       return gateway.loadNodeDetail(input);
@@ -154,6 +179,13 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentReviewRuns,
     (_event, input: ListAgentReviewRunsInput) => {
       return gateway.listAgentReviewRuns(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.listOutdatedAgentThreads,
+    (_event, input: ListOutdatedAgentThreadsInput) => {
+      return gateway.listOutdatedAgentThreads(input);
     },
   );
 

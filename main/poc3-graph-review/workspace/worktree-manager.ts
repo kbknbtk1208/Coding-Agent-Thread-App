@@ -157,3 +157,29 @@ export async function verifyHeadSha(
   }
   return actual;
 }
+
+export async function assertCleanWorktree(worktreePath: string): Promise<void> {
+  const result = await runGitCommand(worktreePath, ['status', '--porcelain=v1']);
+  if (result.code !== 0) {
+    throw new Error(`git status が失敗しました: ${result.stderr.trim()}`);
+  }
+  if (result.stdout.trim()) {
+    throw new Error(
+      `worktree に未コミット変更があります。変更を退避してから refresh してください: ${worktreePath}`,
+    );
+  }
+}
+
+export async function checkoutDetachedHead(
+  worktreePath: string,
+  headSha: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  onLog(`git checkout --detach ${headSha}`);
+  const result = await runGitCommand(worktreePath, ['checkout', '--detach', headSha], onLog);
+  if (result.code !== 0) {
+    throw new Error(
+      `git checkout --detach ${headSha} が失敗しました (exit ${result.code}): ${result.stderr.trim()}`,
+    );
+  }
+}

@@ -5,6 +5,7 @@ import type {
   Poc3AgentReviewRun,
   Poc3AgentReviewThread,
 } from '../../../shared/poc3-domain/agent-review';
+import type { Poc3ThreadTracking } from '../../../shared/poc3-domain/thread-retention';
 
 interface AgentReviewRunRow {
   run_id: string;
@@ -28,6 +29,19 @@ interface AgentReviewEnvelopeRow {
   envelope_json: string;
   created_at: string;
   updated_at: string;
+}
+
+interface AgentThreadTrackingRow {
+  local_thread_id: string;
+  review_workspace_id: string;
+  source_revision_id: string;
+  checked_revision_id: string;
+  status: Poc3ThreadTracking['status'];
+  reason: Poc3ThreadTracking['reason'];
+  original_node_id: string | null;
+  tracked_node_id: string | null;
+  original_location_json: string;
+  checked_at: string;
 }
 
 function parseJson<T>(value: string): T {
@@ -164,6 +178,104 @@ export class Poc3AgentReviewStore {
     });
   }
 
+  listAllThreadsForWorkspace(reviewWorkspaceId: string): Poc3AgentReviewThread[] {
+    return this.listRuns(reviewWorkspaceId).flatMap((run) => {
+      const envelope = this.getEnvelope(run.runId);
+      return envelope?.kind === 'structured' ? envelope.threads : [];
+    });
+  }
+
+  saveThreadTracking(records: Poc3ThreadTracking[]): void {
+    const statement = this.db.prepare(
+      `
+        INSERT OR REPLACE INTO agent_thread_tracking (
+          local_thread_id, review_workspace_id, source_revision_id, checked_revision_id,
+          status, reason, original_node_id, tracked_node_id, original_location_json, checked_at
+        ) VALUES (
+          @local_thread_id, @review_workspace_id, @source_revision_id, @checked_revision_id,
+          @status, @reason, @original_node_id, @tracked_node_id, @original_location_json, @checked_at
+        )
+      `,
+    );
+    const transaction = this.db.transaction((items: Poc3ThreadTracking[]) => {
+      for (const item of items) {
+        statement.run({
+          local_thread_id: item.localThreadId,
+          review_workspace_id: item.reviewWorkspaceId,
+          source_revision_id: item.sourceRevisionId,
+          checked_revision_id: item.checkedRevisionId,
+          status: item.status,
+          reason: item.reason,
+          original_node_id: item.originalNodeId,
+          tracked_node_id: item.trackedNodeId,
+          original_location_json: JSON.stringify(item.originalLocation),
+          checked_at: item.checkedAt,
+        });
+      }
+    });
+    transaction(records);
+  }
+
+  listOutdatedThreadTracking(
+    reviewWorkspaceId: string,
+    checkedRevisionId?: string | null,
+  ): Poc3ThreadTracking[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT * FROM agent_thread_tracking
+          WHERE review_workspace_id = ? AND status IN ('outdated', 'unavailable')
+            AND (? IS NULL OR checked_revision_id = ?)
+          ORDER BY checked_at DESC
+        `,
+      )
+      .all(
+        reviewWorkspaceId,
+        checkedRevisionId ?? null,
+        checkedRevisionId ?? null,
+      ) as AgentThreadTrackingRow[];
+    return rows.map((row) => this.rowToThreadTracking(row));
+  }
+
+  countOutdatedThreadTracking(
+    reviewWorkspaceId: string,
+    checkedRevisionId?: string | null,
+  ): {
+    count: number;
+    latestCheckedRevisionId: string | null;
+  } {
+    const countRow = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) AS count
+          FROM agent_thread_tracking
+          WHERE review_workspace_id = ? AND status IN ('outdated', 'unavailable')
+            AND (? IS NULL OR checked_revision_id = ?)
+        `,
+      )
+      .get(reviewWorkspaceId, checkedRevisionId ?? null, checkedRevisionId ?? null) as
+      | { count: number }
+      | undefined;
+    const latestRow = this.db
+      .prepare(
+        `
+          SELECT checked_revision_id AS latestCheckedRevisionId
+          FROM agent_thread_tracking
+          WHERE review_workspace_id = ? AND status IN ('outdated', 'unavailable')
+            AND (? IS NULL OR checked_revision_id = ?)
+          ORDER BY checked_at DESC
+          LIMIT 1
+        `,
+      )
+      .get(reviewWorkspaceId, checkedRevisionId ?? null, checkedRevisionId ?? null) as
+      | { latestCheckedRevisionId: string | null }
+      | undefined;
+    return {
+      count: countRow?.count ?? 0,
+      latestCheckedRevisionId: latestRow?.latestCheckedRevisionId ?? null,
+    };
+  }
+
   deleteWorkspaceRuns(reviewWorkspaceId: string): void {
     const transaction = this.db.transaction(() => {
       this.db
@@ -178,6 +290,9 @@ export class Poc3AgentReviewStore {
         .run(reviewWorkspaceId);
       this.db
         .prepare('DELETE FROM agent_review_runs WHERE review_workspace_id = ?')
+        .run(reviewWorkspaceId);
+      this.db
+        .prepare('DELETE FROM agent_thread_tracking WHERE review_workspace_id = ?')
         .run(reviewWorkspaceId);
     });
     transaction();
@@ -203,6 +318,21 @@ export class Poc3AgentReviewStore {
       resultSource: row.result_source,
       createdAt: row.created_at,
       completedAt: row.completed_at,
+    };
+  }
+
+  private rowToThreadTracking(row: AgentThreadTrackingRow): Poc3ThreadTracking {
+    return {
+      localThreadId: row.local_thread_id,
+      reviewWorkspaceId: row.review_workspace_id,
+      sourceRevisionId: row.source_revision_id,
+      checkedRevisionId: row.checked_revision_id,
+      status: row.status,
+      reason: row.reason,
+      originalNodeId: row.original_node_id,
+      trackedNodeId: row.tracked_node_id,
+      originalLocation: parseJson(row.original_location_json),
+      checkedAt: row.checked_at,
     };
   }
 
@@ -234,6 +364,23 @@ export class Poc3AgentReviewStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS agent_thread_tracking (
+        local_thread_id TEXT NOT NULL,
+        review_workspace_id TEXT NOT NULL,
+        source_revision_id TEXT NOT NULL,
+        checked_revision_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT,
+        original_node_id TEXT,
+        tracked_node_id TEXT,
+        original_location_json TEXT NOT NULL,
+        checked_at TEXT NOT NULL,
+        PRIMARY KEY (local_thread_id, checked_revision_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_thread_tracking_workspace_status
+        ON agent_thread_tracking(review_workspace_id, status, checked_at);
     `);
     try {
       this.db.exec('ALTER TABLE agent_review_runs ADD COLUMN codex_model TEXT');

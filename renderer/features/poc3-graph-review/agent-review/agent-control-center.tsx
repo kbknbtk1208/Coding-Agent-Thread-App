@@ -25,7 +25,9 @@ import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { isAgentReviewRunActive } from './agent-review-state';
 import type { AgentReviewRun } from './agent-review-types';
+import { OutdatedThreadSection } from './outdated-thread-section';
 import { useAgentReview } from './use-agent-review';
+import { useOutdatedAgentThreads } from './use-outdated-agent-threads';
 
 type AnimationStage =
   | 'collapsed'
@@ -58,6 +60,7 @@ export function AgentControlCenter({
   onCompleted,
 }: AgentControlCenterProps) {
   const review = useAgentReview(selectedWorkspace.reviewWorkspaceId);
+  const outdatedThreads = useOutdatedAgentThreads(selectedWorkspace.reviewWorkspaceId);
   const [stage, setStage] = useState<AnimationStage>('collapsed');
   const [pendingCompletedNotice, setPendingCompletedNotice] = useState(false);
   const notifiedCompletedRunRef = useRef<string | null>(null);
@@ -316,6 +319,8 @@ export function AgentControlCenter({
               )}
               {review.activeRun ? 'Running' : 'Run Review'}
             </button>
+
+            <OutdatedThreadSection threads={outdatedThreads.threads} />
 
             {review.runs.length > 0 ? (
               <div className="flex flex-col gap-1.5 border-t border-white/[0.06] pt-2">

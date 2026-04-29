@@ -51,8 +51,12 @@ import {
   type CreateReviewWorkspaceInput,
   type CreateReviewWorkspaceResult,
   type GraphAnalysisEvent,
+  type LoadWorkspaceRevisionsInput,
+  type LoadWorkspaceRevisionsResult,
   type LoadWorkspaceGraphInput,
   type LoadWorkspaceGraphResult,
+  type RefreshWorkspaceRevisionsInput,
+  type RefreshWorkspaceRevisionsResult,
   type ListRepositoryProfilesResult,
   type ListRepositoryProvidersResult,
   type ListAgentReviewRunsInput,
@@ -66,6 +70,7 @@ import {
   type RemoveReviewWorkspaceResult,
   type RetryGraphAnalysisInput,
   type RetryGraphAnalysisResult,
+  type RevisionRefreshEvent,
   type ResolveRepositoryProviderInput,
   type ResolveRepositoryProviderResult,
   type ResolveReviewWorkspaceTargetInput,
@@ -76,6 +81,10 @@ import {
   type SaveRepositoryProviderResult,
   type StartAgentReviewInput,
   type StartAgentReviewResult,
+  type SelectWorkspaceRevisionInput,
+  type SelectWorkspaceRevisionResult,
+  type ListOutdatedAgentThreadsInput,
+  type ListOutdatedAgentThreadsResult,
   type TestRepositoryProviderInput,
   type TestRepositoryProviderResult,
   type ValidateRepositoryProfileInput,
@@ -246,6 +255,21 @@ const poc3GraphReviewApi = {
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis, input);
   },
+  loadWorkspaceRevisions(
+    input: LoadWorkspaceRevisionsInput,
+  ): Promise<LoadWorkspaceRevisionsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceRevisions, input);
+  },
+  refreshWorkspaceRevisions(
+    input: RefreshWorkspaceRevisionsInput,
+  ): Promise<RefreshWorkspaceRevisionsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.refreshWorkspaceRevisions, input);
+  },
+  selectWorkspaceRevision(
+    input: SelectWorkspaceRevisionInput,
+  ): Promise<SelectWorkspaceRevisionResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.selectWorkspaceRevision, input);
+  },
   loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail, input);
   },
@@ -259,6 +283,11 @@ const poc3GraphReviewApi = {
   },
   listAgentReviewRuns(input: ListAgentReviewRunsInput): Promise<ListAgentReviewRunsResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentReviewRuns, input);
+  },
+  listOutdatedAgentThreads(
+    input: ListOutdatedAgentThreadsInput,
+  ): Promise<ListOutdatedAgentThreadsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listOutdatedAgentThreads, input);
   },
   respondAgentReviewPermission(input: RespondPermissionInput): Promise<void> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.respondAgentReviewPermission, input);
@@ -280,6 +309,14 @@ const poc3GraphReviewApi = {
     ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, subscription);
     return () => {
       ipcRenderer.removeListener(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, subscription);
+    };
+  },
+  onRevisionRefreshEvent(callback: (event: RevisionRefreshEvent) => void) {
+    const subscription = (_event: IpcRendererEvent, payload: RevisionRefreshEvent) =>
+      callback(payload);
+    ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.revisionRefreshEvent, subscription);
+    return () => {
+      ipcRenderer.removeListener(POC3_GRAPH_REVIEW_IPC_CHANNELS.revisionRefreshEvent, subscription);
     };
   },
   onAgentReviewEvent(callback: (event: Poc3AgentReviewEvent) => void) {

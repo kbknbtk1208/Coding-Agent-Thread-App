@@ -3,6 +3,7 @@ import type {
   ReviewChangedFile,
   ReviewChangedFileStatus,
 } from '../../../shared/poc3-domain/source-snapshot';
+import type { RevisionCommit as Poc3RevisionCommit } from '../../../shared/poc3-domain/revision-commit';
 import { apiEndpointForProvider } from './repository-url';
 import { parseUnifiedDiffHunks } from './unified-diff-parser';
 
@@ -19,6 +20,7 @@ export interface FetchedReviewSourceSnapshot {
   sourceBranchName: string | null;
   diffVersion: string | null;
   changedFiles: ReviewChangedFile[];
+  commits: Poc3RevisionCommit[];
   diagnostics: Array<{ code: string; message: string }>;
 }
 
@@ -47,6 +49,18 @@ interface GithubPullFileResponse {
   patch?: string;
 }
 
+interface GithubPullCommitResponse {
+  sha: string;
+  html_url: string | null;
+  parents?: Array<{ sha: string }>;
+  commit: {
+    message: string;
+    author: { name: string; email: string | null; date: string | null } | null;
+    committer: { date: string | null } | null;
+  };
+  author: { avatar_url: string | null } | null;
+}
+
 interface GitlabMergeRequestResponse {
   iid: number;
   title: string;
@@ -65,6 +79,19 @@ interface GitlabMergeRequestDiffResponse {
   diff: string | null;
   too_large?: boolean;
   collapsed?: boolean;
+}
+
+interface GitlabMergeRequestCommitResponse {
+  id: string;
+  short_id: string;
+  title: string;
+  message: string;
+  author_name: string;
+  author_email: string | null;
+  authored_date: string | null;
+  committed_date: string | null;
+  parent_ids?: string[];
+  web_url: string | null;
 }
 
 async function fetchJson<T>(url: string, headers: Record<string, string>): Promise<T> {
@@ -148,6 +175,13 @@ export async function fetchReviewSourceSnapshot(
       headers,
       MAX_CHANGED_FILES,
     );
+    const commitsResponse = await fetchPaginatedJson<GithubPullCommitResponse>(
+      `${endpoint}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(
+        input.reviewId,
+      )}/commits`,
+      headers,
+      1000,
+    );
     const diagnostics: Array<{ code: string; message: string }> = [];
     if (files.length > MAX_CHANGED_FILES) {
       diagnostics.push({
@@ -178,6 +212,23 @@ export async function fetchReviewSourceSnapshot(
       sourceBranchName: detail.head.ref ?? null,
       diffVersion: null,
       changedFiles,
+      commits: commitsResponse.map(
+        (commit): Poc3RevisionCommit => ({
+          sha: commit.sha,
+          shortSha: commit.sha.slice(0, 7),
+          message: commit.commit.message.split(/\r?\n/)[0] ?? commit.commit.message,
+          author: {
+            name: commit.commit.author?.name ?? 'unknown',
+            email: commit.commit.author?.email ?? null,
+            avatarUrl: commit.author?.avatar_url ?? null,
+          },
+          authoredAt: commit.commit.author?.date ?? null,
+          committedAt: commit.commit.committer?.date ?? null,
+          parents: commit.parents?.map((parent) => parent.sha) ?? [],
+          refs: [],
+          url: commit.html_url,
+        }),
+      ),
       diagnostics,
     };
   }
@@ -194,6 +245,11 @@ export async function fetchReviewSourceSnapshot(
     `${endpoint}/projects/${encoded}/merge_requests/${encodeURIComponent(input.reviewId)}/diffs`,
     headers,
     MAX_CHANGED_FILES,
+  );
+  const commitsResponse = await fetchPaginatedJson<GitlabMergeRequestCommitResponse>(
+    `${endpoint}/projects/${encoded}/merge_requests/${encodeURIComponent(input.reviewId)}/commits`,
+    headers,
+    1000,
   );
   const baseSha = mr.diff_refs?.base_sha ?? '';
   const headSha = mr.diff_refs?.head_sha ?? mr.sha ?? '';
@@ -237,6 +293,23 @@ export async function fetchReviewSourceSnapshot(
     sourceBranchName: mr.source_branch ?? null,
     diffVersion: null,
     changedFiles,
+    commits: commitsResponse.map(
+      (commit): Poc3RevisionCommit => ({
+        sha: commit.id,
+        shortSha: commit.short_id || commit.id.slice(0, 7),
+        message: commit.title || commit.message.split(/\r?\n/)[0] || commit.message,
+        author: {
+          name: commit.author_name || 'unknown',
+          email: commit.author_email ?? null,
+          avatarUrl: null,
+        },
+        authoredAt: commit.authored_date ?? null,
+        committedAt: commit.committed_date ?? null,
+        parents: commit.parent_ids ?? [],
+        refs: [],
+        url: commit.web_url,
+      }),
+    ),
     diagnostics,
   };
 }

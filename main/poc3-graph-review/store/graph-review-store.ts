@@ -9,6 +9,12 @@ import type {
   LayoutSnapshot,
 } from '../../../shared/poc3-domain/graph';
 import type { RevisionContext } from '../../../shared/poc3-domain/revision';
+import type {
+  RevisionCommit,
+  RevisionCommitRole,
+  RevisionCommitView,
+  RevisionRefreshSnapshot,
+} from '../../../shared/poc3-domain/revision-commit';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
 import type {
   ReviewProviderKind,
@@ -102,11 +108,58 @@ interface LayoutSnapshotRow {
   updated_at: string;
 }
 
+interface RevisionCommitRow {
+  revision_commit_id: string;
+  review_workspace_id: string;
+  provider: ReviewProviderKind;
+  review_id: string;
+  sha: string;
+  short_sha: string;
+  message: string;
+  author_json: string;
+  authored_at: string | null;
+  committed_at: string | null;
+  parents_json: string;
+  refs_json: string;
+  url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RevisionCommitLinkRow {
+  revision_id: string;
+  sha: string;
+  role: RevisionCommitRole;
+  created_at: string;
+}
+
+interface RevisionRefreshRunRow {
+  refresh_id: string;
+  review_workspace_id: string;
+  status: RevisionRefreshSnapshot['status'];
+  previous_head_sha: string | null;
+  latest_head_sha: string | null;
+  created_revision_id: string | null;
+  message: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
 export interface InitialWorkspaceBundle {
   workspace: ReviewWorkspace;
   revision: RevisionContext;
   sourceSnapshot: ReviewSourceSnapshot;
   analysisRun: AnalysisRunSnapshot;
+  commits?: RevisionCommit[];
+}
+
+export interface RevisionBundleInput {
+  workspace: ReviewWorkspace;
+  previousActiveRevisionId: string | null;
+  revision: RevisionContext;
+  sourceSnapshot: ReviewSourceSnapshot;
+  analysisRun: AnalysisRunSnapshot | null;
+  commits: RevisionCommit[];
 }
 
 export interface WorkspaceGraphInput {
@@ -146,6 +199,16 @@ export class GraphReviewStore {
       this.insertRevision(input.revision);
       this.insertSourceSnapshot(input.sourceSnapshot);
       this.saveAnalysisRun(input.analysisRun);
+      if (input.commits) {
+        this.saveRevisionCommits({
+          reviewWorkspaceId: input.workspace.reviewWorkspaceId,
+          provider: input.workspace.provider,
+          reviewId: input.workspace.reviewId,
+          revisionId: input.revision.revisionId,
+          activeHeadSha: input.revision.headSha,
+          commits: input.commits,
+        });
+      }
     });
     transaction(bundle);
     return bundle;
@@ -218,6 +281,270 @@ export class GraphReviewStore {
       .prepare('SELECT * FROM revision_contexts WHERE revision_id = ?')
       .get(revisionId) as RevisionContextRow | undefined;
     return row ? this.rowToRevision(row) : null;
+  }
+
+  listRevisions(reviewWorkspaceId: string): RevisionContext[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT * FROM revision_contexts
+          WHERE review_workspace_id = ?
+          ORDER BY created_at DESC
+        `,
+      )
+      .all(reviewWorkspaceId) as RevisionContextRow[];
+    return rows.map((row) => this.rowToRevision(row));
+  }
+
+  getRevisionByIdentity(input: {
+    reviewWorkspaceId: string;
+    provider: ReviewProviderKind;
+    reviewId: string;
+    baseSha: string;
+    startSha: string | null;
+    headSha: string;
+    diffVersion: string | null;
+  }): RevisionContext | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT * FROM revision_contexts
+          WHERE review_workspace_id = ?
+            AND provider = ?
+            AND review_id = ?
+            AND base_sha = ?
+            AND COALESCE(start_sha, '') = COALESCE(?, '')
+            AND head_sha = ?
+            AND COALESCE(diff_version, '') = COALESCE(?, '')
+          LIMIT 1
+        `,
+      )
+      .get(
+        input.reviewWorkspaceId,
+        input.provider,
+        input.reviewId,
+        input.baseSha,
+        input.startSha,
+        input.headSha,
+        input.diffVersion,
+      ) as RevisionContextRow | undefined;
+    return row ? this.rowToRevision(row) : null;
+  }
+
+  saveRevisionBundle(input: RevisionBundleInput): void {
+    const transaction = this.db.transaction((bundle: RevisionBundleInput) => {
+      if (bundle.previousActiveRevisionId) {
+        this.db
+          .prepare(
+            `
+              UPDATE revision_contexts
+              SET is_active = 0, status = ?, updated_at = ?
+              WHERE revision_id = ?
+            `,
+          )
+          .run('stale', nowIso(), bundle.previousActiveRevisionId);
+      }
+      this.insertWorkspace(bundle.workspace);
+      this.insertRevision(bundle.revision);
+      this.insertSourceSnapshot(bundle.sourceSnapshot);
+      if (bundle.analysisRun) {
+        this.saveAnalysisRun(bundle.analysisRun);
+      }
+      this.saveRevisionCommits({
+        reviewWorkspaceId: bundle.workspace.reviewWorkspaceId,
+        provider: bundle.workspace.provider,
+        reviewId: bundle.workspace.reviewId,
+        revisionId: bundle.revision.revisionId,
+        activeHeadSha: bundle.revision.headSha,
+        commits: bundle.commits,
+      });
+    });
+    transaction(input);
+  }
+
+  setActiveRevision(reviewWorkspaceId: string, revisionId: string): void {
+    const timestamp = nowIso();
+    const transaction = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `
+            UPDATE revision_contexts
+            SET is_active = 0,
+                status = CASE WHEN status = 'active' THEN 'stale' ELSE status END,
+                updated_at = ?
+            WHERE review_workspace_id = ?
+          `,
+        )
+        .run(timestamp, reviewWorkspaceId);
+      this.db
+        .prepare(
+          `
+            UPDATE revision_contexts
+            SET is_active = 1, status = 'active', updated_at = ?
+            WHERE review_workspace_id = ? AND revision_id = ?
+          `,
+        )
+        .run(timestamp, reviewWorkspaceId, revisionId);
+    });
+    transaction();
+  }
+
+  markRevisionsOrphaned(input: { reviewWorkspaceId: string; missingHeadShas: string[] }): void {
+    if (input.missingHeadShas.length === 0) {
+      return;
+    }
+    const timestamp = nowIso();
+    const update = this.db.prepare(
+      `
+        UPDATE revision_contexts
+        SET status = 'orphaned', updated_at = ?
+        WHERE review_workspace_id = ? AND head_sha = ? AND is_active = 0
+      `,
+    );
+    const transaction = this.db.transaction((headShas: string[]) => {
+      for (const headSha of headShas) {
+        update.run(timestamp, input.reviewWorkspaceId, headSha);
+      }
+    });
+    transaction(input.missingHeadShas);
+  }
+
+  saveRevisionCommits(input: {
+    reviewWorkspaceId: string;
+    provider: ReviewProviderKind;
+    reviewId: string;
+    revisionId: string;
+    activeHeadSha: string;
+    commits: RevisionCommit[];
+  }): void {
+    const timestamp = nowIso();
+    const transaction = this.db.transaction(() => {
+      for (const commit of input.commits) {
+        this.db
+          .prepare(
+            `
+              INSERT OR REPLACE INTO revision_commits (
+                revision_commit_id, review_workspace_id, provider, review_id, sha, short_sha,
+                message, author_json, authored_at, committed_at, parents_json, refs_json, url,
+                created_at, updated_at
+              ) VALUES (
+                @revision_commit_id, @review_workspace_id, @provider, @review_id, @sha, @short_sha,
+                @message, @author_json, @authored_at, @committed_at, @parents_json, @refs_json, @url,
+                COALESCE((SELECT created_at FROM revision_commits WHERE review_workspace_id = @review_workspace_id AND sha = @sha), @created_at),
+                @updated_at
+              )
+            `,
+          )
+          .run({
+            revision_commit_id: `${input.reviewWorkspaceId}:${commit.sha}`,
+            review_workspace_id: input.reviewWorkspaceId,
+            provider: input.provider,
+            review_id: input.reviewId,
+            sha: commit.sha,
+            short_sha: commit.shortSha,
+            message: commit.message,
+            author_json: JSON.stringify(commit.author),
+            authored_at: commit.authoredAt,
+            committed_at: commit.committedAt,
+            parents_json: JSON.stringify(commit.parents),
+            refs_json: JSON.stringify(commit.refs),
+            url: commit.url,
+            created_at: timestamp,
+            updated_at: timestamp,
+          });
+
+        const role: RevisionCommitRole =
+          commit.sha === input.activeHeadSha
+            ? 'head'
+            : commit.sha === input.activeHeadSha.slice(0, commit.sha.length)
+              ? 'head'
+              : 'included';
+        this.db
+          .prepare(
+            `
+              INSERT OR REPLACE INTO revision_commit_links (revision_id, sha, role, created_at)
+              VALUES (?, ?, ?, ?)
+            `,
+          )
+          .run(input.revisionId, commit.sha, role, timestamp);
+      }
+    });
+    transaction();
+  }
+
+  getRevisionCommitView(reviewWorkspaceId: string): RevisionCommitView[] {
+    const active = this.getActiveRevision(reviewWorkspaceId);
+    const rows = this.db
+      .prepare(
+        `
+          SELECT * FROM revision_commits
+          WHERE review_workspace_id = ?
+          ORDER BY COALESCE(committed_at, authored_at, created_at) DESC
+        `,
+      )
+      .all(reviewWorkspaceId) as RevisionCommitRow[];
+    const links = active
+      ? ((this.db
+          .prepare('SELECT * FROM revision_commit_links WHERE revision_id = ?')
+          .all(active.revisionId) as RevisionCommitLinkRow[]) ?? [])
+      : [];
+    const linkBySha = new Map(links.map((link) => [link.sha, link]));
+    return rows.map((row) => {
+      const commit = this.rowToRevisionCommit(row);
+      const link = linkBySha.get(commit.sha);
+      const role: RevisionCommitRole =
+        active && commit.sha === active.headSha
+          ? 'active'
+          : link?.role === 'head'
+            ? 'head'
+            : (link?.role ?? 'orphaned');
+      return {
+        ...commit,
+        role,
+        revisionId: link?.revision_id ?? null,
+      };
+    });
+  }
+
+  saveRevisionRefreshRun(snapshot: RevisionRefreshSnapshot): RevisionRefreshSnapshot {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO revision_refresh_runs (
+            refresh_id, review_workspace_id, status, previous_head_sha, latest_head_sha,
+            created_revision_id, message, started_at, completed_at
+          ) VALUES (
+            @refresh_id, @review_workspace_id, @status, @previous_head_sha, @latest_head_sha,
+            @created_revision_id, @message, @started_at, @completed_at
+          )
+        `,
+      )
+      .run({
+        refresh_id: snapshot.refreshId,
+        review_workspace_id: snapshot.reviewWorkspaceId,
+        status: snapshot.status,
+        previous_head_sha: snapshot.previousHeadSha,
+        latest_head_sha: snapshot.latestHeadSha,
+        created_revision_id: snapshot.createdRevisionId,
+        message: snapshot.message,
+        started_at: snapshot.startedAt,
+        completed_at: snapshot.completedAt,
+      });
+    return snapshot;
+  }
+
+  getLatestRevisionRefreshRun(reviewWorkspaceId: string): RevisionRefreshSnapshot | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT * FROM revision_refresh_runs
+          WHERE review_workspace_id = ?
+          ORDER BY started_at DESC
+          LIMIT 1
+        `,
+      )
+      .get(reviewWorkspaceId) as RevisionRefreshRunRow | undefined;
+    return row ? this.rowToRevisionRefreshRun(row) : null;
   }
 
   getSourceSnapshotByRevision(revisionId: string): ReviewSourceSnapshot | null {
@@ -422,6 +749,20 @@ export class GraphReviewStore {
         .run(reviewWorkspaceId);
       this.db
         .prepare('DELETE FROM revision_contexts WHERE review_workspace_id = ?')
+        .run(reviewWorkspaceId);
+      this.db
+        .prepare(
+          `
+            DELETE FROM revision_commit_links
+            WHERE revision_id NOT IN (SELECT revision_id FROM revision_contexts)
+          `,
+        )
+        .run();
+      this.db
+        .prepare('DELETE FROM revision_refresh_runs WHERE review_workspace_id = ?')
+        .run(reviewWorkspaceId);
+      this.db
+        .prepare('DELETE FROM revision_commits WHERE review_workspace_id = ?')
         .run(reviewWorkspaceId);
       this.db
         .prepare('DELETE FROM review_workspaces WHERE review_workspace_id = ?')
@@ -631,6 +972,34 @@ export class GraphReviewStore {
     };
   }
 
+  private rowToRevisionCommit(row: RevisionCommitRow): RevisionCommit {
+    return {
+      sha: row.sha,
+      shortSha: row.short_sha,
+      message: row.message,
+      author: parseJson(row.author_json),
+      authoredAt: row.authored_at,
+      committedAt: row.committed_at,
+      parents: parseJson(row.parents_json),
+      refs: parseJson(row.refs_json),
+      url: row.url,
+    };
+  }
+
+  private rowToRevisionRefreshRun(row: RevisionRefreshRunRow): RevisionRefreshSnapshot {
+    return {
+      refreshId: row.refresh_id,
+      reviewWorkspaceId: row.review_workspace_id,
+      status: row.status,
+      previousHeadSha: row.previous_head_sha,
+      latestHeadSha: row.latest_head_sha,
+      createdRevisionId: row.created_revision_id,
+      message: row.message,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+    };
+  }
+
   private createTables(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS review_workspaces (
@@ -738,6 +1107,53 @@ export class GraphReviewStore {
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_layout_snapshots_graph
         ON layout_snapshots(graph_snapshot_id);
+
+      CREATE TABLE IF NOT EXISTS revision_commits (
+        revision_commit_id TEXT PRIMARY KEY,
+        review_workspace_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        review_id TEXT NOT NULL,
+        sha TEXT NOT NULL,
+        short_sha TEXT NOT NULL,
+        message TEXT NOT NULL,
+        author_json TEXT NOT NULL,
+        authored_at TEXT,
+        committed_at TEXT,
+        parents_json TEXT NOT NULL,
+        refs_json TEXT NOT NULL,
+        url TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_revision_commits_workspace_sha
+        ON revision_commits(review_workspace_id, sha);
+
+      CREATE TABLE IF NOT EXISTS revision_commit_links (
+        revision_id TEXT NOT NULL,
+        sha TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (revision_id, sha, role)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_revision_commit_links_revision
+        ON revision_commit_links(revision_id);
+
+      CREATE TABLE IF NOT EXISTS revision_refresh_runs (
+        refresh_id TEXT PRIMARY KEY,
+        review_workspace_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        previous_head_sha TEXT,
+        latest_head_sha TEXT,
+        created_revision_id TEXT,
+        message TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_revision_refresh_runs_workspace
+        ON revision_refresh_runs(review_workspace_id, started_at);
     `);
   }
 }

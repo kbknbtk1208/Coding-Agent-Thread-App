@@ -11,7 +11,12 @@ import type {
   GraphWorkspaceView,
 } from '../poc3-domain/graph';
 import type { NodeDetailSnapshot, NodeDetailViewMode } from '../poc3-domain/node-detail';
+import type {
+  RevisionRefreshSnapshot,
+  WorkspaceRevisionView,
+} from '../poc3-domain/revision-commit';
 import type { RevisionContext } from '../poc3-domain/revision';
+import type { Poc3OutdatedAgentThread } from '../poc3-domain/thread-retention';
 import type {
   PublicRepositoryProvider,
   RepositoryProfile,
@@ -29,6 +34,22 @@ import type {
 } from '../poc3-domain/review-workspace';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
+export type {
+  OutdatedThreadSummary,
+  RevisionCommit,
+  RevisionCommitAuthor,
+  RevisionCommitRole,
+  RevisionCommitView,
+  RevisionRefreshSnapshot,
+  RevisionRefreshStatus,
+  WorkspaceRevisionView,
+} from '../poc3-domain/revision-commit';
+export type {
+  Poc3OutdatedAgentThread,
+  Poc3ThreadOutdatedReason,
+  Poc3ThreadTracking,
+  Poc3ThreadTrackingStatus,
+} from '../poc3-domain/thread-retention';
 export type {
   Poc3AgentReviewEnvelope,
   Poc3AgentReviewEvent,
@@ -80,10 +101,15 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   loadWorkspaceGraph: 'poc3:graph:load',
   retryGraphAnalysis: 'poc3:graph:analysis:retry',
   graphAnalysisEvent: 'poc3:graph:analysis:event',
+  loadWorkspaceRevisions: 'poc3:revision:list',
+  refreshWorkspaceRevisions: 'poc3:revision:refresh',
+  selectWorkspaceRevision: 'poc3:revision:select',
+  revisionRefreshEvent: 'poc3:revision:refresh:event',
   loadNodeDetail: 'poc3:node:load-detail',
   startAgentReview: 'poc3:agent-review:start',
   awaitAgentReviewResult: 'poc3:agent-review:await-result',
   listAgentReviewRuns: 'poc3:agent-review:list-runs',
+  listOutdatedAgentThreads: 'poc3:agent-review:outdated-threads:list',
   respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
   agentReviewEvent: 'poc3:agent-review:event',
 } as const;
@@ -212,6 +238,64 @@ export type RetryGraphAnalysisResult =
       analysis: AnalysisRunSnapshot | null;
     };
 
+export interface LoadWorkspaceRevisionsInput {
+  reviewWorkspaceId: string;
+}
+
+export type LoadWorkspaceRevisionsResult =
+  | { ok: true; view: WorkspaceRevisionView }
+  | { ok: false; reason: 'workspaceNotFound'; message: string; view: null };
+
+export interface RefreshWorkspaceRevisionsInput {
+  reviewWorkspaceId: string;
+}
+
+export type RefreshWorkspaceRevisionsResult =
+  | {
+      ok: true;
+      refresh: RevisionRefreshSnapshot;
+      view: WorkspaceRevisionView;
+      graphAnalysis: AnalysisRunSnapshot | null;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'workspaceNotFound'
+        | 'providerUnavailable'
+        | 'tokenNotFound'
+        | 'sourceFetchFailed'
+        | 'worktreeUpdateFailed'
+        | 'analysisEnqueueFailed';
+      message: string;
+      refresh: RevisionRefreshSnapshot | null;
+      view: WorkspaceRevisionView | null;
+    };
+
+export interface SelectWorkspaceRevisionInput {
+  reviewWorkspaceId: string;
+  revisionId: string;
+}
+
+export type SelectWorkspaceRevisionResult =
+  | { ok: true; view: WorkspaceRevisionView; graph: LoadWorkspaceGraphResult }
+  | {
+      ok: false;
+      reason: 'workspaceNotFound' | 'revisionNotFound' | 'analysisUnavailable';
+      message: string;
+    };
+
+export interface ListOutdatedAgentThreadsInput {
+  reviewWorkspaceId: string;
+}
+
+export interface ListOutdatedAgentThreadsResult {
+  threads: Poc3OutdatedAgentThread[];
+}
+
+export type RevisionRefreshEvent =
+  | { type: 'revision.refresh.snapshot'; refresh: RevisionRefreshSnapshot }
+  | { type: 'revision.refresh.log'; refreshId: string; line: string; updatedAt: string };
+
 export interface LoadNodeDetailInput {
   reviewWorkspaceId: string;
   scopeKey?: string;
@@ -315,12 +399,23 @@ export interface Poc3GraphReviewApi {
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;
+  loadWorkspaceRevisions(input: LoadWorkspaceRevisionsInput): Promise<LoadWorkspaceRevisionsResult>;
+  refreshWorkspaceRevisions(
+    input: RefreshWorkspaceRevisionsInput,
+  ): Promise<RefreshWorkspaceRevisionsResult>;
+  selectWorkspaceRevision(
+    input: SelectWorkspaceRevisionInput,
+  ): Promise<SelectWorkspaceRevisionResult>;
   loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult>;
   startAgentReview(input: StartAgentReviewInput): Promise<StartAgentReviewResult>;
   awaitAgentReviewResult(input: AwaitAgentReviewResultInput): Promise<AwaitAgentReviewResultResult>;
   listAgentReviewRuns(input: ListAgentReviewRunsInput): Promise<ListAgentReviewRunsResult>;
+  listOutdatedAgentThreads(
+    input: ListOutdatedAgentThreadsInput,
+  ): Promise<ListOutdatedAgentThreadsResult>;
   respondAgentReviewPermission(input: RespondPermissionInput): Promise<void>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
   onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
+  onRevisionRefreshEvent(callback: (event: RevisionRefreshEvent) => void): () => void;
   onAgentReviewEvent(callback: (event: Poc3AgentReviewEvent) => void): () => void;
 }
