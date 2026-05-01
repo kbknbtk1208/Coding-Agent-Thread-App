@@ -104,8 +104,8 @@ export function AgentReviewNewRunPanel({
         <span className="text-[11px] font-semibold text-white/55">New Review</span>
       </div>
 
-      <div className="flex justify-end">
-        <div ref={agentMenuRef} className="relative w-[164px]">
+      <div className="flex items-center gap-2">
+        <div ref={agentMenuRef} className="relative w-[164px] shrink-0">
           <button
             type="button"
             disabled={!review.canStart}
@@ -144,7 +144,7 @@ export function AgentReviewNewRunPanel({
             <div
               role="listbox"
               aria-label="Agent options"
-              className="absolute right-0 top-[calc(100%+6px)] z-50 w-[260px] overflow-hidden rounded-[9px] border border-white/[0.08] bg-[#17181d]/96 p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.46)] backdrop-blur-[20px]"
+              className="absolute left-0 top-[calc(100%+6px)] z-50 w-[260px] overflow-hidden rounded-[9px] border border-white/[0.08] bg-[#17181d]/96 p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.46)] backdrop-blur-[20px]"
             >
               {AGENT_OPTIONS.map((option) => {
                 const isSelected = option.value === review.selectedAgent;
@@ -190,50 +190,56 @@ export function AgentReviewNewRunPanel({
             </div>
           ) : null}
         </div>
-      </div>
 
-      {review.selectedAgent === 'codex' ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-1.5">
-          <AgentReviewGlassSelect
-            value={review.codexModelState.selectedModel}
-            onChange={review.setCodexModel}
-            disabled={
-              !review.canStart ||
-              review.codexModelState.isLoading ||
-              review.codexModelState.models.length === 0
-            }
-            ariaLabel="Codex model"
-          >
-            {review.codexModelState.models.length === 0 ? (
-              <option value="">
-                {review.codexModelState.isLoading ? 'Loading models' : 'Provider default'}
-              </option>
-            ) : (
-              review.codexModelState.models.map((model) => (
-                <option key={model.id} value={model.model}>
-                  {model.displayName ?? model.model}
-                </option>
-              ))
-            )}
-          </AgentReviewGlassSelect>
-          <AgentReviewGlassSelect
-            value={review.codexModelState.selectedReasoningEffort}
-            onChange={review.setCodexReasoningEffort}
-            disabled={!review.canStart || codexReasoningOptions.length === 0}
-            ariaLabel="Codex reasoning effort"
-          >
-            {codexReasoningOptions.length === 0 ? (
-              <option value="">effort</option>
-            ) : (
-              codexReasoningOptions.map((option) => (
-                <option key={option.reasoningEffort} value={option.reasoningEffort}>
-                  {option.reasoningEffort}
-                </option>
-              ))
-            )}
-          </AgentReviewGlassSelect>
-        </div>
-      ) : null}
+        {review.selectedAgent === 'codex' ? (
+          <>
+            <div className="min-w-0 flex-1">
+              <AgentReviewGlassSelect
+                value={review.codexModelState.selectedModel}
+                onChange={review.setCodexModel}
+                disabled={
+                  !review.canStart ||
+                  review.codexModelState.isLoading ||
+                  review.codexModelState.models.length === 0
+                }
+                ariaLabel="Codex model"
+                buttonHeight="h-12"
+              >
+                {review.codexModelState.models.length === 0 ? (
+                  <option value="">
+                    {review.codexModelState.isLoading ? 'Loading models' : 'Provider default'}
+                  </option>
+                ) : (
+                  review.codexModelState.models.map((model) => (
+                    <option key={model.id} value={model.model}>
+                      {model.displayName ?? model.model}
+                    </option>
+                  ))
+                )}
+              </AgentReviewGlassSelect>
+            </div>
+            <div className="w-[112px] shrink-0">
+              <AgentReviewGlassSelect
+                value={review.codexModelState.selectedReasoningEffort}
+                onChange={review.setCodexReasoningEffort}
+                disabled={!review.canStart || codexReasoningOptions.length === 0}
+                ariaLabel="Codex reasoning effort"
+                buttonHeight="h-12"
+              >
+                {codexReasoningOptions.length === 0 ? (
+                  <option value="">effort</option>
+                ) : (
+                  codexReasoningOptions.map((option) => (
+                    <option key={option.reasoningEffort} value={option.reasoningEffort}>
+                      {option.reasoningEffort}
+                    </option>
+                  ))
+                )}
+              </AgentReviewGlassSelect>
+            </div>
+          </>
+        ) : null}
+      </div>
 
       {review.selectedAgent === 'codex' && review.codexModelState.errorMessage ? (
         <p className="rounded-[6px] border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-2 py-1.5 text-[11px] text-[#ffe0b5]">

@@ -9,6 +9,7 @@ export interface AgentReviewGlassSelectProps {
   disabled?: boolean;
   ariaLabel?: string;
   children: React.ReactNode;
+  buttonHeight?: string;
 }
 
 interface AgentReviewGlassSelectOption {
@@ -23,6 +24,7 @@ export function AgentReviewGlassSelect({
   disabled,
   ariaLabel,
   children,
+  buttonHeight = 'h-8',
 }: AgentReviewGlassSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -129,7 +131,7 @@ export function AgentReviewGlassSelect({
         aria-controls={isOpen ? listboxId : undefined}
         aria-activedescendant={activeOptionId}
         disabled={disabled}
-        className="flex h-8 w-full items-center rounded-[7px] border border-white/[0.08] bg-[#25262b]/92 px-2 pr-7 text-left text-[11px] font-medium text-white outline-none backdrop-blur-[18px] transition hover:bg-[#2c2d33] focus:border-[#58d7ff]/28 focus:shadow-[0_0_0_2px_rgba(88,215,255,0.07)] disabled:cursor-not-allowed disabled:opacity-50"
+        className={`flex ${buttonHeight} w-full items-center rounded-[7px] border border-white/[0.08] bg-[#25262b]/92 px-2 pr-7 text-left text-[11px] font-medium text-white outline-none backdrop-blur-[18px] transition hover:bg-[#2c2d33] focus:border-[#58d7ff]/28 focus:shadow-[0_0_0_2px_rgba(88,215,255,0.07)] disabled:cursor-not-allowed disabled:opacity-50`}
         onClick={() => setIsOpen((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {

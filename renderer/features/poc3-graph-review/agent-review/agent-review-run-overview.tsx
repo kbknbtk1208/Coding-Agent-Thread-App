@@ -49,6 +49,10 @@ export function getAgentReviewOverview(
 
 export function AgentReviewRunOverview({ run, detail }: AgentReviewRunOverviewProps) {
   const { title, body, tone } = getAgentReviewOverview(detail, run);
+  const overviewThreads =
+    detail?.envelope?.kind === 'structured'
+      ? detail.envelope.threads.filter((thread) => thread.location.kind === 'overview')
+      : [];
 
   return (
     <div className="flex flex-col gap-3">
@@ -63,6 +67,21 @@ export function AgentReviewRunOverview({ run, detail }: AgentReviewRunOverviewPr
         <p className="text-[10px] font-semibold uppercase tracking-wide text-white/32">{title}</p>
         <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/65">{body}</p>
       </div>
+
+      {overviewThreads.length > 0 ? (
+        <div className="flex flex-col gap-2 border-l-2 border-fuchsia-300/35 pl-3">
+          {overviewThreads.map((thread) => (
+            <article key={thread.localThreadId} className="flex flex-col gap-1">
+              <h4 className="text-[13px] font-semibold leading-5 text-fuchsia-50">
+                {thread.title}
+              </h4>
+              <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/65">
+                {thread.draftBody}
+              </p>
+            </article>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
