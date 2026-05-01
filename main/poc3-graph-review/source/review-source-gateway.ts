@@ -2,10 +2,16 @@ import type { ReviewProviderKind } from '../../../shared/poc3-domain/review-work
 import type {
   ReviewChangedFile,
   ReviewChangedFileStatus,
+  ReviewRemoteThread,
 } from '../../../shared/poc3-domain/source-snapshot';
 import type { RevisionCommit as Poc3RevisionCommit } from '../../../shared/poc3-domain/revision-commit';
 import { apiEndpointForProvider } from './repository-url';
 import { parseUnifiedDiffHunks } from './unified-diff-parser';
+import {
+  normalizeGitHubRemoteThreads,
+  normalizeGitLabRemoteThreads,
+} from './remote-thread-normalizer';
+import { resolveRemoteThreadAnchors } from './remote-thread-anchor-resolver';
 
 const MAX_CHANGED_FILES = 300;
 
@@ -21,6 +27,7 @@ export interface FetchedReviewSourceSnapshot {
   diffVersion: string | null;
   changedFiles: ReviewChangedFile[];
   commits: Poc3RevisionCommit[];
+  remoteThreads: ReviewRemoteThread[];
   diagnostics: Array<{ code: string; message: string }>;
 }
 
@@ -201,17 +208,47 @@ export async function fetchReviewSourceSnapshot(
         hunks: parseUnifiedDiffHunks(file.filename, patch),
       };
     });
+
+    const headSha = detail.head.sha;
+    let remoteThreads: ReviewRemoteThread[] = [];
+    try {
+      const [rawReviewComments, rawIssueComments] = await Promise.all([
+        fetchPaginatedJson<Record<string, unknown>>(
+          `${endpoint}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(input.reviewId)}/comments`,
+          headers,
+          3000,
+        ),
+        fetchPaginatedJson<Record<string, unknown>>(
+          `${endpoint}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(input.reviewId)}/comments`,
+          headers,
+          3000,
+        ),
+      ]);
+      const normalized = normalizeGitHubRemoteThreads(
+        rawReviewComments as unknown as Parameters<typeof normalizeGitHubRemoteThreads>[0],
+        rawIssueComments as unknown as Parameters<typeof normalizeGitHubRemoteThreads>[1],
+        headSha,
+      );
+      remoteThreads = resolveRemoteThreadAnchors({ threads: normalized, changedFiles, headSha });
+    } catch {
+      diagnostics.push({
+        code: 'REMOTE_COMMENTS_FETCH_FAILED',
+        message: 'コメントの取得に失敗しました。',
+      });
+    }
+
     return {
       provider: 'github',
       reviewId: String(detail.number),
       title: detail.title ?? '',
       description: detail.body ?? '',
       baseSha: detail.base.sha,
-      headSha: detail.head.sha,
+      headSha,
       startSha: null,
       sourceBranchName: detail.head.ref ?? null,
       diffVersion: null,
       changedFiles,
+      remoteThreads,
       commits: commitsResponse.map(
         (commit): Poc3RevisionCommit => ({
           sha: commit.sha,
@@ -282,6 +319,25 @@ export async function fetchReviewSourceSnapshot(
       hunks: parseUnifiedDiffHunks(path, patch),
     };
   });
+
+  let remoteThreads: ReviewRemoteThread[] = [];
+  try {
+    const rawDiscussions = await fetchPaginatedJson<Record<string, unknown>>(
+      `${endpoint}/projects/${encoded}/merge_requests/${encodeURIComponent(input.reviewId)}/discussions`,
+      headers,
+      3000,
+    );
+    const normalized = normalizeGitLabRemoteThreads(
+      rawDiscussions as unknown as Parameters<typeof normalizeGitLabRemoteThreads>[0],
+    );
+    remoteThreads = resolveRemoteThreadAnchors({ threads: normalized, changedFiles, headSha });
+  } catch {
+    diagnostics.push({
+      code: 'REMOTE_COMMENTS_FETCH_FAILED',
+      message: 'コメントの取得に失敗しました。',
+    });
+  }
+
   return {
     provider: 'gitlab',
     reviewId: String(mr.iid),
@@ -293,6 +349,7 @@ export async function fetchReviewSourceSnapshot(
     sourceBranchName: mr.source_branch ?? null,
     diffVersion: null,
     changedFiles,
+    remoteThreads,
     commits: commitsResponse.map(
       (commit): Poc3RevisionCommit => ({
         sha: commit.id,

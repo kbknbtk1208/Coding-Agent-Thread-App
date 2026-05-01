@@ -73,7 +73,7 @@ export function useCommitRevisions(
       });
       if (result.ok) {
         setRevisionView(result.view);
-        if (result.view.activeRevisionId !== previousActive || result.refresh.createdRevisionId) {
+        if (shouldInvalidateGraphAfterRefresh(result, previousActive)) {
           onGraphInvalidated?.();
         }
       } else {
@@ -116,4 +116,20 @@ export function useCommitRevisions(
     }),
     [load, refresh, refreshError, refreshing, revisionView, selectRevision],
   );
+}
+
+export function shouldInvalidateGraphAfterRefresh(
+  result: RefreshWorkspaceRevisionsResult,
+  previousActiveRevisionId: string | null,
+): boolean {
+  if (!result.ok) {
+    return false;
+  }
+  if (result.view.activeRevisionId !== previousActiveRevisionId) {
+    return true;
+  }
+  if (result.refresh.createdRevisionId) {
+    return true;
+  }
+  return result.refresh.status === 'completed';
 }

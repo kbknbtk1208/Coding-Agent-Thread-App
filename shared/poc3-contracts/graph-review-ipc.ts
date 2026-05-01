@@ -36,6 +36,7 @@ import type {
   ReviewWorkspaceCreationJobSnapshot,
   WorkspaceCreationEvent,
 } from '../poc3-domain/review-workspace';
+import type { ReviewRemoteThread } from '../poc3-domain/source-snapshot';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
 export type {
@@ -82,8 +83,16 @@ export type {
   NodeFunctionCode,
   NodeRelationItem,
   NodeRelationSummary,
+  NodeRemoteThreadSummary,
   NodeThreadSummary,
 } from '../poc3-domain/node-detail';
+export type {
+  ReviewRemoteComment,
+  ReviewRemoteCommentAuthor,
+  ReviewRemoteThread,
+  ReviewRemoteThreadAnchorStatus,
+  ReviewRemoteThreadLocation,
+} from '../poc3-domain/source-snapshot';
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
@@ -157,6 +166,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   awaitAgentReviewResult: 'poc3:agent-review:await-result',
   listAgentReviewRuns: 'poc3:agent-review:list-runs',
   listOutdatedAgentThreads: 'poc3:agent-review:outdated-threads:list',
+  listArchivedRemoteThreads: 'poc3:remote-comment:archive:list',
   getAgentReviewRunDetail: 'poc3:agent-review:get-run-detail',
   respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
   agentReviewEvent: 'poc3:agent-review:event',
@@ -344,6 +354,21 @@ export interface ListOutdatedAgentThreadsResult {
   threads: Poc3OutdatedAgentThread[];
 }
 
+export interface Poc3ArchivedRemoteThread {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  headSha: string;
+  thread: ReviewRemoteThread;
+}
+
+export interface ListArchivedRemoteThreadsInput {
+  reviewWorkspaceId: string;
+}
+
+export interface ListArchivedRemoteThreadsResult {
+  threads: Poc3ArchivedRemoteThread[];
+}
+
 export type RevisionRefreshEvent =
   | { type: 'revision.refresh.snapshot'; refresh: RevisionRefreshSnapshot }
   | { type: 'revision.refresh.log'; refreshId: string; line: string; updatedAt: string };
@@ -521,6 +546,9 @@ export interface Poc3GraphReviewApi {
   listOutdatedAgentThreads(
     input: ListOutdatedAgentThreadsInput,
   ): Promise<ListOutdatedAgentThreadsResult>;
+  listArchivedRemoteThreads(
+    input: ListArchivedRemoteThreadsInput,
+  ): Promise<ListArchivedRemoteThreadsResult>;
   getAgentReviewRunDetail(
     input: GetAgentReviewRunDetailInput,
   ): Promise<GetAgentReviewRunDetailResult>;

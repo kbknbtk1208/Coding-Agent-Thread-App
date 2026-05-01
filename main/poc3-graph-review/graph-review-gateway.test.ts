@@ -4,7 +4,7 @@ import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RepositoryProfile } from '../../shared/poc3-domain/repository';
 import type { ReviewWorkspace } from '../../shared/poc3-domain/review-workspace';
-import { GraphReviewGateway } from './graph-review-gateway';
+import { buildRemoteThreadCountByNode, GraphReviewGateway } from './graph-review-gateway';
 
 const { removeWorktreeMock } = vi.hoisted(() => ({
   removeWorktreeMock: vi.fn(),
@@ -512,6 +512,96 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
     }
   });
 });
+
+describe('buildRemoteThreadCountByNode', () => {
+  it('counts all current file comments for file-scope nodes and range comments for symbol nodes', () => {
+    const nodes = [
+      {
+        nodeId: 'file-scope',
+        stableSymbolId: 'file-scope',
+        parentNodeId: null,
+        kind: 'file-scope' as const,
+        label: 'example.ts file scope',
+        filePath: 'src/example.ts',
+        declarationRange: {
+          filePath: 'src/example.ts',
+          startLine: 10,
+          startColumn: 1,
+          endLine: 10,
+          endColumn: 1,
+        },
+        diffStatus: 'file-scope' as const,
+        isDiffNode: true,
+        changedLineNumbers: [10],
+        badges: { changedLines: 1, remoteThreadCount: 0, findingCount: 0 },
+      },
+      {
+        nodeId: 'symbol',
+        stableSymbolId: 'symbol',
+        parentNodeId: 'file-scope',
+        kind: 'function' as const,
+        label: 'example',
+        filePath: 'src/example.ts',
+        declarationRange: {
+          filePath: 'src/example.ts',
+          startLine: 20,
+          startColumn: 1,
+          endLine: 30,
+          endColumn: 1,
+        },
+        diffStatus: 'changed' as const,
+        isDiffNode: true,
+        changedLineNumbers: [24],
+        badges: { changedLines: 1, remoteThreadCount: 0, findingCount: 0 },
+      },
+    ];
+
+    const counts = buildRemoteThreadCountByNode(nodes, [
+      createRemoteThread('context', 12),
+      createRemoteThread('symbol', 24),
+      createRemoteThread('outdated', 24, 'outdated'),
+    ]);
+
+    expect(counts.get('file-scope')).toBe(2);
+    expect(counts.get('symbol')).toBe(1);
+  });
+});
+
+function createRemoteThread(
+  providerThreadId: string,
+  line: number,
+  anchorStatus: 'current' | 'outdated' | 'unanchored' | 'overview' = 'current',
+) {
+  return {
+    providerThreadId,
+    location: {
+      kind: 'diff' as const,
+      filePath: 'src/example.ts',
+      oldPath: null,
+      startLine: null,
+      endLine: line,
+      side: 'RIGHT' as const,
+    },
+    anchorStatus,
+    isResolved: null,
+    isOutdated: anchorStatus === 'outdated',
+    comments: [
+      {
+        providerCommentId: `${providerThreadId}:comment`,
+        author: { login: 'alice', displayName: null, avatarUrl: null },
+        body: 'remote body',
+        url: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: null,
+      },
+    ],
+    providerContext: {
+      remoteDiscussionId: providerThreadId,
+      remoteCommentIds: [`${providerThreadId}:comment`],
+      anchorRefs: {},
+    },
+  };
+}
 
 describe('GraphReviewGateway.listReviewWorkspaces', () => {
   const tempDirs: string[] = [];

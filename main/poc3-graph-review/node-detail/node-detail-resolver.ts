@@ -23,12 +23,13 @@ import type {
   NodeFunctionCode,
   NodeRelationItem,
   NodeRelationSummary,
+  NodeRemoteThreadSummary,
   NodeThreadSummary,
 } from '../../../shared/poc3-domain/node-detail';
 import type {
   DiffHunkRange,
   ReviewChangedFile,
-  ReviewRemoteThreadSummary,
+  ReviewRemoteThread,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
 import type {
@@ -594,9 +595,19 @@ function resolveThreads(
       agent: agentThreads.map((thread) => toAgentThreadSummary(thread)),
     };
   }
-  const filtered = sourceSnapshot.remoteThreadsSummary.filter((thread) =>
-    matchesThread(thread, node),
-  );
+  const filtered = sourceSnapshot.remoteThreads
+    .filter((t) => t.anchorStatus === 'current' && t.location.kind === 'diff')
+    .filter((t) => matchesRemoteThread(t, node))
+    .map(
+      (t): NodeRemoteThreadSummary => ({
+        providerThreadId: t.providerThreadId,
+        location: t.location,
+        anchorStatus: t.anchorStatus,
+        isResolved: t.isResolved,
+        isOutdated: t.isOutdated,
+        comments: t.comments,
+      }),
+    );
   return {
     remote: filtered,
     local: [],
@@ -613,21 +624,28 @@ function toAgentThreadSummary(thread: Poc3AgentReviewThread): NodeThreadSummary[
   };
 }
 
-function matchesThread(thread: ReviewRemoteThreadSummary, node: GraphRenderNode): boolean {
-  if (thread.filePath !== node.filePath) {
+function matchesRemoteThread(thread: ReviewRemoteThread, node: GraphRenderNode): boolean {
+  if (thread.location.kind !== 'diff') {
+    return false;
+  }
+  if (thread.location.filePath !== node.filePath) {
     return false;
   }
   if (node.kind === 'module') {
+    return true;
+  }
+  if (node.kind === 'file-scope') {
     return true;
   }
   const range = node.declarationRange;
   if (!range) {
     return true;
   }
-  if (thread.line === null) {
+  const line = thread.location.endLine ?? thread.location.startLine;
+  if (line === null) {
     return false;
   }
-  return thread.line >= range.startLine && thread.line <= range.endLine;
+  return line >= range.startLine && line <= range.endLine;
 }
 
 function toRenderSnapshot(record: WorkspaceGraphRecord): GraphRenderSnapshot {

@@ -2,7 +2,7 @@
 
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
-import { FileCode2, FunctionSquare, MessageSquare, Package } from 'lucide-react';
+import { FileCode2, FunctionSquare, Package } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Poc3FlowNode } from './to-react-flow-elements';
 
@@ -23,12 +23,24 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
 
   return (
     <div className="relative h-full w-full">
-      {graphNode.badges.findingCount > 0 ? (
-        <span
-          className="absolute -right-4 -top-4 z-10 flex size-[36px] items-center justify-center rounded-full border-2 border-[#ff9a3c]/60 bg-[#1a1000] text-[16px] font-bold leading-none text-[#ffbf6b]"
-          title={`${graphNode.badges.findingCount} findings`}
-        >
-          {graphNode.badges.findingCount}
+      {graphNode.badges.findingCount > 0 || graphNode.badges.remoteThreadCount > 0 ? (
+        <span className="absolute -right-4 -top-4 z-10 flex items-center gap-1">
+          {graphNode.badges.remoteThreadCount > 0 ? (
+            <span
+              className="flex size-[28px] items-center justify-center rounded-full border-2 border-[#58d7ff]/60 bg-[#001a22] text-[13px] font-bold leading-none text-[#58d7ff]"
+              title={`${graphNode.badges.remoteThreadCount} remote comments`}
+            >
+              {graphNode.badges.remoteThreadCount}
+            </span>
+          ) : null}
+          {graphNode.badges.findingCount > 0 ? (
+            <span
+              className="flex size-[28px] items-center justify-center rounded-full border-2 border-[#ff9a3c]/60 bg-[#1a1000] text-[13px] font-bold leading-none text-[#ffbf6b]"
+              title={`${graphNode.badges.findingCount} findings`}
+            >
+              {graphNode.badges.findingCount}
+            </span>
+          ) : null}
         </span>
       ) : null}
       {selected ? (
@@ -72,15 +84,6 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
         {graphNode.badges.changedLines > 0 ? (
           <span className="rounded-[5px] border border-[#d8e071]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#d8e071]">
             +{graphNode.badges.changedLines}
-          </span>
-        ) : null}
-        {graphNode.badges.remoteThreadCount > 0 ? (
-          <span
-            className="flex items-center gap-1 rounded-[5px] border border-[#58d7ff]/25 bg-[#58d7ff]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#dff7ff]"
-            title={`${graphNode.badges.remoteThreadCount} remote threads`}
-          >
-            <MessageSquare className="size-3" aria-hidden="true" />
-            {graphNode.badges.remoteThreadCount}
           </span>
         ) : null}
         <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-white/70" />

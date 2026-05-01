@@ -15,6 +15,7 @@ import {
   verifyHeadSha,
 } from '../workspace/worktree-manager';
 import { fetchReviewSourceSnapshot } from '../source/review-source-gateway';
+import { buildRemoteThreadSummary } from '../source/remote-thread-anchor-resolver';
 import { createQueuedInitialAnalysisRun } from '../analysis/analysis-coordinator';
 import type { AnalysisCoordinator } from '../analysis/analysis-coordinator';
 import type { GraphReviewStore } from '../store/graph-review-store';
@@ -136,6 +137,20 @@ export class RevisionRefreshCoordinator {
           activeHeadSha: existing.headSha,
           commits: snapshot.commits,
         });
+        const currentSourceSnapshot = this.deps.graphStore.getSourceSnapshotByRevision(
+          existing.revisionId,
+        );
+        if (currentSourceSnapshot) {
+          this.deps.graphStore.saveSourceSnapshot({
+            ...currentSourceSnapshot,
+            title: snapshot.title,
+            description: snapshot.description,
+            changedFiles: snapshot.changedFiles,
+            remoteThreads: snapshot.remoteThreads,
+            remoteThreadsSummary: buildRemoteThreadSummary(snapshot.remoteThreads),
+            updatedAt: nowIso(),
+          });
+        }
         const completed = this.saveAndEmit({
           ...refresh,
           status: 'completed',
@@ -217,7 +232,8 @@ export class RevisionRefreshCoordinator {
         startSha: snapshot.startSha,
         diffVersion: snapshot.diffVersion,
         changedFiles: snapshot.changedFiles,
-        remoteThreadsSummary: [],
+        remoteThreads: snapshot.remoteThreads,
+        remoteThreadsSummary: buildRemoteThreadSummary(snapshot.remoteThreads),
         createdAt: persistedAt,
         updatedAt: persistedAt,
       };

@@ -221,6 +221,7 @@ function createSourceSnapshot(): ReviewSourceSnapshot {
         ],
       },
     ],
+    remoteThreads: [],
     remoteThreadsSummary: [],
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -257,6 +258,66 @@ describe('resolveNodeDetail', () => {
     expect(result.detail?.diffSummary.changedLineNumbers).toEqual([9]);
     expect(result.detail?.diffExcerpt?.patch).toBe(sourceSnapshot.changedFiles[0]?.patch ?? null);
     expect(result.detail?.diffExcerpt?.hunkHeaders).toEqual(['@@ -8,6 +8,7 @@']);
+  });
+
+  it('file-scope node では同一 file の current remote thread を本文付きで返す', () => {
+    const worktreePath = createTempWorkspace();
+    const sourceSnapshot = createSourceSnapshot();
+    sourceSnapshot.remoteThreads = [
+      {
+        providerThreadId: 'remote-context',
+        location: {
+          kind: 'diff',
+          filePath: 'src/example.ts',
+          oldPath: null,
+          startLine: null,
+          endLine: 12,
+          side: 'RIGHT',
+        },
+        anchorStatus: 'current',
+        isResolved: false,
+        isOutdated: null,
+        comments: [
+          {
+            providerCommentId: 'remote-comment-1',
+            author: { login: 'alice', displayName: null, avatarUrl: null },
+            body: 'remote body',
+            url: 'https://example.test/comment',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: null,
+          },
+        ],
+        providerContext: {
+          remoteDiscussionId: 'remote-context',
+          remoteCommentIds: ['remote-comment-1'],
+          anchorRefs: {},
+        },
+      },
+    ];
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-file-scope-1',
+      record: createRecord(worktreePath),
+      sourceSnapshot,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.threads.remote).toEqual([
+      expect.objectContaining({
+        providerThreadId: 'remote-context',
+        isResolved: false,
+        comments: [
+          expect.objectContaining({
+            providerCommentId: 'remote-comment-1',
+            body: 'remote body',
+            author: { login: 'alice', displayName: null, avatarUrl: null },
+          }),
+        ],
+      }),
+    ]);
   });
 
   it('diff node では関数全体 code と diff 行 highlight を返す', () => {

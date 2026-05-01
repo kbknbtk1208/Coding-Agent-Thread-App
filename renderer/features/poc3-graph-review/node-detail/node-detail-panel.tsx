@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  ExternalLink,
   FileCode2,
   FileText,
   FunctionSquare,
@@ -323,7 +324,12 @@ function PrimarySection({
   if (source) {
     return (
       <section className="flex flex-col gap-2">
-        <SourceCodeSection source={source} scrollToLine={scrollToLine} findings={detail.findings} />
+        <SourceCodeSection
+          source={source}
+          scrollToLine={scrollToLine}
+          findings={detail.findings}
+          remoteThreads={detail.threads.remote}
+        />
         {canExpand && !isExpanded ? (
           <button
             type="button"
@@ -348,17 +354,29 @@ function PrimarySection({
   }
 
   if (detail.diffExcerpt) {
-    return <DiffExcerptSection excerpt={detail.diffExcerpt} />;
+    return (
+      <DiffExcerptSection excerpt={detail.diffExcerpt} remoteThreads={detail.threads.remote} />
+    );
   }
   return <UnavailableSection selectedNode={selectedNode} detail={detail} />;
 }
 
-function DiffExcerptSection({ excerpt }: { excerpt: NodeDiffExcerpt }) {
+function DiffExcerptSection({
+  excerpt,
+  remoteThreads = [],
+}: {
+  excerpt: NodeDiffExcerpt;
+  remoteThreads?: NodeDetailSnapshot['threads']['remote'];
+}) {
   const language = useMemo(() => resolveHighlightLanguage(excerpt.filePath), [excerpt.filePath]);
   const rows = useMemo(
     () =>
       buildUnifiedDiffRows(excerpt.patch.trim().length > 0 ? excerpt.patch : excerpt.hunkHeaders),
     [excerpt.hunkHeaders, excerpt.patch],
+  );
+  const remoteByDiffLine = useMemo(
+    () => groupRemoteThreadsByDiffLine(remoteThreads),
+    [remoteThreads],
   );
 
   return (
@@ -367,14 +385,22 @@ function DiffExcerptSection({ excerpt }: { excerpt: NodeDiffExcerpt }) {
         {rows.length > 0 ? (
           <div className="max-h-[calc(100vh-132px)] overflow-auto font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]">
             <div className="min-w-max">
-              {rows.map((row, index) => (
-                <DiffRowView
-                  key={`${row.type}-${row.text}-${index}`}
-                  row={row}
-                  language={language}
-                  filePath={excerpt.filePath}
-                />
-              ))}
+              {rows.map((row, index) => {
+                const lineThreads =
+                  row.type === 'line'
+                    ? (remoteByDiffLine.get(
+                        diffLineKey(row.marker, row.oldLineNumber, row.newLineNumber),
+                      ) ?? [])
+                    : [];
+                return (
+                  <div key={`${row.type}-${row.text}-${index}`}>
+                    <DiffRowView row={row} language={language} filePath={excerpt.filePath} />
+                    {lineThreads.length > 0 ? (
+                      <RemoteCommentThreadLayer threads={lineThreads} />
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -503,10 +529,12 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
 
 function SourceCodeSection({
   findings,
+  remoteThreads,
   source,
   scrollToLine,
 }: {
   findings?: NodeDetailSnapshot['findings'];
+  remoteThreads?: NodeDetailSnapshot['threads']['remote'];
   source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
   scrollToLine?: number;
 }) {
@@ -514,6 +542,10 @@ function SourceCodeSection({
   const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
   const highlighted = new Set(source.highlightedLineNumbers);
   const findingsByLine = useMemo(() => groupFindingsByLine(findings ?? []), [findings]);
+  const remoteThreadsByLine = useMemo(
+    () => groupRemoteThreadsByLine(remoteThreads ?? []),
+    [remoteThreads],
+  );
   const lines = source.content.split('\n');
 
   useEffect(() => {
@@ -539,15 +571,18 @@ function SourceCodeSection({
             const actualLine = source.startLine + index;
             const isHighlighted = highlighted.has(actualLine);
             const lineFindings = findingsByLine.get(actualLine) ?? [];
+            const lineRemoteThreads = remoteThreadsByLine.get(actualLine) ?? [];
             return (
               <div key={actualLine} data-line={actualLine}>
                 <div
                   className={`grid grid-cols-[16px_minmax(0,1fr)] gap-x-1.5 rounded-[4px] px-1 font-mono ${
                     lineFindings.length > 0
                       ? 'bg-[#ffbf6b]/12 text-[#ffe0b5]'
-                      : isHighlighted
-                        ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
-                        : ''
+                      : lineRemoteThreads.length > 0
+                        ? 'bg-[#58d7ff]/10 text-[#dff7ff]'
+                        : isHighlighted
+                          ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
+                          : ''
                   }`}
                 >
                   <span className="overflow-hidden text-right text-white/28">{actualLine}</span>
@@ -555,6 +590,11 @@ function SourceCodeSection({
                     {lineFindings.length > 0 ? (
                       <span className="mr-2 inline-flex rounded-[4px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/12 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#ffe0b5]">
                         F{lineFindings.length}
+                      </span>
+                    ) : null}
+                    {lineRemoteThreads.length > 0 ? (
+                      <span className="mr-2 inline-flex rounded-[4px] border border-[#58d7ff]/25 bg-[#58d7ff]/10 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#dff7ff]">
+                        R{lineRemoteThreads.length}
                       </span>
                     ) : null}
                     <HighlightedSourceLine
@@ -567,12 +607,96 @@ function SourceCodeSection({
                 {lineFindings.length > 0 ? (
                   <AgentFindingThreadLayer findings={lineFindings} />
                 ) : null}
+                {lineRemoteThreads.length > 0 ? (
+                  <RemoteCommentThreadLayer threads={lineRemoteThreads} />
+                ) : null}
               </div>
             );
           })}
         </div>
       </div>
     </section>
+  );
+}
+
+function RemoteCommentThreadLayer({
+  threads,
+}: {
+  threads: NodeDetailSnapshot['threads']['remote'];
+}) {
+  return (
+    <div className="border-l-2 border-[#58d7ff]/35 bg-[#58d7ff]/[0.045] px-3 py-3">
+      <div className="space-y-3">
+        {threads.map((thread) => (
+          <RemoteCommentThreadCard key={thread.providerThreadId} thread={thread} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RemoteCommentThreadCard({
+  thread,
+}: {
+  thread: NodeDetailSnapshot['threads']['remote'][number];
+}) {
+  const first = thread.comments[0] ?? null;
+  const title = first?.author.login ?? 'remote';
+  const commentCount = thread.comments.length;
+  return (
+    <article className="rounded-[8px] border border-[#58d7ff]/18 bg-[#58d7ff]/[0.045] px-3 py-2 text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]">
+      <div className="mb-2 flex items-start gap-2">
+        <MessageSquareText className="mt-0.5 size-3.5 shrink-0 text-[#58d7ff]" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate text-[11px] font-semibold text-[#dff7ff]">{title}</span>
+            <span className="rounded-full border border-[#58d7ff]/20 bg-[#58d7ff]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#dff7ff]/80">
+              {commentCount} comment{commentCount === 1 ? '' : 's'}
+            </span>
+            {thread.isResolved !== null ? (
+              <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white/55">
+                {thread.isResolved ? 'resolved' : 'open'}
+              </span>
+            ) : null}
+            {thread.isOutdated ? (
+              <span className="rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
+                outdated
+              </span>
+            ) : null}
+          </div>
+          {first?.createdAt ? (
+            <p className="mt-0.5 text-[10px] text-white/36">{formatShortDate(first.createdAt)}</p>
+          ) : null}
+        </div>
+        {first?.url ? (
+          <a
+            href={first.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex size-6 shrink-0 items-center justify-center rounded-[6px] border border-[#58d7ff]/18 text-[#dff7ff]/70 transition hover:bg-[#58d7ff]/10 hover:text-[#dff7ff]"
+            aria-label="Open remote comment"
+          >
+            <ExternalLink className="size-3" aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+      <div className="space-y-2">
+        {thread.comments.map((comment) => (
+          <div
+            key={comment.providerCommentId}
+            className="border-t border-[#58d7ff]/10 pt-2 first:border-t-0 first:pt-0"
+          >
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-white/42">
+              <span className="font-semibold text-[#dff7ff]/78">{comment.author.login}</span>
+              <span>{formatShortDate(comment.createdAt)}</span>
+            </div>
+            <div className="poc3-remote-comment-body text-[11px] leading-5 text-white/70">
+              <Streamdown>{comment.body}</Streamdown>
+            </div>
+          </div>
+        ))}
+      </div>
+    </article>
   );
 }
 
@@ -950,6 +1074,65 @@ function groupFindingsByLine(findings: NodeDetailSnapshot['findings']) {
     map.set(finding.line, current);
   }
   return map;
+}
+
+function groupRemoteThreadsByLine(threads: NodeDetailSnapshot['threads']['remote']) {
+  const map = new Map<number, NodeDetailSnapshot['threads']['remote']>();
+  for (const thread of threads) {
+    if (thread.location.kind !== 'diff') {
+      continue;
+    }
+    const line = thread.location.endLine ?? thread.location.startLine;
+    if (line === null) {
+      continue;
+    }
+    const current = map.get(line) ?? [];
+    current.push(thread);
+    map.set(line, current);
+  }
+  return map;
+}
+
+function groupRemoteThreadsByDiffLine(threads: NodeDetailSnapshot['threads']['remote']) {
+  const map = new Map<string, NodeDetailSnapshot['threads']['remote']>();
+  for (const thread of threads) {
+    if (thread.location.kind !== 'diff') {
+      continue;
+    }
+    const line = thread.location.endLine ?? thread.location.startLine;
+    if (line === null) {
+      continue;
+    }
+    const key = `${thread.location.side}:${line}`;
+    const current = map.get(key) ?? [];
+    current.push(thread);
+    map.set(key, current);
+  }
+  return map;
+}
+
+function diffLineKey(
+  marker: ' ' | '+' | '-',
+  oldLineNumber: number | null,
+  newLineNumber: number | null,
+): string {
+  if (marker === '-') {
+    return `LEFT:${oldLineNumber ?? ''}`;
+  }
+  return `RIGHT:${newLineNumber ?? ''}`;
+}
+
+function formatShortDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat('ja-JP', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 function UnavailableSection({

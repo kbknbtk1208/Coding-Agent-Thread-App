@@ -93,6 +93,8 @@ import {
   type StartAgentReviewResult,
   type SelectWorkspaceRevisionInput,
   type SelectWorkspaceRevisionResult,
+  type ListArchivedRemoteThreadsInput,
+  type ListArchivedRemoteThreadsResult,
   type ListOutdatedAgentThreadsInput,
   type ListOutdatedAgentThreadsResult,
   type TestRepositoryProviderInput,
@@ -329,6 +331,11 @@ const poc3GraphReviewApi = {
     input: ListAgentThreadConversationsInput,
   ): Promise<ListAgentThreadConversationsResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentThreadConversations, input);
+  },
+  listArchivedRemoteThreads(
+    input: ListArchivedRemoteThreadsInput,
+  ): Promise<ListArchivedRemoteThreadsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listArchivedRemoteThreads, input);
   },
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void) {
     const subscription = (_event: IpcRendererEvent, payload: WorkspaceCreationEvent) =>

@@ -8,6 +8,7 @@ import type {
   GetAgentReviewRunDetailInput,
   ListAgentThreadConversationsInput,
   ListAgentReviewRunsInput,
+  ListArchivedRemoteThreadsInput,
   ListOutdatedAgentThreadsInput,
   LoadAgentThreadConversationInput,
   LoadNodeDetailInput,
@@ -233,6 +234,13 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentThreadConversations,
     (_event, input: ListAgentThreadConversationsInput) => {
       return gateway.listAgentThreadConversations(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.listArchivedRemoteThreads,
+    (_event, input: ListArchivedRemoteThreadsInput) => {
+      return gateway.listArchivedRemoteThreads(input);
     },
   );
 }

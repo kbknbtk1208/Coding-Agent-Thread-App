@@ -8,6 +8,48 @@ export type ReviewChangedFileStatus =
   | 'copied'
   | 'unknown';
 
+export type ReviewRemoteThreadAnchorStatus = 'current' | 'outdated' | 'unanchored' | 'overview';
+
+export interface ReviewRemoteCommentAuthor {
+  login: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+export interface ReviewRemoteComment {
+  providerCommentId: string;
+  author: ReviewRemoteCommentAuthor;
+  body: string;
+  url: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export type ReviewRemoteThreadLocation =
+  | {
+      kind: 'diff';
+      filePath: string;
+      oldPath: string | null;
+      startLine: number | null;
+      endLine: number | null;
+      side: 'LEFT' | 'RIGHT';
+    }
+  | { kind: 'overview' };
+
+export interface ReviewRemoteThread {
+  providerThreadId: string;
+  location: ReviewRemoteThreadLocation;
+  anchorStatus: ReviewRemoteThreadAnchorStatus;
+  isResolved: boolean | null;
+  isOutdated: boolean | null;
+  comments: ReviewRemoteComment[];
+  providerContext: {
+    remoteDiscussionId: string;
+    remoteCommentIds: string[];
+    anchorRefs: Record<string, unknown>;
+  };
+}
+
 export interface ReviewSourceSnapshot {
   sourceSnapshotId: string;
   revisionId: string;
@@ -20,6 +62,7 @@ export interface ReviewSourceSnapshot {
   startSha: string | null;
   diffVersion: string | null;
   changedFiles: ReviewChangedFile[];
+  remoteThreads: ReviewRemoteThread[];
   remoteThreadsSummary: ReviewRemoteThreadSummary[];
   createdAt: string;
   updatedAt: string;

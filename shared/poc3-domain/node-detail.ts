@@ -1,5 +1,9 @@
 import type { GraphRenderEdge, GraphRenderNode, SourceRange } from './graph';
-import type { ReviewRemoteThreadSummary } from './source-snapshot';
+import type {
+  ReviewRemoteComment,
+  ReviewRemoteThreadAnchorStatus,
+  ReviewRemoteThreadLocation,
+} from './source-snapshot';
 
 export type NodeDetailPrimaryView =
   | 'function'
@@ -110,8 +114,17 @@ export interface NodeRelationItem {
   isDiffNode: boolean;
 }
 
+export interface NodeRemoteThreadSummary {
+  providerThreadId: string;
+  location: ReviewRemoteThreadLocation;
+  anchorStatus: ReviewRemoteThreadAnchorStatus;
+  isResolved: boolean | null;
+  isOutdated: boolean | null;
+  comments: ReviewRemoteComment[];
+}
+
 export interface NodeThreadSummary {
-  remote: ReviewRemoteThreadSummary[];
+  remote: NodeRemoteThreadSummary[];
   local: LocalNodeThreadSummary[];
   agent: AgentNodeThreadSummary[];
 }

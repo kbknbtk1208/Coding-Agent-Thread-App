@@ -107,6 +107,7 @@ function createSnapshot() {
     sourceBranchName: 'feature/test',
     diffVersion: null,
     changedFiles: [],
+    remoteThreads: [],
     diagnostics: [],
   };
 }

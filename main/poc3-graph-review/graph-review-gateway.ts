@@ -1119,9 +1119,10 @@ export class GraphReviewGateway {
   async refreshWorkspaceRevisions(
     input: RefreshWorkspaceRevisionsInput,
   ): Promise<RefreshWorkspaceRevisionsResult> {
-    const result = await this.revisionRefreshCoordinator.refresh(input.reviewWorkspaceId.trim());
-    if (result.ok && result.refresh.createdRevisionId) {
-      this.clearWorkspaceCaches(input.reviewWorkspaceId.trim());
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const result = await this.revisionRefreshCoordinator.refresh(reviewWorkspaceId);
+    if (result.ok) {
+      this.clearWorkspaceCaches(reviewWorkspaceId);
     }
     return result;
   }
@@ -1248,7 +1249,10 @@ export class GraphReviewGateway {
       throw new Error('Graph snapshot が存在しないため render snapshot を作成できません。');
     }
     const graphSnapshotId = record.graph.graphSnapshotId;
-    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}`;
+    const sourceSnapshot = record.activeRevision
+      ? this.graphStore.getSourceSnapshotByRevision(record.activeRevision.revisionId)
+      : null;
+    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}`;
     const cached = this.renderSnapshotCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -1273,9 +1277,43 @@ export class GraphReviewGateway {
       }
     }
 
-    const renderSnapshot = toRenderSnapshot(record.graph, record.layout, agentFindingCounts);
+    const remoteThreadCounts = sourceSnapshot
+      ? buildRemoteThreadCountByNode(record.graph.nodes, sourceSnapshot.remoteThreads)
+      : new Map<string, number>();
+
+    const renderSnapshot = toRenderSnapshot(
+      record.graph,
+      record.layout,
+      agentFindingCounts,
+      remoteThreadCounts,
+    );
     this.renderSnapshotCache.set(cacheKey, renderSnapshot);
     return renderSnapshot;
+  }
+
+  listArchivedRemoteThreads(input: {
+    reviewWorkspaceId: string;
+  }): import('../../shared/poc3-contracts/graph-review-ipc').ListArchivedRemoteThreadsResult {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const revision = this.graphStore.getActiveRevision(reviewWorkspaceId);
+    if (!revision) {
+      return { threads: [] };
+    }
+    const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(revision.revisionId);
+    if (!sourceSnapshot) {
+      return { threads: [] };
+    }
+    const archived = sourceSnapshot.remoteThreads.filter(
+      (t) => t.anchorStatus === 'outdated' || t.anchorStatus === 'unanchored',
+    );
+    return {
+      threads: archived.map((thread) => ({
+        reviewWorkspaceId,
+        revisionId: revision.revisionId,
+        headSha: revision.headSha,
+        thread,
+      })),
+    };
   }
 
   private clearWorkspaceCaches(reviewWorkspaceId: string): void {
@@ -1302,6 +1340,7 @@ function toRenderSnapshot(
   graph: CodeGraphSnapshot,
   layout: LayoutSnapshot | null,
   agentFindingCounts: Map<string, number> = new Map(),
+  remoteThreadCounts: Map<string, number> = new Map(),
 ): GraphRenderSnapshot {
   const diagnostics: GraphDiagnostic[] = [...graph.diagnostics];
   const positions: Record<string, GraphNodeLayout> = layout?.positions ?? fallbackGridLayout(graph);
@@ -1320,11 +1359,14 @@ function toRenderSnapshot(
     nodes: graph.nodes.map((node) => {
       const position = positions[node.nodeId] ?? { x: 0, y: 0, ...nodeSize(node) };
       const findingCount = node.badges.findingCount + (agentFindingCounts.get(node.nodeId) ?? 0);
+      const remoteThreadCount =
+        remoteThreadCounts.get(node.nodeId) ?? node.badges.remoteThreadCount;
       return {
         ...node,
         badges: {
           ...node.badges,
           findingCount,
+          remoteThreadCount,
         },
         position: { x: position.x, y: position.y },
         size: { width: position.width, height: position.height },
@@ -1339,4 +1381,45 @@ function toRenderSnapshot(
     limits: graph.limits,
     diagnostics,
   };
+}
+
+export function buildRemoteThreadCountByNode(
+  nodes: CodeGraphSnapshot['nodes'],
+  remoteThreads: import('../../shared/poc3-domain/source-snapshot').ReviewRemoteThread[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const currentThreads = remoteThreads.filter(
+    (t) => t.anchorStatus === 'current' && t.location.kind === 'diff',
+  );
+  for (const node of nodes) {
+    if (!node.filePath) {
+      continue;
+    }
+    let count = 0;
+    for (const thread of currentThreads) {
+      if (thread.location.kind !== 'diff') {
+        continue;
+      }
+      if (thread.location.filePath !== node.filePath) {
+        continue;
+      }
+      if (node.kind === 'module' || node.kind === 'file-scope') {
+        count += 1;
+        continue;
+      }
+      const range = node.declarationRange;
+      if (!range) {
+        count += 1;
+        continue;
+      }
+      const line = thread.location.endLine ?? thread.location.startLine;
+      if (line !== null && line >= range.startLine && line <= range.endLine) {
+        count += 1;
+      }
+    }
+    if (count > 0) {
+      counts.set(node.nodeId, count);
+    }
+  }
+  return counts;
 }

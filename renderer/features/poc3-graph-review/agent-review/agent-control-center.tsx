@@ -4,6 +4,8 @@ import { Bot, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import { ArchivedRemoteThreadSection } from '../provider-comments/archived-remote-thread-section';
+import { useArchivedRemoteThreads } from '../provider-comments/use-archived-remote-threads';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { isAgentReviewRunActive } from './agent-review-state';
 import { AgentReviewHistoryList } from './agent-review-history-list';
@@ -59,6 +61,7 @@ export function AgentControlCenter({
 }: AgentControlCenterProps) {
   const review = useAgentReview(selectedWorkspace.reviewWorkspaceId);
   const outdatedThreads = useOutdatedAgentThreads(selectedWorkspace.reviewWorkspaceId);
+  const archivedRemoteThreads = useArchivedRemoteThreads(selectedWorkspace.reviewWorkspaceId);
   const [stage, setStage] = useState<AnimationStage>('collapsed');
   const [pendingCompletedNotice, setPendingCompletedNotice] = useState(false);
   const [view, setView] = useState<AgentReviewDockView>({ kind: 'history' });
@@ -263,6 +266,7 @@ export function AgentControlCenter({
                 />
                 <div className="px-4 pb-3">
                   <OutdatedThreadSection threads={outdatedThreads.threads} />
+                  <ArchivedRemoteThreadSection threads={archivedRemoteThreads.threads} />
                 </div>
               </motion.div>
             ) : view.kind === 'new-review' ? (

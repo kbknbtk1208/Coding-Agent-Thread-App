@@ -20,6 +20,7 @@ import {
 } from './worktree-manager';
 import { runSetupScript } from './setup-script-runner';
 import { fetchReviewSourceSnapshot } from '../source/review-source-gateway';
+import { buildRemoteThreadSummary } from '../source/remote-thread-anchor-resolver';
 import { createQueuedInitialAnalysisRun } from '../analysis/analysis-coordinator';
 import type { InitialWorkspaceBundle } from '../store/graph-review-store';
 
@@ -280,7 +281,8 @@ export class ReviewWorkspaceCreationCoordinator {
       startSha: snapshot.startSha,
       diffVersion: snapshot.diffVersion,
       changedFiles: snapshot.changedFiles,
-      remoteThreadsSummary: [],
+      remoteThreads: snapshot.remoteThreads,
+      remoteThreadsSummary: buildRemoteThreadSummary(snapshot.remoteThreads),
       createdAt: persistedAt,
       updatedAt: persistedAt,
     };
