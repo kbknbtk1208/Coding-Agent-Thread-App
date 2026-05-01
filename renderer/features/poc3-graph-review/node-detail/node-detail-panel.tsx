@@ -4,6 +4,7 @@ import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   FileCode2,
   FileText,
@@ -606,15 +607,26 @@ function AgentFindingThreadLayer({ findings }: { findings: NodeDetailSnapshot['f
 function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
   const threadContext = useAgentThreadConversationContext();
   const { loadOne } = threadContext;
+  const headerId = useId();
+  const contentId = useId();
+  const [isExpanded, setIsExpanded] = useState(false);
   const conversation = threadContext.conversations[finding.localThreadId] ?? null;
   const draft = threadContext.draftReplies[finding.localThreadId] ?? '';
   const isReplyPending = threadContext.isReplyPending(finding.localThreadId);
+  const replyStatus = isReplyPending ? 'replying' : (conversation?.replyStatus ?? 'idle');
 
   useEffect(() => {
+    if (!isExpanded) {
+      return;
+    }
     void loadOne(finding.localThreadId);
-  }, [finding.localThreadId, loadOne]);
+  }, [finding.localThreadId, isExpanded, loadOne]);
 
-  const replyStatus = isReplyPending ? 'replying' : (conversation?.replyStatus ?? 'idle');
+  useEffect(() => {
+    if (replyStatus === 'replying' || conversation?.lastError) {
+      setIsExpanded(true);
+    }
+  }, [conversation?.lastError, replyStatus]);
 
   return (
     <article className="relative overflow-hidden rounded-[8px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(255,255,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(255,255,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
@@ -623,43 +635,77 @@ function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['find
         className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.038)_48%,rgba(255,255,255,0.018)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"
       />
       <div className="relative z-10">
-        <FindingHeaderBadges finding={finding} />
-        <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
-        {replyStatus === 'replying' ? (
-          <InlineThreadStreamingPanel conversation={conversation} />
-        ) : null}
-        {conversation?.lastError ? <ThreadErrorBanner message={conversation.lastError} /> : null}
-        {finding.hasReplyableSession ? (
-          <ThreadReplyComposer
-            body={draft}
-            replyStatus={replyStatus}
-            onChange={(body) => threadContext.setDraftReply(finding.localThreadId, body)}
-            onSubmit={() => threadContext.submitReply(finding.localThreadId)}
-          />
+        <FindingThreadAccordionHeader
+          headerId={headerId}
+          contentId={contentId}
+          finding={finding}
+          isExpanded={isExpanded}
+          onToggle={() => setIsExpanded((current) => !current)}
+        />
+        {isExpanded ? (
+          <div id={contentId} role="region" aria-labelledby={headerId}>
+            <FindingHeaderBadges finding={finding} />
+            <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
+            {replyStatus === 'replying' ? (
+              <InlineThreadStreamingPanel conversation={conversation} />
+            ) : null}
+            {conversation?.lastError ? (
+              <ThreadErrorBanner message={conversation.lastError} />
+            ) : null}
+            {finding.hasReplyableSession ? (
+              <ThreadReplyComposer
+                body={draft}
+                replyStatus={replyStatus}
+                onChange={(body) => threadContext.setDraftReply(finding.localThreadId, body)}
+                onSubmit={() => threadContext.submitReply(finding.localThreadId)}
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
     </article>
   );
 }
 
-function FindingHeaderBadges({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
-  const severityClass =
-    finding.severity === 'high'
-      ? 'border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 text-[#ffd9d9]'
-      : finding.severity === 'medium'
-        ? 'border border-[#FFA16C]/20 bg-[#FFA16C]/10 text-[#ffd9c0]'
-        : 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
-
+function FindingThreadAccordionHeader({
+  headerId,
+  contentId,
+  finding,
+  isExpanded,
+  onToggle,
+}: {
+  headerId: string;
+  contentId: string;
+  finding: NodeDetailSnapshot['findings'][number];
+  isExpanded: boolean;
+  onToggle(): void;
+}) {
+  const Icon = isExpanded ? ChevronDown : ChevronRight;
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <button
+      id={headerId}
+      type="button"
+      className="flex w-full min-w-0 items-center gap-2 rounded-[6px] px-1 py-1 text-left text-[#f8f7f4] transition hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300/35"
+      onClick={onToggle}
+      aria-expanded={isExpanded}
+      aria-controls={contentId}
+    >
+      <Icon className="size-4 shrink-0 text-fuchsia-100/75" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+        {finding.title}
+      </span>
+      <FindingSeverityBadge finding={finding} />
+    </button>
+  );
+}
+
+function FindingHeaderBadges({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
       <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
         Agent Review
       </span>
-      <span
-        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${severityClass}`}
-      >
-        {finding.severity}
-      </span>
+      <FindingSeverityBadge finding={finding} />
       <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
         {finding.category}
       </span>
@@ -677,6 +723,23 @@ function FindingHeaderBadges({ finding }: { finding: NodeDetailSnapshot['finding
         </span>
       ) : null}
     </div>
+  );
+}
+
+function FindingSeverityBadge({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
+  const severityClass =
+    finding.severity === 'high'
+      ? 'border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 text-[#ffd9d9]'
+      : finding.severity === 'medium'
+        ? 'border border-[#FFA16C]/20 bg-[#FFA16C]/10 text-[#ffd9c0]'
+        : 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
+
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${severityClass}`}
+    >
+      {finding.severity}
+    </span>
   );
 }
 
