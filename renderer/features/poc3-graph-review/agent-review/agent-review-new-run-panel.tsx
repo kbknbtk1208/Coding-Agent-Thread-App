@@ -1,6 +1,10 @@
 'use client';
 
-import { ArrowLeft, Loader2, Play } from 'lucide-react';
+import { ArrowLeft, Bot, Check, ChevronDown, Loader2, Play } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { FaGithub } from 'react-icons/fa6';
+import { SiOpenai } from 'react-icons/si';
+import type { AgentKind } from '../../../../shared/domain/agent';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { AgentReviewGlassSelect } from './agent-review-glass-select';
 import type { UseAgentReviewResult } from './use-agent-review';
@@ -14,9 +18,9 @@ export interface AgentReviewNewRunPanelProps {
   onStarted(runId: string): void;
 }
 
-const AGENT_OPTIONS = [
-  { value: 'codex' as const, label: 'Codex' },
-  { value: 'copilot' as const, label: 'Copilot' },
+const AGENT_OPTIONS: { value: AgentKind; label: string; provider: string }[] = [
+  { value: 'codex', label: 'Codex', provider: 'OpenAI' },
+  { value: 'copilot', label: 'Copilot', provider: 'GitHub' },
 ];
 
 export function AgentReviewNewRunPanel({
@@ -27,6 +31,40 @@ export function AgentReviewNewRunPanel({
   onStarted,
 }: AgentReviewNewRunPanelProps) {
   const disabled = !review.canStart || graph.nodes.length === 0;
+  const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
+  const agentMenuRef = useRef<HTMLDivElement>(null);
+  const selectedAgentOption =
+    AGENT_OPTIONS.find((option) => option.value === review.selectedAgent) ?? AGENT_OPTIONS[0];
+
+  useEffect(() => {
+    if (!review.canStart) {
+      setIsAgentMenuOpen(false);
+    }
+  }, [review.canStart]);
+
+  useEffect(() => {
+    if (!isAgentMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!agentMenuRef.current?.contains(event.target as Node)) {
+        setIsAgentMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsAgentMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAgentMenuOpen]);
 
   const selectedCodexModel = review.codexModelState.models.find(
     (model) => model.model === review.codexModelState.selectedModel,
@@ -66,22 +104,92 @@ export function AgentReviewNewRunPanel({
         <span className="text-[11px] font-semibold text-white/55">New Review</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-1 rounded-[7px] border border-white/[0.06] bg-white/[0.03] p-1">
-        {AGENT_OPTIONS.map((option) => (
+      <div className="flex justify-end">
+        <div ref={agentMenuRef} className="relative w-[164px]">
           <button
-            key={option.value}
             type="button"
-            className={`rounded-[5px] px-2 py-1.5 text-[12px] font-semibold transition ${
-              review.selectedAgent === option.value
-                ? 'bg-white text-black'
-                : 'text-white/52 hover:bg-white/[0.08] hover:text-white'
-            }`}
-            onClick={() => review.setSelectedAgent(option.value)}
             disabled={!review.canStart}
+            aria-haspopup="listbox"
+            aria-expanded={isAgentMenuOpen}
+            aria-label="Agent"
+            className="flex h-12 w-full items-center gap-2 rounded-[9px] border border-white/[0.08] bg-[#25262b]/92 px-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_14px_34px_rgba(0,0,0,0.28)] backdrop-blur-[18px] transition hover:bg-[#2c2d33] focus:border-[#58d7ff]/30 focus:shadow-[0_0_0_2px_rgba(88,215,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => setIsAgentMenuOpen((current) => !current)}
           >
-            {option.label}
+            <span
+              className={`flex size-8 shrink-0 items-center justify-center rounded-[8px] shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] ${
+                review.selectedAgent === 'codex'
+                  ? 'bg-[#89c9bd] text-white'
+                  : 'bg-white text-[#111217]'
+              }`}
+            >
+              <AgentChoiceIcon agent={review.selectedAgent} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-bold leading-4 text-white">
+                {selectedAgentOption.label}
+              </span>
+              <span className="block truncate text-[11px] font-medium leading-4 text-white/50">
+                {selectedAgentOption.provider}
+              </span>
+            </span>
+            <ChevronDown
+              className={`size-3.5 shrink-0 text-white/70 transition ${
+                isAgentMenuOpen ? 'rotate-180' : ''
+              }`}
+              aria-hidden="true"
+            />
           </button>
-        ))}
+
+          {isAgentMenuOpen ? (
+            <div
+              role="listbox"
+              aria-label="Agent options"
+              className="absolute right-0 top-[calc(100%+6px)] z-50 w-[260px] overflow-hidden rounded-[9px] border border-white/[0.08] bg-[#17181d]/96 p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.46)] backdrop-blur-[20px]"
+            >
+              {AGENT_OPTIONS.map((option) => {
+                const isSelected = option.value === review.selectedAgent;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={`flex w-full items-center gap-3 rounded-[7px] px-2 py-2 text-left transition ${
+                      isSelected ? 'bg-white/[0.06]' : 'hover:bg-white/[0.045]'
+                    }`}
+                    onClick={() => {
+                      review.setSelectedAgent(option.value);
+                      setIsAgentMenuOpen(false);
+                    }}
+                  >
+                    <span
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-[8px] ${
+                        option.value === 'codex'
+                          ? 'bg-[#89c9bd] text-white'
+                          : 'bg-white text-[#111217]'
+                      }`}
+                    >
+                      <AgentChoiceIcon agent={option.value} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-[13px] font-bold leading-4 text-white">
+                          {option.label}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-white/48">
+                        {option.provider}
+                      </span>
+                    </span>
+                    {isSelected ? (
+                      <Check className="size-3.5 shrink-0 text-[#66dd89]" aria-hidden="true" />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {review.selectedAgent === 'codex' ? (
@@ -157,4 +265,16 @@ export function AgentReviewNewRunPanel({
       </button>
     </div>
   );
+}
+
+function AgentChoiceIcon({ agent }: { agent: AgentKind }) {
+  if (agent === 'copilot') {
+    return <FaGithub className="size-4" aria-hidden="true" />;
+  }
+
+  if (agent === 'codex') {
+    return <SiOpenai className="size-5" aria-hidden="true" />;
+  }
+
+  return <Bot className="size-4" aria-hidden="true" />;
 }
