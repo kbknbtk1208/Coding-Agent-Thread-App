@@ -601,8 +601,12 @@ function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['find
         : 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
 
   return (
-    <article className="rounded-[12px] border border-white/10 bg-white/[0.03] p-3 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
-      <div className="flex flex-wrap items-center gap-2">
+    <article className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(255,255,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(255,255,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.038)_48%,rgba(255,255,255,0.018)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"
+      />
+      <div className="relative z-10 flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
           Agent Review
         </span>
@@ -623,7 +627,7 @@ function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['find
           </span>
         ) : null}
       </div>
-      <div className="mt-3">
+      <div className="relative z-10 mt-3">
         <div className="flex items-start gap-2">
           <MessageSquareText className="mt-0.5 size-4 shrink-0 text-fuchsia-200/80" />
           <div className="min-w-0">
