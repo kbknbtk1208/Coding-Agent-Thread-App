@@ -12,6 +12,7 @@ import {
   getSessionLevelPendingPermissions,
   isBusyAgentStatus,
 } from './session-event-state';
+import { cn } from '../lib/cn';
 import { ChainOfThought } from './ui/chain-of-thought';
 import { Reasoning } from './ui/reasoning';
 import { ShimmerText } from './ui/shimmer-text';
@@ -75,10 +76,14 @@ export function renderStreamingRichText(text: string, className: string) {
   );
 }
 
-export function renderWaitingResponse(text = '応答を待っています...') {
+export function renderWaitingResponse(
+  text = '応答を待っています...',
+  className = 'text-sm leading-7',
+  shimmerClassName = 'block font-medium',
+) {
   return (
-    <p className="text-sm leading-7">
-      <ShimmerText text={text} className="block font-medium" />
+    <p className={className}>
+      <ShimmerText text={text} className={shimmerClassName} />
     </p>
   );
 }
@@ -178,9 +183,18 @@ export function SessionPermissionCard(props: {
 }
 
 export function SessionIntermediateSegments(props: {
+  activeSegmentClassName?: string;
+  chainClassName?: string;
+  chainContentClassName?: string;
+  className?: string;
+  inactiveSegmentClassName?: string;
   isLatestTurn: boolean;
+  reasoningClassName?: string;
+  reasoningContentClassName?: string;
   segments: ConversationIntermediateSegment[];
   turn: ConversationTurn;
+  waitingClassName?: string;
+  waitingShimmerClassName?: string;
 }) {
   const isActiveTurn =
     props.isLatestTurn &&
@@ -200,24 +214,39 @@ export function SessionIntermediateSegments(props: {
       : null;
 
   return (
-    <div className="space-y-3">
+    <div className={cn('space-y-3', props.className)}>
       {messageSegments.length > 0 ? (
-        <ChainOfThought>
+        <ChainOfThought
+          className={props.chainClassName}
+          contentClassName={props.chainContentClassName}
+        >
           {messageSegments.map((segment) => {
             const isActiveSegment = segment.segmentId === activeMessageSegmentId;
             return (
-              <Reasoning key={segment.segmentId} isActive={isActiveSegment}>
+              <Reasoning
+                key={segment.segmentId}
+                className={props.reasoningClassName}
+                contentClassName={props.reasoningContentClassName}
+                isActive={isActiveSegment}
+              >
                 {isActiveSegment ? (
-                  renderStreamingRichText(segment.text, 'whitespace-pre-wrap text-sm leading-7')
+                  renderStreamingRichText(
+                    segment.text,
+                    cn('whitespace-pre-wrap text-sm leading-7', props.activeSegmentClassName),
+                  )
                 ) : (
-                  <span className="whitespace-pre-wrap">{segment.text}</span>
+                  <span className={cn('whitespace-pre-wrap', props.inactiveSegmentClassName)}>
+                    {segment.text}
+                  </span>
                 )}
               </Reasoning>
             );
           })}
         </ChainOfThought>
       ) : null}
-      {hintText !== null ? renderWaitingResponse(hintText) : null}
+      {hintText !== null
+        ? renderWaitingResponse(hintText, props.waitingClassName, props.waitingShimmerClassName)
+        : null}
     </div>
   );
 }

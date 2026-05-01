@@ -4,11 +4,17 @@ import { cn } from '../../lib/cn';
 
 type ReasoningProps = {
   children: React.ReactNode;
+  contentClassName?: string;
   isActive?: boolean;
   className?: string;
 };
 
-export function Reasoning({ children, isActive = false, className }: ReasoningProps) {
+export function Reasoning({
+  children,
+  contentClassName,
+  isActive = false,
+  className,
+}: ReasoningProps) {
   return (
     <div className={cn('flex gap-3 py-1', className)}>
       <div className="relative mt-[0.6em] flex-shrink-0">
@@ -21,6 +27,7 @@ export function Reasoning({ children, isActive = false, className }: ReasoningPr
         className={cn(
           'min-w-0 flex-1 text-sm leading-7',
           isActive ? 'text-slate-200' : 'text-slate-400',
+          contentClassName,
         )}
       >
         {children}

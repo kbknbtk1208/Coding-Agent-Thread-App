@@ -3,10 +3,18 @@ import fs from 'fs';
 import type {
   AwaitAgentReviewResultInput,
   AwaitAgentReviewResultResult,
+  AwaitAgentReviewThreadReplyResultInput,
+  AwaitAgentReviewThreadReplyResultResult,
+  BeginAgentReviewThreadReplyInput,
+  BeginAgentReviewThreadReplyResult,
   ListAgentReviewRunsInput,
   ListAgentReviewRunsResult,
+  ListAgentThreadConversationsInput,
+  ListAgentThreadConversationsResult,
   ListOutdatedAgentThreadsInput,
   ListOutdatedAgentThreadsResult,
+  LoadAgentThreadConversationInput,
+  LoadAgentThreadConversationResult,
   LoadNodeDetailInput,
   LoadNodeDetailResult,
   LoadWorkspaceGraphInput,
@@ -72,6 +80,10 @@ import { removeWorktree } from './workspace/worktree-manager';
 import { AnalysisCoordinator } from './analysis/analysis-coordinator';
 import { Poc3AgentReviewCoordinator } from './agent/coordinator';
 import { Poc3AgentReviewStore } from './agent/store';
+import {
+  Poc3AgentReviewThreadReplyCoordinator,
+  Poc3ThreadReplyError,
+} from './agent/thread-reply-coordinator';
 import { fallbackGridLayout } from './layout/elk-layout-service';
 import { resolveNodeDetail } from './node-detail/node-detail-resolver';
 import { GraphReviewStore, type WorkspaceGraphRecord } from './store/graph-review-store';
@@ -102,6 +114,7 @@ export class GraphReviewGateway {
   private readonly graphStore: GraphReviewStore;
   private readonly agentReviewStore: Poc3AgentReviewStore;
   private readonly agentReviewCoordinator: Poc3AgentReviewCoordinator | null;
+  private readonly threadReplyCoordinator: Poc3AgentReviewThreadReplyCoordinator | null;
   private readonly analysisCoordinator: AnalysisCoordinator;
   private readonly creationCoordinator: ReviewWorkspaceCreationCoordinator;
   private readonly revisionViewBuilder: RevisionViewBuilder;
@@ -120,7 +133,13 @@ export class GraphReviewGateway {
       undefined,
     private readonly agentGateway?: Pick<
       AgentGateway,
-      'startSession' | 'awaitSettled' | 'listSessions' | 'respondPermission'
+      | 'startSession'
+      | 'awaitSettled'
+      | 'listSessions'
+      | 'respondPermission'
+      | 'continueConversation'
+      | 'forkSession'
+      | 'sendFollowUp'
     >,
   ) {
     this.providerStore = new RepositoryProviderStore(userDataPath);
@@ -129,6 +148,12 @@ export class GraphReviewGateway {
     this.agentReviewStore = new Poc3AgentReviewStore(userDataPath);
     this.agentReviewCoordinator = this.agentGateway
       ? new Poc3AgentReviewCoordinator({
+          agentGateway: this.agentGateway,
+          store: this.agentReviewStore,
+        })
+      : null;
+    this.threadReplyCoordinator = this.agentGateway
+      ? new Poc3AgentReviewThreadReplyCoordinator({
           agentGateway: this.agentGateway,
           store: this.agentReviewStore,
         })
@@ -535,6 +560,9 @@ export class GraphReviewGateway {
       renderSnapshot,
       sourceSnapshot,
       agentThreads,
+      runById: new Map(
+        this.agentReviewStore.listRuns(reviewWorkspaceId).map((run) => [run.runId, run] as const),
+      ),
     });
     if (resolved.ok && resolved.detail) {
       return { ok: true, detail: resolved.detail };
@@ -615,6 +643,24 @@ export class GraphReviewGateway {
     if (!this.agentGateway) {
       return;
     }
+    const binding = this.agentReviewStore.getBindingByDiscussionSession(event.appSessionId);
+    if (binding) {
+      const session = this.agentGateway
+        .listSessions()
+        .find((item) => item.appSessionId === event.appSessionId);
+      if (session && this.threadReplyCoordinator) {
+        this.emitAgentReviewEvent({
+          type: 'agent-review.thread-reply.session',
+          reviewWorkspaceId: binding.reviewWorkspaceId,
+          revisionId: binding.revisionId,
+          localThreadId: binding.localThreadId,
+          replyId: this.threadReplyCoordinator.resolveLatestReplyId(binding.localThreadId) ?? '',
+          session,
+          agentEvent: event,
+        });
+      }
+      return;
+    }
     const run = this.agentReviewStore.getRunByAppSessionId(event.appSessionId);
     if (!run) {
       return;
@@ -634,6 +680,107 @@ export class GraphReviewGateway {
         agentEvent: event,
       });
     }
+  }
+
+  async beginAgentReviewThreadReply(
+    input: BeginAgentReviewThreadReplyInput,
+  ): Promise<BeginAgentReviewThreadReplyResult> {
+    if (!this.threadReplyCoordinator) {
+      return {
+        ok: false,
+        reason: 'agentUnavailable',
+        message: 'AgentGateway が設定されていません。',
+      };
+    }
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const revisionId = input.revisionId.trim();
+    const record = this.graphStore.getWorkspaceGraphRecord(
+      reviewWorkspaceId,
+      INITIAL_GRAPH_SCOPE_KEY,
+    );
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+      };
+    }
+    if (!record.activeRevision || record.activeRevision.revisionId !== revisionId) {
+      return { ok: false, reason: 'revisionNotFound', message: 'Revision が見つかりません。' };
+    }
+    const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(revisionId);
+    try {
+      const begun = await this.threadReplyCoordinator.begin({
+        reviewWorkspaceId,
+        revisionId,
+        localThreadId: input.localThreadId.trim(),
+        body: input.body,
+        cwd: record.workspace.worktreePath,
+        record,
+        sourceSnapshot,
+      });
+      this.emitAgentReviewEvent({ type: 'agent-review.thread-reply.started', ...begun });
+      void this.finalizeThreadReply(begun.reply.replyId);
+      return { ok: true, ...begun };
+    } catch (error: unknown) {
+      return this.toBeginThreadReplyError(error);
+    }
+  }
+
+  async awaitAgentReviewThreadReplyResult(
+    input: AwaitAgentReviewThreadReplyResultInput,
+  ): Promise<AwaitAgentReviewThreadReplyResultResult> {
+    if (!this.threadReplyCoordinator) {
+      return {
+        ok: false,
+        reason: 'agentUnavailable',
+        message: 'AgentGateway が設定されていません。',
+      };
+    }
+    try {
+      const conversation = await this.threadReplyCoordinator.awaitResult({
+        replyId: input.replyId.trim(),
+      });
+      return { ok: true, conversation };
+    } catch (error: unknown) {
+      if (error instanceof Poc3ThreadReplyError && error.code === 'REPLY_NOT_FOUND') {
+        return { ok: false, reason: 'replyNotFound', message: error.message };
+      }
+      return {
+        ok: false,
+        reason: 'agentFailed',
+        message: error instanceof Error ? error.message : 'スレッド返信に失敗しました。',
+      };
+    }
+  }
+
+  loadAgentThreadConversation(
+    input: LoadAgentThreadConversationInput,
+  ): LoadAgentThreadConversationResult {
+    const conversation =
+      this.threadReplyCoordinator?.applyOverlay(
+        this.agentReviewStore.buildConversation(input.localThreadId.trim()),
+      ) ?? this.agentReviewStore.buildConversation(input.localThreadId.trim());
+    if (!conversation || conversation.reviewWorkspaceId !== input.reviewWorkspaceId.trim()) {
+      return {
+        ok: false,
+        reason: 'threadNotFound',
+        message: 'Finding thread が見つかりません。',
+      };
+    }
+    return { ok: true, conversation };
+  }
+
+  listAgentThreadConversations(
+    input: ListAgentThreadConversationsInput,
+  ): ListAgentThreadConversationsResult {
+    return {
+      conversations: this.agentReviewStore
+        .buildConversationsForWorkspace(input.reviewWorkspaceId.trim(), input.revisionId.trim())
+        .map(
+          (conversation) => this.threadReplyCoordinator?.applyOverlay(conversation) ?? conversation,
+        ),
+    };
   }
 
   async awaitAgentReviewResult(
@@ -731,6 +878,73 @@ export class GraphReviewGateway {
 
   private async finalizeAgentReviewRun(runId: string): Promise<void> {
     await this.awaitAgentReviewResult({ runId });
+  }
+
+  private async finalizeThreadReply(replyId: string): Promise<void> {
+    if (!this.threadReplyCoordinator) {
+      return;
+    }
+    const reply = this.agentReviewStore.getReplyRecord(replyId);
+    try {
+      const conversation = await this.threadReplyCoordinator.awaitResult({ replyId });
+      this.emitAgentReviewEvent({
+        type: 'agent-review.thread-reply.completed',
+        reviewWorkspaceId: conversation.reviewWorkspaceId,
+        revisionId: conversation.revisionId,
+        localThreadId: conversation.localThreadId,
+        replyId,
+        conversation,
+      });
+    } catch (error: unknown) {
+      if (!reply) {
+        return;
+      }
+      this.emitAgentReviewEvent({
+        type: 'agent-review.thread-reply.failed',
+        reviewWorkspaceId: reply.reviewWorkspaceId,
+        revisionId: reply.revisionId,
+        localThreadId: reply.localThreadId,
+        replyId,
+        message: error instanceof Error ? error.message : 'スレッド返信に失敗しました。',
+      });
+    }
+  }
+
+  private toBeginThreadReplyError(error: unknown): BeginAgentReviewThreadReplyResult {
+    if (!(error instanceof Poc3ThreadReplyError)) {
+      return {
+        ok: false,
+        reason: 'agentUnavailable',
+        message: error instanceof Error ? error.message : 'スレッド返信を開始できませんでした。',
+      };
+    }
+    let reason: Extract<BeginAgentReviewThreadReplyResult, { ok: false }>['reason'];
+    switch (error.code) {
+      case 'EMPTY_BODY':
+        reason = 'emptyBody';
+        break;
+      case 'REPLY_IN_FLIGHT':
+        reason = 'replyAlreadyInFlight';
+        break;
+      case 'THREAD_NOT_FOUND':
+      case 'REPLY_NOT_FOUND':
+        reason = 'threadNotFound';
+        break;
+      case 'RUN_NOT_FOUND':
+        reason = 'runNotFound';
+        break;
+      case 'FALLBACK_NOT_REPLYABLE':
+        reason = 'fallbackRunNotReplyable';
+        break;
+      case 'AGENT_FAILED':
+        reason = 'agentUnavailable';
+        break;
+    }
+    return {
+      ok: false,
+      reason,
+      message: error.message,
+    };
   }
 
   private applyAgentEventToRun(

@@ -132,6 +132,7 @@ export interface AgentNodeThreadSummary {
 
 export interface NodeFindingSummary {
   findingId: string;
+  localThreadId: string;
   severity: 'low' | 'medium' | 'high';
   category: string;
   confidence: string;
@@ -142,6 +143,7 @@ export interface NodeFindingSummary {
   endLine: number | null;
   side: 'old' | 'new' | null;
   status: 'open' | 'resolved';
+  hasReplyableSession: boolean;
 }
 
 export interface NodeDetailDiagnostic {

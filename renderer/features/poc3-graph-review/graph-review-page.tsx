@@ -3,6 +3,7 @@
 import { LayoutGroup } from 'framer-motion';
 import { Play, Settings } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { AgentThreadConversationProvider } from './agent-review/agent-thread-conversation-context';
 import { Poc3AnimatedProfileMenu } from './components/animated-profile-menu';
 import { DependencyGraphPanel } from './dependency-graph/dependency-graph-panel';
 import { CommitListDock } from './revision-timeline/commit-list-dock';
@@ -38,6 +39,7 @@ export function GraphReviewPage() {
   const revisionTimeline = useCommitRevisions(selectedWorkspace, () =>
     setGraphReloadNonce((value) => value + 1),
   );
+  const activeRevisionId = revisionTimeline.revisionView?.activeRevisionId ?? null;
 
   const menuItems = useMemo(
     () => [
@@ -79,10 +81,16 @@ export function GraphReviewPage() {
           }}
         />
         <main className="relative flex min-h-screen w-full flex-col px-4 py-4 sm:px-6 lg:px-8 xl:px-10">
-          <DependencyGraphPanel
-            selectedWorkspace={selectedWorkspace}
-            reloadNonce={graphReloadNonce}
-          />
+          <AgentThreadConversationProvider
+            key={`${selectedWorkspace?.reviewWorkspaceId ?? 'none'}:${activeRevisionId ?? 'none'}`}
+            reviewWorkspaceId={selectedWorkspace?.reviewWorkspaceId ?? null}
+            revisionId={activeRevisionId}
+          >
+            <DependencyGraphPanel
+              selectedWorkspace={selectedWorkspace}
+              reloadNonce={graphReloadNonce}
+            />
+          </AgentThreadConversationProvider>
         </main>
 
         {selectedWorkspace ? (

@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn';
 type ChainOfThoughtProps = {
   children: React.ReactNode;
   className?: string;
+  contentClassName?: string;
   defaultOpen?: boolean;
 };
 
@@ -30,7 +31,12 @@ function ChevronIcon({ isOpen }: { isOpen: boolean }) {
   );
 }
 
-export function ChainOfThought({ children, className, defaultOpen = true }: ChainOfThoughtProps) {
+export function ChainOfThought({
+  children,
+  className,
+  contentClassName,
+  defaultOpen = true,
+}: ChainOfThoughtProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -57,7 +63,9 @@ export function ChainOfThought({ children, className, defaultOpen = true }: Chai
         <span className="text-[10px] font-semibold uppercase tracking-[0.22em]">Reasoning</span>
         <ChevronIcon isOpen={isOpen} />
       </button>
-      {isOpen ? <div className="space-y-1 px-4 pb-3 pt-0">{children}</div> : null}
+      {isOpen ? (
+        <div className={cn('space-y-1 px-4 pb-3 pt-0', contentClassName)}>{children}</div>
+      ) : null}
     </div>
   );
 }

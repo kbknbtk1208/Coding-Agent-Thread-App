@@ -31,7 +31,10 @@ import type {
   ReviewRemoteThreadSummary,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
-import type { Poc3AgentReviewThread } from '../../../shared/poc3-domain/agent-review';
+import type {
+  Poc3AgentReviewRun,
+  Poc3AgentReviewThread,
+} from '../../../shared/poc3-domain/agent-review';
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
@@ -46,6 +49,7 @@ export interface ResolveNodeDetailContext {
   renderSnapshot?: GraphRenderSnapshot;
   sourceSnapshot: ReviewSourceSnapshot | null;
   agentThreads?: Poc3AgentReviewThread[];
+  runById?: Map<string, Poc3AgentReviewRun>;
 }
 
 export interface ResolveNodeDetailResult {
@@ -120,6 +124,7 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     threads,
     findings: (context.agentThreads ?? []).map((thread) => ({
       findingId: thread.findingId,
+      localThreadId: thread.localThreadId,
       severity: thread.severity,
       category: thread.category,
       confidence: thread.confidence,
@@ -130,6 +135,7 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
       endLine: thread.location.kind === 'diff' ? thread.location.endLine : null,
       side: thread.location.kind === 'diff' ? thread.location.side : null,
       status: thread.status === 'dismissed' ? 'resolved' : 'open',
+      hasReplyableSession: context.runById?.get(thread.runId)?.resultSource !== 'richText',
     })),
     diagnostics,
   };

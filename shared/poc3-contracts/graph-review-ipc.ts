@@ -2,6 +2,10 @@ import type {
   Poc3AgentReviewEnvelope,
   Poc3AgentReviewEvent,
   Poc3AgentReviewRun,
+  Poc3AgentThreadBinding,
+  Poc3AgentThreadConversation,
+  Poc3AgentThreadMessage,
+  Poc3AgentThreadReplyRecord,
 } from '../poc3-domain/agent-review';
 import type { AgentKind } from '../domain/agent';
 import type { AgentSessionSnapshot, RespondPermissionInput } from '../contracts/agent-ipc';
@@ -57,6 +61,14 @@ export type {
   Poc3AgentReviewRun,
   Poc3AgentReviewRunStatus,
   Poc3AgentReviewThread,
+  Poc3AgentThreadBinding,
+  Poc3AgentThreadBindingStrategy,
+  Poc3AgentThreadConversation,
+  Poc3AgentThreadMessage,
+  Poc3AgentThreadMessageRole,
+  Poc3AgentThreadMessageSource,
+  Poc3AgentThreadReplyRecord,
+  Poc3AgentThreadReplyStatus,
 } from '../poc3-domain/agent-review';
 export type {
   NodeCodeExcerpt,
@@ -112,6 +124,10 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   listOutdatedAgentThreads: 'poc3:agent-review:outdated-threads:list',
   respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
   agentReviewEvent: 'poc3:agent-review:event',
+  beginAgentReviewThreadReply: 'poc3:agent-review:thread-reply:begin',
+  awaitAgentReviewThreadReplyResult: 'poc3:agent-review:thread-reply:await',
+  loadAgentThreadConversation: 'poc3:agent-review:thread-conversation:load',
+  listAgentThreadConversations: 'poc3:agent-review:thread-conversation:list',
 } as const;
 
 export interface ListRepositoryProvidersResult {
@@ -377,6 +393,62 @@ export interface ListAgentReviewRunsResult {
   runs: Poc3AgentReviewRun[];
 }
 
+export interface BeginAgentReviewThreadReplyInput {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  localThreadId: string;
+  body: string;
+}
+
+export type BeginAgentReviewThreadReplyResult =
+  | {
+      ok: true;
+      reply: Poc3AgentThreadReplyRecord;
+      binding: Poc3AgentThreadBinding;
+      session: AgentSessionSnapshot;
+      userMessage: Poc3AgentThreadMessage;
+      conversation: Poc3AgentThreadConversation;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'agentUnavailable'
+        | 'workspaceNotFound'
+        | 'revisionNotFound'
+        | 'runNotFound'
+        | 'threadNotFound'
+        | 'fallbackRunNotReplyable'
+        | 'replyAlreadyInFlight'
+        | 'emptyBody';
+      message: string;
+    };
+
+export interface AwaitAgentReviewThreadReplyResultInput {
+  replyId: string;
+}
+
+export type AwaitAgentReviewThreadReplyResultResult =
+  | { ok: true; conversation: Poc3AgentThreadConversation }
+  | { ok: false; reason: 'agentUnavailable' | 'replyNotFound' | 'agentFailed'; message: string };
+
+export interface LoadAgentThreadConversationInput {
+  reviewWorkspaceId: string;
+  localThreadId: string;
+}
+
+export type LoadAgentThreadConversationResult =
+  | { ok: true; conversation: Poc3AgentThreadConversation }
+  | { ok: false; reason: 'threadNotFound'; message: string };
+
+export interface ListAgentThreadConversationsInput {
+  reviewWorkspaceId: string;
+  revisionId: string;
+}
+
+export interface ListAgentThreadConversationsResult {
+  conversations: Poc3AgentThreadConversation[];
+}
+
 export interface Poc3GraphReviewApi {
   listRepositoryProviders(): Promise<ListRepositoryProvidersResult>;
   saveRepositoryProvider(input: SaveRepositoryProviderInput): Promise<SaveRepositoryProviderResult>;
@@ -414,6 +486,18 @@ export interface Poc3GraphReviewApi {
     input: ListOutdatedAgentThreadsInput,
   ): Promise<ListOutdatedAgentThreadsResult>;
   respondAgentReviewPermission(input: RespondPermissionInput): Promise<void>;
+  beginAgentReviewThreadReply(
+    input: BeginAgentReviewThreadReplyInput,
+  ): Promise<BeginAgentReviewThreadReplyResult>;
+  awaitAgentReviewThreadReplyResult(
+    input: AwaitAgentReviewThreadReplyResultInput,
+  ): Promise<AwaitAgentReviewThreadReplyResultResult>;
+  loadAgentThreadConversation(
+    input: LoadAgentThreadConversationInput,
+  ): Promise<LoadAgentThreadConversationResult>;
+  listAgentThreadConversations(
+    input: ListAgentThreadConversationsInput,
+  ): Promise<ListAgentThreadConversationsResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
   onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
   onRevisionRefreshEvent(callback: (event: RevisionRefreshEvent) => void): () => void;

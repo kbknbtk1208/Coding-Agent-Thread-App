@@ -12,10 +12,19 @@ import {
   Loader2,
   MessageSquareText,
   Package,
+  SendHorizontal,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useId, useMemo, useRef, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  SessionIntermediateSegments,
+  renderStreamingRichText,
+  renderWaitingResponse,
+} from '../../../components/session-event-panel';
+import { isBusyAgentStatus } from '../../../components/session-event-state';
+import { Streamdown } from 'streamdown';
+import type { AppSession, ConversationTurn } from '../../../../shared/domain/agent';
 import type { GraphRenderNode } from '../../../../shared/poc3-domain/graph';
 import type {
   NodeCodeExcerpt,
@@ -25,6 +34,8 @@ import type {
   NodeFileContext,
   NodeFunctionCode,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type { Poc3AgentThreadMessage } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import { useAgentThreadConversationContext } from '../agent-review/agent-thread-conversation-context';
 import type { NodeDetailState } from './use-node-detail';
 
 const PANEL_WIDTH_CLASS = 'w-[min(660px,calc(100vw-28px))]';
@@ -593,6 +604,45 @@ function AgentFindingThreadLayer({ findings }: { findings: NodeDetailSnapshot['f
 }
 
 function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
+  const threadContext = useAgentThreadConversationContext();
+  const { loadOne } = threadContext;
+  const conversation = threadContext.conversations[finding.localThreadId] ?? null;
+  const draft = threadContext.draftReplies[finding.localThreadId] ?? '';
+  const isReplyPending = threadContext.isReplyPending(finding.localThreadId);
+
+  useEffect(() => {
+    void loadOne(finding.localThreadId);
+  }, [finding.localThreadId, loadOne]);
+
+  const replyStatus = isReplyPending ? 'replying' : (conversation?.replyStatus ?? 'idle');
+
+  return (
+    <article className="relative overflow-hidden rounded-[8px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(255,255,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(255,255,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.038)_48%,rgba(255,255,255,0.018)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"
+      />
+      <div className="relative z-10">
+        <FindingHeaderBadges finding={finding} />
+        <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
+        {replyStatus === 'replying' ? (
+          <InlineThreadStreamingPanel conversation={conversation} />
+        ) : null}
+        {conversation?.lastError ? <ThreadErrorBanner message={conversation.lastError} /> : null}
+        {finding.hasReplyableSession ? (
+          <ThreadReplyComposer
+            body={draft}
+            replyStatus={replyStatus}
+            onChange={(body) => threadContext.setDraftReply(finding.localThreadId, body)}
+            onSubmit={() => threadContext.submitReply(finding.localThreadId)}
+          />
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function FindingHeaderBadges({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
   const severityClass =
     finding.severity === 'high'
       ? 'border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 text-[#ffd9d9]'
@@ -601,45 +651,218 @@ function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['find
         : 'border border-[#4EBE96]/20 bg-[#4EBE96]/10 text-[#d7f5e8]';
 
   return (
-    <article className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(255,255,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(255,255,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.038)_48%,rgba(255,255,255,0.018)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"
-      />
-      <div className="relative z-10 flex flex-wrap items-center gap-2">
-        <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
-          Agent Review
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
+        Agent Review
+      </span>
+      <span
+        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${severityClass}`}
+      >
+        {finding.severity}
+      </span>
+      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
+        {finding.category}
+      </span>
+      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
+        {finding.confidence}
+      </span>
+      {finding.status === 'resolved' ? (
+        <span className="rounded-full border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d7f5e8]">
+          resolved
         </span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${severityClass}`}
-        >
-          {finding.severity}
+      ) : null}
+      {!finding.hasReplyableSession ? (
+        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#8b949e]">
+          read only
         </span>
-        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
-          {finding.category}
-        </span>
-        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
-          {finding.confidence}
-        </span>
-        {finding.status === 'resolved' ? (
-          <span className="rounded-full border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d7f5e8]">
-            resolved
-          </span>
-        ) : null}
-      </div>
-      <div className="relative z-10 mt-3">
-        <div className="flex items-start gap-2">
-          <MessageSquareText className="mt-0.5 size-4 shrink-0 text-fuchsia-200/80" />
-          <div className="min-w-0">
-            <h4 className="text-[13px] font-semibold leading-5 text-[#f8f7f4]">{finding.title}</h4>
-            <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6 text-[#d0d5db]">
-              {finding.body}
-            </p>
-            <p className="mt-2 text-[11px] text-[#8b949e]">{formatFindingLocation(finding)}</p>
-          </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FindingMessagesList({
+  finding,
+  messages,
+}: {
+  finding: NodeDetailSnapshot['findings'][number];
+  messages: Poc3AgentThreadMessage[] | null;
+}) {
+  const visibleMessages =
+    messages && messages.length > 0
+      ? messages
+      : [
+          {
+            localMessageId: `${finding.localThreadId}:initial`,
+            localThreadId: finding.localThreadId,
+            role: 'assistant' as const,
+            source: 'initial-finding' as const,
+            body: finding.body,
+            createdAt: '',
+          },
+        ];
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <MessageSquareText className="mt-0.5 size-4 shrink-0 text-fuchsia-200/80" />
+        <div className="min-w-0">
+          <h4 className="text-[13px] font-semibold leading-5 text-[#f8f7f4]">{finding.title}</h4>
+          <p className="mt-1 text-[11px] text-[#8b949e]">{formatFindingLocation(finding)}</p>
         </div>
       </div>
-    </article>
+      {visibleMessages.map((message) => (
+        <ThreadMessageBubble key={message.localMessageId} message={message} />
+      ))}
+    </div>
+  );
+}
+
+function ThreadMessageBubble({ message }: { message: Poc3AgentThreadMessage }) {
+  const className =
+    message.source === 'user-reply'
+      ? 'ml-6 border-[#479FFA]/25 bg-[#479FFA]/10 text-[#d7eaff]'
+      : message.source === 'agent-reply'
+        ? 'ml-6 border-fuchsia-300/18 bg-white/[0.04] text-[#d0d5db]'
+        : 'border-fuchsia-400/16 bg-fuchsia-400/[0.06] text-[#d0d5db]';
+  return (
+    <div className={`rounded-[8px] border px-3 py-2 ${className}`}>
+      <MarkdownBody>{message.body}</MarkdownBody>
+    </div>
+  );
+}
+
+function InlineThreadStreamingPanel({
+  conversation,
+}: {
+  conversation:
+    | ReturnType<typeof useAgentThreadConversationContext>['conversations'][string]
+    | null;
+}) {
+  const session = conversation?.activeReplySession ?? null;
+  const latestTurn = session?.turns.at(-1) ?? null;
+  const finalMarkdown = getFinalRichText(session, latestTurn);
+  const isActiveTurn = latestTurn
+    ? !latestTurn.result && isBusyAgentStatus(latestTurn.status)
+    : false;
+  const hasVisibleIntermediateContent =
+    latestTurn !== null &&
+    (latestTurn.intermediateSegments.some((segment) => segment.kind === 'message') || isActiveTurn);
+  const waitingText = latestTurn
+    ? isActiveTurn
+      ? (latestTurn.progressHint?.text ?? session?.progressHint?.text ?? 'Replying...')
+      : undefined
+    : (session?.progressHint?.text ?? 'Replying...');
+
+  return (
+    <div className="mt-3 rounded-[8px] border border-[#d8e071]/20 bg-[#d8e071]/8 px-3 py-2">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#f6ffc0]">
+        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+        Agent Replying
+      </div>
+      {finalMarkdown ? (
+        <MarkdownBody>{finalMarkdown}</MarkdownBody>
+      ) : latestTurn && hasVisibleIntermediateContent ? (
+        <SessionIntermediateSegments
+          segments={latestTurn.intermediateSegments}
+          isLatestTurn
+          turn={latestTurn}
+          className="space-y-2"
+          chainClassName="rounded-[8px] border-white/[0.08] bg-white/[0.03]"
+          chainContentClassName="space-y-1 px-3 pb-2.5"
+          reasoningClassName="gap-2 py-1"
+          reasoningContentClassName="text-[12px] leading-6"
+          activeSegmentClassName="text-[12px] leading-6 text-[#d0d5db]"
+          inactiveSegmentClassName="text-[#8b949e]"
+          waitingClassName="text-[12px] leading-6 text-[#d0d5db]"
+          waitingShimmerClassName="block font-medium"
+        />
+      ) : latestTurn?.response ? (
+        renderStreamingRichText(
+          latestTurn.response,
+          'whitespace-pre-wrap text-[12px] leading-6 text-[#d0d5db]',
+        )
+      ) : waitingText ? (
+        renderWaitingResponse(waitingText, 'text-[12px] leading-6 text-[#d0d5db]')
+      ) : null}
+    </div>
+  );
+}
+
+function getFinalRichText(session: AppSession | null, latestTurn: ConversationTurn | null) {
+  if (latestTurn?.result?.kind === 'richText') {
+    return latestTurn.result.content.trim();
+  }
+  if (session?.finalResult?.kind === 'richText') {
+    return session.finalResult.content.trim();
+  }
+  return '';
+}
+
+function ThreadErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="mt-3 rounded-[8px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-3 py-2 text-[12px] leading-5 text-[#ffd9d9]">
+      {message}
+    </div>
+  );
+}
+
+function ThreadReplyComposer({
+  body,
+  replyStatus,
+  onChange,
+  onSubmit,
+}: {
+  body: string;
+  replyStatus: 'idle' | 'replying' | 'failed';
+  onChange(body: string): void;
+  onSubmit(): void;
+}) {
+  const [composing, setComposing] = useState(false);
+  const disabled = replyStatus === 'replying' || body.trim().length === 0;
+  return (
+    <form
+      className="mt-3 flex items-end gap-2 border-t border-white/[0.08] pt-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!disabled && !composing) {
+          onSubmit();
+        }
+      }}
+    >
+      <textarea
+        value={body}
+        rows={2}
+        className="min-h-[46px] flex-1 resize-none rounded-[8px] border border-white/[0.1] bg-black/25 px-3 py-2 text-[12px] leading-5 text-white outline-none transition placeholder:text-white/28 focus:border-[#479FFA]/45 focus:bg-black/35"
+        placeholder="この finding についての追加質問や確認事項を入力してください。"
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={(event) => {
+          setComposing(false);
+          onChange(event.currentTarget.value);
+        }}
+        onBlur={(event) => onChange(event.currentTarget.value)}
+      />
+      <button
+        type="submit"
+        disabled={disabled || composing}
+        className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-[#479FFA]/25 bg-[#479FFA]/12 text-[#d7eaff] transition hover:border-[#479FFA]/45 hover:bg-[#479FFA]/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.03] disabled:text-white/25"
+        aria-label="Send finding thread reply"
+      >
+        {replyStatus === 'replying' ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <SendHorizontal className="size-4" aria-hidden="true" />
+        )}
+      </button>
+    </form>
+  );
+}
+
+function MarkdownBody({ children }: { children: string }) {
+  return (
+    <div className="text-[12px] leading-6 [&_code]:rounded-[4px] [&_code]:bg-white/[0.06] [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px] [&_li]:my-1 [&_ol]:my-1 [&_ol]:pl-5 [&_p]:my-1 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-[8px] [&_pre]:bg-black/35 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_ul]:my-1 [&_ul]:pl-5">
+      <Streamdown>{children}</Streamdown>
+    </div>
   );
 }
 

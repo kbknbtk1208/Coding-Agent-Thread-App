@@ -113,4 +113,87 @@ export type Poc3AgentReviewEvent =
       type: 'agent-review.failed';
       run: Poc3AgentReviewRun;
       message: string;
+    }
+  | {
+      type: 'agent-review.thread-reply.started';
+      binding: Poc3AgentThreadBinding;
+      reply: Poc3AgentThreadReplyRecord;
+      userMessage: Poc3AgentThreadMessage;
+      conversation: Poc3AgentThreadConversation;
+    }
+  | {
+      type: 'agent-review.thread-reply.session';
+      reviewWorkspaceId: string;
+      revisionId: string;
+      localThreadId: string;
+      replyId: string;
+      session: import('../contracts/agent-ipc').AgentSessionSnapshot;
+      agentEvent: import('../contracts/agent-ipc').AgentEventPayload;
+    }
+  | {
+      type: 'agent-review.thread-reply.completed';
+      reviewWorkspaceId: string;
+      revisionId: string;
+      localThreadId: string;
+      replyId: string;
+      conversation: Poc3AgentThreadConversation;
+    }
+  | {
+      type: 'agent-review.thread-reply.failed';
+      reviewWorkspaceId: string;
+      revisionId: string;
+      localThreadId: string;
+      replyId: string;
+      message: string;
     };
+
+export type Poc3AgentThreadReplyStatus = 'idle' | 'replying' | 'failed';
+
+export type Poc3AgentThreadMessageRole = 'assistant' | 'user';
+
+export type Poc3AgentThreadMessageSource = 'initial-finding' | 'user-reply' | 'agent-reply';
+
+export interface Poc3AgentThreadMessage {
+  localMessageId: string;
+  localThreadId: string;
+  role: Poc3AgentThreadMessageRole;
+  source: Poc3AgentThreadMessageSource;
+  body: string;
+  createdAt: string;
+}
+
+export type Poc3AgentThreadBindingStrategy = 'codex-fork' | 'app-side-rehydrate';
+
+export interface Poc3AgentThreadBinding {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  localThreadId: string;
+  runId: string;
+  rootAppSessionId: string;
+  discussionAppSessionId: string;
+  strategy: Poc3AgentThreadBindingStrategy;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export interface Poc3AgentThreadReplyRecord {
+  replyId: string;
+  reviewWorkspaceId: string;
+  revisionId: string;
+  localThreadId: string;
+  appSessionId: string;
+  userMessageId: string;
+  createdAt: string;
+}
+
+export interface Poc3AgentThreadConversation {
+  localThreadId: string;
+  reviewWorkspaceId: string;
+  revisionId: string;
+  runId: string;
+  binding: Poc3AgentThreadBinding | null;
+  replyStatus: Poc3AgentThreadReplyStatus;
+  lastError: string | null;
+  activeReplySessionId: string | null;
+  messages: Poc3AgentThreadMessage[];
+}

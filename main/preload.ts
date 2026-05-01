@@ -46,6 +46,10 @@ import {
 import {
   type AwaitAgentReviewResultInput,
   type AwaitAgentReviewResultResult,
+  type AwaitAgentReviewThreadReplyResultInput,
+  type AwaitAgentReviewThreadReplyResultResult,
+  type BeginAgentReviewThreadReplyInput,
+  type BeginAgentReviewThreadReplyResult,
   type BrowseDirectoryInput,
   type BrowseDirectoryResult,
   type CreateReviewWorkspaceInput,
@@ -61,10 +65,14 @@ import {
   type ListRepositoryProvidersResult,
   type ListAgentReviewRunsInput,
   type ListAgentReviewRunsResult,
+  type ListAgentThreadConversationsInput,
+  type ListAgentThreadConversationsResult,
   type ListReviewWorkspacesResult,
   type ListWorkspaceCreationJobsResult,
   type LoadNodeDetailInput,
   type LoadNodeDetailResult,
+  type LoadAgentThreadConversationInput,
+  type LoadAgentThreadConversationResult,
   POC3_GRAPH_REVIEW_IPC_CHANNELS,
   type RemoveReviewWorkspaceInput,
   type RemoveReviewWorkspaceResult,
@@ -291,6 +299,29 @@ const poc3GraphReviewApi = {
   },
   respondAgentReviewPermission(input: RespondPermissionInput): Promise<void> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.respondAgentReviewPermission, input);
+  },
+  beginAgentReviewThreadReply(
+    input: BeginAgentReviewThreadReplyInput,
+  ): Promise<BeginAgentReviewThreadReplyResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.beginAgentReviewThreadReply, input);
+  },
+  awaitAgentReviewThreadReplyResult(
+    input: AwaitAgentReviewThreadReplyResultInput,
+  ): Promise<AwaitAgentReviewThreadReplyResultResult> {
+    return ipcRenderer.invoke(
+      POC3_GRAPH_REVIEW_IPC_CHANNELS.awaitAgentReviewThreadReplyResult,
+      input,
+    );
+  },
+  loadAgentThreadConversation(
+    input: LoadAgentThreadConversationInput,
+  ): Promise<LoadAgentThreadConversationResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadAgentThreadConversation, input);
+  },
+  listAgentThreadConversations(
+    input: ListAgentThreadConversationsInput,
+  ): Promise<ListAgentThreadConversationsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentThreadConversations, input);
   },
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void) {
     const subscription = (_event: IpcRendererEvent, payload: WorkspaceCreationEvent) =>

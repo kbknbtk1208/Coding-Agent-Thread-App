@@ -1,10 +1,14 @@
 import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'electron';
 import type {
   AwaitAgentReviewResultInput,
+  AwaitAgentReviewThreadReplyResultInput,
+  BeginAgentReviewThreadReplyInput,
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
+  ListAgentThreadConversationsInput,
   ListAgentReviewRunsInput,
   ListOutdatedAgentThreadsInput,
+  LoadAgentThreadConversationInput,
   LoadNodeDetailInput,
   LoadWorkspaceGraphInput,
   LoadWorkspaceRevisionsInput,
@@ -193,6 +197,34 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.respondAgentReviewPermission,
     (_event, input: RespondPermissionInput) => {
       return gateway.respondAgentReviewPermission(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.beginAgentReviewThreadReply,
+    (_event, input: BeginAgentReviewThreadReplyInput) => {
+      return gateway.beginAgentReviewThreadReply(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.awaitAgentReviewThreadReplyResult,
+    (_event, input: AwaitAgentReviewThreadReplyResultInput) => {
+      return gateway.awaitAgentReviewThreadReplyResult(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadAgentThreadConversation,
+    (_event, input: LoadAgentThreadConversationInput) => {
+      return gateway.loadAgentThreadConversation(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.listAgentThreadConversations,
+    (_event, input: ListAgentThreadConversationsInput) => {
+      return gateway.listAgentThreadConversations(input);
     },
   );
 }
