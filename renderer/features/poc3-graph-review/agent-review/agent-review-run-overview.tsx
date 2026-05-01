@@ -64,23 +64,26 @@ export function AgentReviewRunOverview({ run, detail }: AgentReviewRunOverviewPr
       ) : null}
 
       <div className="flex flex-col gap-1">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-white/32">{title}</p>
+        <h3 className="text-[13px] font-semibold leading-5 text-[#f8f7f4]">{title}</h3>
         <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/65">{body}</p>
       </div>
 
       {overviewThreads.length > 0 ? (
-        <div className="flex flex-col gap-2 border-l-2 border-fuchsia-300/35 pl-3">
-          {overviewThreads.map((thread) => (
-            <article key={thread.localThreadId} className="flex flex-col gap-1">
-              <h4 className="text-[13px] font-semibold leading-5 text-fuchsia-50">
-                {thread.title}
-              </h4>
-              <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/65">
-                {thread.draftBody}
-              </p>
-            </article>
-          ))}
-        </div>
+        <>
+          <div className="border-t border-white/[0.06]" />
+          <div className="flex flex-col gap-2 border-l-2 border-fuchsia-300/35 pl-3">
+            {overviewThreads.map((thread) => (
+              <article key={thread.localThreadId} className="flex flex-col gap-1">
+                <h4 className="text-[13px] font-semibold leading-5 text-fuchsia-50">
+                  {thread.title}
+                </h4>
+                <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/65">
+                  {thread.draftBody}
+                </p>
+              </article>
+            ))}
+          </div>
+        </>
       ) : null}
     </div>
   );
