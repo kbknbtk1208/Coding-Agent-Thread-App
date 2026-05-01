@@ -95,6 +95,41 @@ export type {
   ReviewWorkspaceTarget,
 } from '../poc3-domain/review-workspace';
 
+export interface AgentReviewRunCommitSnapshot {
+  revisionId: string;
+  headSha: string;
+  shortSha: string;
+  message: string;
+}
+
+export interface AgentReviewRunListItem {
+  run: Poc3AgentReviewRun;
+  commit: AgentReviewRunCommitSnapshot | null;
+}
+
+export interface AgentReviewRunDetail {
+  run: Poc3AgentReviewRun;
+  envelope: Poc3AgentReviewEnvelope | null;
+  commit: AgentReviewRunCommitSnapshot | null;
+}
+
+export interface GetAgentReviewRunDetailInput {
+  reviewWorkspaceId: string;
+  runId: string;
+}
+
+export type GetAgentReviewRunDetailResult =
+  | {
+      ok: true;
+      detail: AgentReviewRunDetail;
+    }
+  | {
+      ok: false;
+      reason: 'runNotFound' | 'workspaceNotFound';
+      message: string;
+      detail: null;
+    };
+
 export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   listRepositoryProviders: 'poc3:repository-provider:list',
   saveRepositoryProvider: 'poc3:repository-provider:save',
@@ -122,6 +157,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   awaitAgentReviewResult: 'poc3:agent-review:await-result',
   listAgentReviewRuns: 'poc3:agent-review:list-runs',
   listOutdatedAgentThreads: 'poc3:agent-review:outdated-threads:list',
+  getAgentReviewRunDetail: 'poc3:agent-review:get-run-detail',
   respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
   agentReviewEvent: 'poc3:agent-review:event',
   beginAgentReviewThreadReply: 'poc3:agent-review:thread-reply:begin',
@@ -390,7 +426,7 @@ export interface ListAgentReviewRunsInput {
 }
 
 export interface ListAgentReviewRunsResult {
-  runs: Poc3AgentReviewRun[];
+  runs: AgentReviewRunListItem[];
 }
 
 export interface BeginAgentReviewThreadReplyInput {
@@ -485,6 +521,9 @@ export interface Poc3GraphReviewApi {
   listOutdatedAgentThreads(
     input: ListOutdatedAgentThreadsInput,
   ): Promise<ListOutdatedAgentThreadsResult>;
+  getAgentReviewRunDetail(
+    input: GetAgentReviewRunDetailInput,
+  ): Promise<GetAgentReviewRunDetailResult>;
   respondAgentReviewPermission(input: RespondPermissionInput): Promise<void>;
   beginAgentReviewThreadReply(
     input: BeginAgentReviewThreadReplyInput,

@@ -5,6 +5,7 @@ import type {
   BeginAgentReviewThreadReplyInput,
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
+  GetAgentReviewRunDetailInput,
   ListAgentThreadConversationsInput,
   ListAgentReviewRunsInput,
   ListOutdatedAgentThreadsInput,
@@ -190,6 +191,13 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.listOutdatedAgentThreads,
     (_event, input: ListOutdatedAgentThreadsInput) => {
       return gateway.listOutdatedAgentThreads(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.getAgentReviewRunDetail,
+    (_event, input: GetAgentReviewRunDetailInput) => {
+      return gateway.getAgentReviewRunDetail(input);
     },
   );
 

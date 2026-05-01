@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentKind, AppSession, CodexModelOption } from '../../../../shared/domain/agent';
 import {
   DEFAULT_AGENT_REVIEW_INSTRUCTIONS,
@@ -11,6 +11,7 @@ import {
 import type {
   AgentReviewCodexModelState,
   AgentReviewRun,
+  AgentReviewRunDetail,
   AgentReviewStartInput,
 } from './agent-review-types';
 
@@ -43,13 +44,19 @@ export interface UseAgentReviewResult {
   submittingPermissionKey: string | null;
   codexModelState: AgentReviewCodexModelState;
   canStart: boolean;
+  runDetailsById: Record<string, AgentReviewRunDetail>;
+  detailLoadingRunId: string | null;
+  detailErrorByRunId: Record<string, string>;
   setSelectedAgent(agent: AgentKind): void;
   setInstructions(value: string): void;
   setCodexModel(value: string): void;
   setCodexReasoningEffort(value: string): void;
-  startReview(input: Omit<AgentReviewStartInput, 'agent' | 'instructions'>): Promise<void>;
+  startReview(
+    input: Omit<AgentReviewStartInput, 'agent' | 'instructions'>,
+  ): Promise<AgentReviewRun | null>;
   toggleRun(runId: string): void;
   respondPermission(appSessionId: string, requestId: string, actionId: string): Promise<void>;
+  loadRunDetail(runId: string): Promise<void>;
 }
 
 export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult {
@@ -64,6 +71,10 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
   const [isLoadingCodexModels, setIsLoadingCodexModels] = useState(false);
   const [selectedCodexModel, setSelectedCodexModel] = useState('');
   const [selectedCodexReasoningEffort, setSelectedCodexReasoningEffort] = useState('');
+  const [runDetailsById, setRunDetailsById] = useState<Record<string, AgentReviewRunDetail>>({});
+  const [detailLoadingRunId, setDetailLoadingRunId] = useState<string | null>(null);
+  const [detailErrorByRunId, setDetailErrorByRunId] = useState<Record<string, string>>({});
+  const detailLoadingRunIdRef = useRef<string | null>(null);
 
   const syncSession = useCallback((session: AppSession) => {
     setRuns((current) =>
@@ -80,20 +91,21 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
       .then((result) => {
         if (disposed) return;
         setRuns(
-          result.runs.slice(0, 8).map((run) => ({
-            runId: run.runId,
-            agent: run.reviewAgent,
-            instructions: run.instructions,
-            status: run.status,
-            appSessionId: run.rootAppSessionId,
+          result.runs.slice(0, 8).map((item) => ({
+            runId: item.run.runId,
+            agent: item.run.reviewAgent,
+            instructions: item.run.instructions,
+            status: item.run.status,
+            appSessionId: item.run.rootAppSessionId,
             session: null,
             errorMessage: null,
-            codexModel: run.codexModel ?? null,
-            codexReasoningEffort: run.codexReasoningEffort ?? null,
-            createdAt: run.createdAt,
-            updatedAt: run.completedAt ?? run.createdAt,
-            completedAt: run.completedAt,
-            serverRun: run,
+            codexModel: item.run.codexModel ?? null,
+            codexReasoningEffort: item.run.codexReasoningEffort ?? null,
+            commit: item.commit,
+            createdAt: item.run.createdAt,
+            updatedAt: item.run.completedAt ?? item.run.createdAt,
+            completedAt: item.run.completedAt,
+            serverRun: item.run,
           })),
         );
       })
@@ -101,6 +113,12 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
     return () => {
       disposed = true;
     };
+  }, [reviewWorkspaceId]);
+
+  useEffect(() => {
+    setRunDetailsById({});
+    setDetailErrorByRunId({});
+    setDetailLoadingRunId(null);
   }, [reviewWorkspaceId]);
 
   useEffect(() => {
@@ -173,9 +191,10 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
       }
       if (event.type === 'agent-review.completed') {
         if (event.envelope.run.reviewWorkspaceId !== reviewWorkspaceId) return;
+        const completedRunId = event.envelope.run.runId;
         setRuns((current) =>
           current.map((run) =>
-            run.runId === event.envelope.run.runId
+            run.runId === completedRunId
               ? {
                   ...run,
                   status: event.envelope.run.status,
@@ -186,6 +205,11 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
               : run,
           ),
         );
+        setRunDetailsById((current) => {
+          const next = { ...current };
+          delete next[completedRunId];
+          return next;
+        });
         return;
       }
       if (event.type === 'agent-review.failed') {
@@ -210,8 +234,10 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
   }, [reviewWorkspaceId]);
 
   const startReview = useCallback(
-    async ({ target }: Omit<AgentReviewStartInput, 'agent' | 'instructions'>) => {
-      if (isStarting) return;
+    async ({
+      target,
+    }: Omit<AgentReviewStartInput, 'agent' | 'instructions'>): Promise<AgentReviewRun | null> => {
+      if (isStarting) return null;
       setIsStarting(true);
       const trimmedInstructions = instructions.trim();
 
@@ -233,30 +259,29 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
           [nextRun, ...current.filter((run) => run.runId !== nextRun.runId)].slice(0, 8),
         );
         setExpandedRunId(nextRun.runId);
+        return nextRun;
       } catch (error) {
         const failedAt = new Date().toISOString();
         const runId = `agent-review-start-failed-${Date.now()}`;
-        setRuns((current) =>
-          [
-            {
-              runId,
-              agent: selectedAgent,
-              instructions: trimmedInstructions,
-              status: 'failed' as const,
-              appSessionId: null,
-              session: null,
-              errorMessage: toErrorMessage(error),
-              codexModel: selectedAgent === 'codex' ? selectedCodexModel || null : null,
-              codexReasoningEffort:
-                selectedAgent === 'codex' ? selectedCodexReasoningEffort || null : null,
-              createdAt: failedAt,
-              updatedAt: failedAt,
-              completedAt: failedAt,
-            },
-            ...current,
-          ].slice(0, 8),
-        );
+        const failedRun: AgentReviewRun = {
+          runId,
+          agent: selectedAgent,
+          instructions: trimmedInstructions,
+          status: 'failed' as const,
+          appSessionId: null,
+          session: null,
+          errorMessage: toErrorMessage(error),
+          codexModel: selectedAgent === 'codex' ? selectedCodexModel || null : null,
+          codexReasoningEffort:
+            selectedAgent === 'codex' ? selectedCodexReasoningEffort || null : null,
+          commit: null,
+          createdAt: failedAt,
+          updatedAt: failedAt,
+          completedAt: failedAt,
+        };
+        setRuns((current) => [failedRun, ...current].slice(0, 8));
         setExpandedRunId(runId);
+        return failedRun;
       } finally {
         setIsStarting(false);
       }
@@ -290,6 +315,41 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
     [syncSession],
   );
 
+  const loadRunDetail = useCallback(
+    async (runId: string) => {
+      if (detailLoadingRunIdRef.current === runId) return;
+      detailLoadingRunIdRef.current = runId;
+      setDetailLoadingRunId(runId);
+      setDetailErrorByRunId((current) => {
+        const next = { ...current };
+        delete next[runId];
+        return next;
+      });
+      try {
+        const result = await window.poc3GraphReviewApi.getAgentReviewRunDetail({
+          reviewWorkspaceId,
+          runId,
+        });
+        if (result.ok) {
+          setRunDetailsById((current) => ({ ...current, [runId]: result.detail }));
+        } else {
+          setDetailErrorByRunId((current) => ({ ...current, [runId]: result.message }));
+        }
+      } catch (error) {
+        setDetailErrorByRunId((current) => ({
+          ...current,
+          [runId]: error instanceof Error ? error.message : 'Detail の取得に失敗しました。',
+        }));
+      } finally {
+        if (detailLoadingRunIdRef.current === runId) {
+          detailLoadingRunIdRef.current = null;
+        }
+        setDetailLoadingRunId(null);
+      }
+    },
+    [reviewWorkspaceId],
+  );
+
   const activeRun = runs.find((run) => isAgentReviewRunActive(run.status)) ?? null;
   const latestRun = runs[0] ?? null;
   const codexModelState = useMemo<AgentReviewCodexModelState>(
@@ -320,6 +380,9 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
       submittingPermissionKey,
       codexModelState,
       canStart: activeRun === null && !isStarting,
+      runDetailsById,
+      detailLoadingRunId,
+      detailErrorByRunId,
       setSelectedAgent,
       setInstructions,
       setCodexModel: setSelectedCodexModel,
@@ -327,15 +390,20 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
       startReview,
       toggleRun,
       respondPermission,
+      loadRunDetail,
     }),
     [
       activeRun,
       codexModelState,
+      detailErrorByRunId,
+      detailLoadingRunId,
       expandedRunId,
       instructions,
       isStarting,
       latestRun,
+      loadRunDetail,
       respondPermission,
+      runDetailsById,
       runs,
       selectedAgent,
       startReview,
@@ -360,6 +428,7 @@ function toUiRun(
     codexModel: run.codexModel ?? session?.modelSelection?.requestedModel ?? null,
     codexReasoningEffort:
       run.codexReasoningEffort ?? session?.modelSelection?.requestedReasoningEffort ?? null,
+    commit: null,
     createdAt: run.createdAt,
     updatedAt: session?.updatedAt ?? run.completedAt ?? run.createdAt,
     completedAt: run.completedAt,

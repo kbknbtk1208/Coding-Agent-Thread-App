@@ -54,6 +54,8 @@ import {
   type BrowseDirectoryResult,
   type CreateReviewWorkspaceInput,
   type CreateReviewWorkspaceResult,
+  type GetAgentReviewRunDetailInput,
+  type GetAgentReviewRunDetailResult,
   type GraphAnalysisEvent,
   type LoadWorkspaceRevisionsInput,
   type LoadWorkspaceRevisionsResult,
@@ -296,6 +298,11 @@ const poc3GraphReviewApi = {
     input: ListOutdatedAgentThreadsInput,
   ): Promise<ListOutdatedAgentThreadsResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listOutdatedAgentThreads, input);
+  },
+  getAgentReviewRunDetail(
+    input: GetAgentReviewRunDetailInput,
+  ): Promise<GetAgentReviewRunDetailResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.getAgentReviewRunDetail, input);
   },
   respondAgentReviewPermission(input: RespondPermissionInput): Promise<void> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.respondAgentReviewPermission, input);

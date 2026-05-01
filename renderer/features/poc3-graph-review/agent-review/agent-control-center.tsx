@@ -1,30 +1,15 @@
 'use client';
 
-import {
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  Loader2,
-  Play,
-  ShieldQuestion,
-  Terminal,
-  X,
-} from 'lucide-react';
+import { Bot, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import type {
-  AgentKind,
-  AppSession,
-  ConversationTurn,
-  PendingPermission,
-} from '../../../../shared/domain/agent';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { isAgentReviewRunActive } from './agent-review-state';
-import type { AgentReviewRun } from './agent-review-types';
+import { AgentReviewHistoryList } from './agent-review-history-list';
+import { AgentReviewNewRunPanel } from './agent-review-new-run-panel';
+import { AgentReviewRunDetailPanel } from './agent-review-run-detail-panel';
+import type { AgentReviewDockView, AgentReviewRun, SlideDirection } from './agent-review-types';
 import { OutdatedThreadSection } from './outdated-thread-section';
 import { useAgentReview } from './use-agent-review';
 import { useOutdatedAgentThreads } from './use-outdated-agent-threads';
@@ -43,10 +28,23 @@ const TRIGGER_HEIGHT = 48;
 const DOCK_WIDTH = 'min(90vw, 480px)';
 const DOCK_HEIGHT = 'min(80vh, 560px)';
 
-const AGENT_OPTIONS: Array<{ value: AgentKind; label: string }> = [
-  { value: 'codex', label: 'Codex' },
-  { value: 'copilot', label: 'Copilot' },
-];
+const slideVariants = {
+  enter: (direction: SlideDirection) => ({
+    opacity: 0,
+    x: direction === 'forward' ? 28 : -28,
+    filter: 'blur(8px)',
+  }),
+  center: {
+    opacity: 1,
+    x: 0,
+    filter: 'blur(0px)',
+  },
+  exit: (direction: SlideDirection) => ({
+    opacity: 0,
+    x: direction === 'forward' ? -28 : 28,
+    filter: 'blur(8px)',
+  }),
+};
 
 export interface AgentControlCenterProps {
   graph: GraphRenderSnapshot;
@@ -63,28 +61,21 @@ export function AgentControlCenter({
   const outdatedThreads = useOutdatedAgentThreads(selectedWorkspace.reviewWorkspaceId);
   const [stage, setStage] = useState<AnimationStage>('collapsed');
   const [pendingCompletedNotice, setPendingCompletedNotice] = useState(false);
+  const [view, setView] = useState<AgentReviewDockView>({ kind: 'history' });
+  const [slideDirection, setSlideDirection] = useState<SlideDirection>('forward');
+  const dockRef = useRef<HTMLDivElement | null>(null);
   const notifiedCompletedRunRef = useRef<string | null>(null);
   const stageRef = useRef<AnimationStage>('collapsed');
   stageRef.current = stage;
 
-  const disabled = !review.canStart || graph.nodes.length === 0;
   const isCollapsed = stage === 'collapsed';
   const isExpanded = stage === 'fullyExpanded';
   const isRunning = review.activeRun !== null;
-  const selectedCodexModel = review.codexModelState.models.find(
-    (model) => model.model === review.codexModelState.selectedModel,
-  );
-  const codexReasoningOptions =
-    selectedCodexModel &&
-    selectedCodexModel.defaultReasoningEffort &&
-    !selectedCodexModel.supportedReasoningEfforts.some(
-      (option) => option.reasoningEffort === selectedCodexModel.defaultReasoningEffort,
-    )
-      ? [
-          ...selectedCodexModel.supportedReasoningEfforts,
-          { reasoningEffort: selectedCodexModel.defaultReasoningEffort },
-        ]
-      : (selectedCodexModel?.supportedReasoningEfforts ?? []);
+
+  const navigate = useCallback((nextView: AgentReviewDockView, direction: SlideDirection) => {
+    setSlideDirection(direction);
+    setView(nextView);
+  }, []);
 
   const handleExpand = () => {
     setStage('widthExpanding');
@@ -101,6 +92,20 @@ export function AgentControlCenter({
   };
 
   useEffect(() => {
+    setView({ kind: 'history' });
+    setSlideDirection('back');
+  }, [selectedWorkspace.reviewWorkspaceId]);
+
+  useEffect(() => {
+    if (view.kind === 'run-detail') {
+      const exists = review.runs.some((r) => r.runId === view.runId);
+      if (!exists) {
+        navigate({ kind: 'history' }, 'back');
+      }
+    }
+  }, [navigate, review.runs, view]);
+
+  useEffect(() => {
     const latest = review.latestRun;
     if (!latest || latest.runId === notifiedCompletedRunRef.current) return;
     if (latest.status === 'completed' || latest.status === 'fallback_rich_text') {
@@ -112,17 +117,36 @@ export function AgentControlCenter({
     }
   }, [onCompleted, review.latestRun]);
 
+  useEffect(() => {
+    if (isCollapsed) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (stageRef.current !== 'fullyExpanded') return;
+
+      const target = event.target;
+      if (!(target instanceof Node) || dockRef.current?.contains(target)) return;
+
+      handleCollapse();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [isCollapsed]);
+
   const widthValue =
     stage === 'collapsed' || stage === 'widthCollapsing' ? TRIGGER_WIDTH : DOCK_WIDTH;
-
   const heightValue =
     stage === 'collapsed' || stage === 'widthExpanding' || stage === 'widthCollapsing'
       ? TRIGGER_HEIGHT
       : DOCK_HEIGHT;
 
+  const activeRunForDetail =
+    view.kind === 'run-detail' ? (review.runs.find((r) => r.runId === view.runId) ?? null) : null;
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-8 z-40 flex justify-center px-4">
       <motion.div
+        ref={dockRef}
         className="pointer-events-auto relative flex flex-col-reverse overflow-hidden"
         initial={{ width: TRIGGER_WIDTH, height: TRIGGER_HEIGHT }}
         animate={{ width: widthValue, height: heightValue }}
@@ -140,7 +164,6 @@ export function AgentControlCenter({
             'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -24px 48px rgba(0,0,0,0.18), 0 8px 32px rgba(0,0,0,0.36)',
         }}
       >
-        {/* gradient sheen */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0"
@@ -150,7 +173,6 @@ export function AgentControlCenter({
           }}
         />
 
-        {/* trigger — always visible, at bottom visually (flex-col-reverse) */}
         <div
           role={isCollapsed ? 'button' : undefined}
           tabIndex={isCollapsed ? 0 : undefined}
@@ -215,128 +237,77 @@ export function AgentControlCenter({
           </AnimatePresence>
         </div>
 
-        {/* content — grows above trigger */}
         <motion.div
-          className="relative z-10 min-h-0 flex-1 overflow-y-auto"
+          className="relative z-10 min-h-0 flex-1 overflow-hidden"
           animate={{ opacity: isExpanded ? 1 : 0 }}
           transition={{ duration: 0.3 }}
         >
-          <div className="fey-scrollbar flex flex-col gap-3 px-4 py-3">
-            <p className="truncate text-[11px] text-white/38">{selectedWorkspace.title}</p>
-
-            <div className="grid grid-cols-2 gap-1 rounded-[7px] border border-white/[0.06] bg-white/[0.03] p-1">
-              {AGENT_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`rounded-[5px] px-2 py-1.5 text-[12px] font-semibold transition ${
-                    review.selectedAgent === option.value
-                      ? 'bg-white text-black'
-                      : 'text-white/52 hover:bg-white/[0.08] hover:text-white'
-                  }`}
-                  onClick={() => review.setSelectedAgent(option.value)}
-                  disabled={!review.canStart}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            {review.selectedAgent === 'codex' ? (
-              <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-1.5">
-                <select
-                  value={review.codexModelState.selectedModel}
-                  onChange={(event) => review.setCodexModel(event.target.value)}
-                  disabled={
-                    !review.canStart ||
-                    review.codexModelState.isLoading ||
-                    review.codexModelState.models.length === 0
-                  }
-                  className="h-8 min-w-0 rounded-[7px] border border-white/[0.06] bg-black/22 px-2 text-[11px] font-medium text-white/70 outline-none transition focus:border-[#58d7ff]/28 disabled:opacity-50"
-                  aria-label="Codex model"
-                >
-                  {review.codexModelState.models.length === 0 ? (
-                    <option value="">
-                      {review.codexModelState.isLoading ? 'Loading models' : 'Provider default'}
-                    </option>
-                  ) : (
-                    review.codexModelState.models.map((model) => (
-                      <option key={model.id} value={model.model}>
-                        {model.displayName ?? model.model}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <select
-                  value={review.codexModelState.selectedReasoningEffort}
-                  onChange={(event) => review.setCodexReasoningEffort(event.target.value)}
-                  disabled={!review.canStart || codexReasoningOptions.length === 0}
-                  className="h-8 min-w-0 rounded-[7px] border border-white/[0.06] bg-black/22 px-2 text-[11px] font-medium text-white/70 outline-none transition focus:border-[#58d7ff]/28 disabled:opacity-50"
-                  aria-label="Codex reasoning effort"
-                >
-                  {codexReasoningOptions.length === 0 ? (
-                    <option value="">effort</option>
-                  ) : (
-                    codexReasoningOptions.map((option) => (
-                      <option key={option.reasoningEffort} value={option.reasoningEffort}>
-                        {option.reasoningEffort}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
+          <AnimatePresence initial={false} custom={slideDirection} mode="wait">
+            {view.kind === 'history' ? (
+              <motion.div
+                key="history"
+                custom={slideDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute inset-0 overflow-y-auto"
+              >
+                <AgentReviewHistoryList
+                  runs={review.runs}
+                  activeRun={review.activeRun}
+                  isVisible={isExpanded}
+                  onNew={() => navigate({ kind: 'new-review' }, 'forward')}
+                  onSelectRun={(runId) => navigate({ kind: 'run-detail', runId }, 'forward')}
+                />
+                <div className="px-4 pb-3">
+                  <OutdatedThreadSection threads={outdatedThreads.threads} />
+                </div>
+              </motion.div>
+            ) : view.kind === 'new-review' ? (
+              <motion.div
+                key="new-review"
+                custom={slideDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute inset-0 overflow-y-auto"
+              >
+                <AgentReviewNewRunPanel
+                  review={review}
+                  graph={graph}
+                  selectedWorkspace={selectedWorkspace}
+                  onBack={() => navigate({ kind: 'history' }, 'back')}
+                  onStarted={(runId) => navigate({ kind: 'run-detail', runId }, 'forward')}
+                />
+              </motion.div>
+            ) : activeRunForDetail ? (
+              <motion.div
+                key={`run-detail-${view.runId}`}
+                custom={slideDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute inset-0 overflow-y-auto"
+              >
+                <AgentReviewRunDetailPanel
+                  run={activeRunForDetail}
+                  detail={review.runDetailsById[view.runId] ?? null}
+                  loading={review.detailLoadingRunId === view.runId}
+                  errorMessage={review.detailErrorByRunId[view.runId] ?? null}
+                  submittingPermissionKey={review.submittingPermissionKey}
+                  onBack={() => navigate({ kind: 'history' }, 'back')}
+                  onLoadDetail={review.loadRunDetail}
+                  onRespondPermission={review.respondPermission}
+                />
+              </motion.div>
             ) : null}
-
-            {review.selectedAgent === 'codex' && review.codexModelState.errorMessage ? (
-              <p className="rounded-[6px] border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-2 py-1.5 text-[11px] text-[#ffe0b5]">
-                {review.codexModelState.errorMessage}
-              </p>
-            ) : null}
-
-            <textarea
-              value={review.instructions}
-              onChange={(event) => review.setInstructions(event.target.value)}
-              disabled={!review.canStart}
-              rows={4}
-              className="min-h-[96px] resize-none rounded-[7px] border border-white/[0.06] bg-black/22 px-3 py-2 text-[12px] leading-5 text-white/72 outline-none transition placeholder:text-white/22 focus:border-[#58d7ff]/28 disabled:opacity-50"
-              aria-label="Agent Review instructions"
-            />
-
-            <button
-              type="button"
-              disabled={disabled}
-              className="flex h-9 items-center justify-center gap-2 rounded-[7px] bg-[#d8e071] px-3 text-[12px] font-semibold text-black transition hover:bg-[#edf58a] disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/28"
-              onClick={() =>
-                void review.startReview({
-                  target: { workspace: selectedWorkspace, graph },
-                })
-              }
-            >
-              {review.activeRun ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Play className="size-4" aria-hidden="true" />
-              )}
-              {review.activeRun ? 'Running' : 'Run Review'}
-            </button>
-
-            <OutdatedThreadSection threads={outdatedThreads.threads} />
-
-            {review.runs.length > 0 ? (
-              <div className="flex flex-col gap-1.5 border-t border-white/[0.06] pt-2">
-                {review.runs.map((run) => (
-                  <RunHistoryItem
-                    key={run.runId}
-                    run={run}
-                    expanded={review.expandedRunId === run.runId}
-                    submittingPermissionKey={review.submittingPermissionKey}
-                    onToggle={() => review.toggleRun(run.runId)}
-                    onRespondPermission={review.respondPermission}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
+          </AnimatePresence>
         </motion.div>
       </motion.div>
     </div>
@@ -344,14 +315,6 @@ export function AgentControlCenter({
 }
 
 function StatusPill({ run }: { run: AgentReviewRun }) {
-  const Icon =
-    run.status === 'waiting_permission'
-      ? ShieldQuestion
-      : run.status === 'completed' || run.status === 'fallback_rich_text'
-        ? CheckCircle2
-        : run.status === 'failed'
-          ? AlertTriangle
-          : Loader2;
   const tone =
     run.status === 'failed'
       ? 'border-[#ff7d7d]/25 bg-[#ff7d7d]/10 text-[#ffd4d4]'
@@ -360,208 +323,18 @@ function StatusPill({ run }: { run: AgentReviewRun }) {
         : run.status === 'waiting_permission'
           ? 'border-[#ffbf6b]/25 bg-[#ffbf6b]/10 text-[#ffe0b5]'
           : 'border-[#58d7ff]/25 bg-[#58d7ff]/10 text-[#dff7ff]';
+
+  const label = isAgentReviewRunActive(run.status)
+    ? 'Processing'
+    : run.status === 'completed' || run.status === 'fallback_rich_text'
+      ? 'DONE'
+      : 'FAILED';
+
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase ${tone}`}
     >
-      <Icon
-        className={`size-3 ${run.status === 'running' || run.status === 'starting' ? 'animate-spin' : ''}`}
-        aria-hidden="true"
-      />
-      {run.status}
+      {label}
     </span>
   );
-}
-
-function RunHistoryItem({
-  expanded,
-  onRespondPermission,
-  onToggle,
-  run,
-  submittingPermissionKey,
-}: {
-  expanded: boolean;
-  onRespondPermission(appSessionId: string, requestId: string, actionId: string): Promise<void>;
-  onToggle(): void;
-  run: AgentReviewRun;
-  submittingPermissionKey: string | null;
-}) {
-  const latestTurn = run.session?.turns.at(-1) ?? null;
-  const summary = getRunSummary(run, latestTurn);
-
-  return (
-    <div className="rounded-[7px] border border-white/[0.06] bg-white/[0.02]">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
-        onClick={onToggle}
-      >
-        {expanded ? (
-          <ChevronDown className="size-3.5 shrink-0 text-white/38" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="size-3.5 shrink-0 text-white/38" aria-hidden="true" />
-        )}
-        <StatusPill run={run} />
-        <span className="min-w-0 flex-1 truncate text-[11px] text-white/55">{summary}</span>
-      </button>
-
-      {expanded ? (
-        <div className="border-t border-white/[0.06] px-2.5 py-2">
-          {run.errorMessage ? (
-            <p className="mb-2 rounded-[6px] border border-[#ff7d7d]/25 bg-[#ff7d7d]/10 px-2 py-1.5 text-[11px] text-[#ffd4d4]">
-              {run.errorMessage}
-            </p>
-          ) : null}
-          {run.codexModel || run.codexReasoningEffort ? (
-            <p className="mb-2 truncate text-[10px] text-white/34">
-              {[run.codexModel, run.codexReasoningEffort].filter(Boolean).join(' / ')}
-            </p>
-          ) : null}
-          {run.session ? (
-            <SessionHistory
-              run={run}
-              session={run.session}
-              submittingPermissionKey={submittingPermissionKey}
-              onRespondPermission={onRespondPermission}
-            />
-          ) : (
-            <p className="text-[11px] text-white/38">Session を開始しています。</p>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SessionHistory({
-  onRespondPermission,
-  run,
-  session,
-  submittingPermissionKey,
-}: {
-  onRespondPermission(appSessionId: string, requestId: string, actionId: string): Promise<void>;
-  run: AgentReviewRun;
-  session: AppSession;
-  submittingPermissionKey: string | null;
-}) {
-  const isActive = isAgentReviewRunActive(run.status);
-  const pendingPermissions = session.pendingPermissions;
-  const turns = session.turns;
-
-  return (
-    <div className="flex flex-col gap-2">
-      {pendingPermissions.map((permission) => (
-        <PermissionActionRow
-          key={permission.requestId}
-          appSessionId={session.appSessionId}
-          permission={permission}
-          submittingPermissionKey={submittingPermissionKey}
-          onRespondPermission={onRespondPermission}
-        />
-      ))}
-      {turns.map((turn, index) => (
-        <TurnEvent
-          key={turn.turnId}
-          turn={turn}
-          isStreaming={isActive && index === turns.length - 1}
-        />
-      ))}
-      {session.streamBuffer.content ? (
-        <div className="rounded-[6px] bg-black/22 px-2 py-1.5">
-          <p
-            className={`whitespace-pre-wrap text-[11px] leading-5 ${isActive ? 'text-shimmer' : 'text-white/52'}`}
-          >
-            {session.streamBuffer.content}
-          </p>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function PermissionActionRow({
-  appSessionId,
-  onRespondPermission,
-  permission,
-  submittingPermissionKey,
-}: {
-  appSessionId: string;
-  onRespondPermission(appSessionId: string, requestId: string, actionId: string): Promise<void>;
-  permission: PendingPermission;
-  submittingPermissionKey: string | null;
-}) {
-  return (
-    <div className="rounded-[7px] border border-[#ffbf6b]/24 bg-[#ffbf6b]/10 px-2.5 py-2">
-      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-[#ffe0b5]">
-        <ShieldQuestion className="size-3.5" aria-hidden="true" />
-        {permission.method}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {permission.actions.map((action) => {
-          const key = `${appSessionId}:${permission.requestId}:${action.actionId}`;
-          const busy = submittingPermissionKey === key;
-          return (
-            <button
-              key={action.actionId}
-              type="button"
-              disabled={busy}
-              className="rounded-[5px] border border-[#ffbf6b]/25 px-2 py-1 text-[10px] font-semibold text-[#ffe0b5] transition hover:bg-[#ffbf6b]/12 disabled:opacity-50"
-              onClick={() =>
-                void onRespondPermission(appSessionId, permission.requestId, action.actionId)
-              }
-            >
-              {busy ? '...' : action.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function TurnEvent({ isStreaming, turn }: { isStreaming: boolean; turn: ConversationTurn }) {
-  const latestSegment = turn.intermediateSegments.at(-1);
-  const body = latestSegment?.text || turn.response || turn.progressHint?.text || turn.prompt;
-  return (
-    <div className="rounded-[6px] bg-black/18 px-2 py-1.5">
-      <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase text-white/32">
-        <span className="inline-flex items-center gap-1">
-          <Terminal className="size-3" aria-hidden="true" />
-          {turn.status}
-        </span>
-        <span className="inline-flex items-center gap-1 normal-case">
-          <Clock3 className="size-3" aria-hidden="true" />
-          {formatTime(turn.startedAt)}
-        </span>
-      </div>
-      <p
-        className={`line-clamp-4 whitespace-pre-wrap text-[11px] leading-5 ${isStreaming ? 'text-shimmer' : 'text-white/52'}`}
-      >
-        {body}
-      </p>
-    </div>
-  );
-}
-
-function getRunSummary(run: AgentReviewRun, latestTurn: ConversationTurn | null) {
-  if (isAgentReviewRunActive(run.status)) {
-    return (
-      latestTurn?.progressHint?.text ?? latestTurn?.intermediateSegments.at(-1)?.text ?? 'running'
-    );
-  }
-  if (run.status === 'completed') {
-    return latestTurn?.result?.kind === 'richText'
-      ? latestTurn.result.content
-      : (latestTurn?.response ?? 'completed');
-  }
-  if (run.status === 'fallback_rich_text') {
-    return 'completed with text fallback';
-  }
-  return run.errorMessage ?? 'failed';
-}
-
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 }

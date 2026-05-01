@@ -1,12 +1,15 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import type {
+  AgentReviewRunCommitSnapshot,
   AwaitAgentReviewResultInput,
   AwaitAgentReviewResultResult,
   AwaitAgentReviewThreadReplyResultInput,
   AwaitAgentReviewThreadReplyResultResult,
   BeginAgentReviewThreadReplyInput,
   BeginAgentReviewThreadReplyResult,
+  GetAgentReviewRunDetailInput,
+  GetAgentReviewRunDetailResult,
   ListAgentReviewRunsInput,
   ListAgentReviewRunsResult,
   ListAgentThreadConversationsInput,
@@ -871,8 +874,76 @@ export class GraphReviewGateway {
   }
 
   listAgentReviewRuns(input: ListAgentReviewRunsInput): ListAgentReviewRunsResult {
+    const runs = this.agentReviewStore.listRuns(input.reviewWorkspaceId.trim());
     return {
-      runs: this.agentReviewStore.listRuns(input.reviewWorkspaceId.trim()),
+      runs: runs.map((run) => ({
+        run,
+        commit: this.resolveRunCommitSnapshot(run),
+      })),
+    };
+  }
+
+  getAgentReviewRunDetail(input: GetAgentReviewRunDetailInput): GetAgentReviewRunDetailResult {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const runId = input.runId.trim();
+
+    if (!this.graphStore.getWorkspace(reviewWorkspaceId)) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        detail: null,
+      };
+    }
+
+    const run = this.agentReviewStore.getRun(runId);
+    if (!run || run.reviewWorkspaceId !== reviewWorkspaceId) {
+      return {
+        ok: false,
+        reason: 'runNotFound',
+        message: 'Agent Review run が見つかりません。',
+        detail: null,
+      };
+    }
+
+    const envelope = this.agentReviewStore.getEnvelope(runId);
+    const commit = this.resolveRunCommitSnapshot(run);
+    return { ok: true, detail: { run, envelope, commit } };
+  }
+
+  private resolveRunCommitSnapshot(
+    run: import('../../shared/poc3-domain/agent-review').Poc3AgentReviewRun,
+  ): AgentReviewRunCommitSnapshot | null {
+    const revision = this.graphStore.getRevision(run.revisionId);
+    if (!revision) {
+      return {
+        revisionId: run.revisionId,
+        headSha: run.revisionId,
+        shortSha: run.revisionId.slice(0, 7),
+        message: '(commit message unavailable)',
+      };
+    }
+
+    const commitViews = this.graphStore.getRevisionCommitView(run.reviewWorkspaceId);
+    const headCommit =
+      commitViews.find((c) => c.revisionId === run.revisionId && c.role === 'head') ??
+      commitViews.find((c) => c.sha === revision.headSha) ??
+      null;
+
+    if (headCommit) {
+      return {
+        revisionId: run.revisionId,
+        headSha: headCommit.sha,
+        shortSha: headCommit.shortSha,
+        message: headCommit.message,
+      };
+    }
+
+    return {
+      revisionId: run.revisionId,
+      headSha: revision.headSha,
+      shortSha: revision.headSha.slice(0, 7),
+      message: '(commit message unavailable)',
     };
   }
 

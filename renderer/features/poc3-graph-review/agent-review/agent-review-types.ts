@@ -2,7 +2,13 @@ import type { AgentKind, AppSession } from '../../../../shared/domain/agent';
 import type { CodexModelOption } from '../../../../shared/domain/agent';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import type { Poc3AgentReviewRun } from '../../../../shared/poc3-domain/agent-review';
+import type {
+  AgentReviewRunCommitSnapshot,
+  AgentReviewRunDetail,
+} from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
+
+export type { AgentReviewRunCommitSnapshot, AgentReviewRunDetail };
 
 export type AgentReviewRunStatus =
   | 'starting'
@@ -22,6 +28,7 @@ export interface AgentReviewRun {
   errorMessage: string | null;
   codexModel: string | null;
   codexReasoningEffort: string | null;
+  commit: AgentReviewRunCommitSnapshot | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -53,3 +60,10 @@ export interface AgentReviewPromptContext {
   workspace: ReviewWorkspaceListItem;
   graph: Pick<GraphRenderSnapshot, 'graphSnapshotId' | 'scopeKey' | 'status' | 'nodes' | 'edges'>;
 }
+
+export type AgentReviewDockView =
+  | { kind: 'history' }
+  | { kind: 'new-review' }
+  | { kind: 'run-detail'; runId: string };
+
+export type SlideDirection = 'forward' | 'back';
