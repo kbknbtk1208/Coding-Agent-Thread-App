@@ -60,6 +60,7 @@ import {
   ThoughtChainStep,
   ThoughtChainTrigger,
 } from '../components/odysseyui/thought-chain';
+import { AnimatedCurvedTimeline } from '../components/ui/animated-curved-timeline';
 
 type OverlayDemo = 'none' | 'flex' | 'dock' | 'magic' | 'island';
 
@@ -603,6 +604,14 @@ export default function UiComponentPage() {
                   </ThoughtChainContent>
                 </ThoughtChainStep>
               </ThoughtChain>
+            </Card>
+          </section>
+
+          <section className="mt-6">
+            <Card title="Animated Curved Timeline">
+              <div className="h-[560px]">
+                <AnimatedCurvedTimeline />
+              </div>
             </Card>
           </section>
 
