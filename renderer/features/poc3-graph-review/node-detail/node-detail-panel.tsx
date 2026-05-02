@@ -1155,7 +1155,7 @@ function AgentFindingThreadCard({
             {conversation?.lastError ? (
               <ThreadErrorBanner message={conversation.lastError} />
             ) : null}
-            {finding.line !== null && publishProps && !showPublishComposer ? (
+            {finding.line !== null && publishProps ? (
               published ? (
                 published.providerCommentIds.length > 0 ? (
                   <button
@@ -1177,7 +1177,7 @@ function AgentFindingThreadCard({
                 </button>
               )
             ) : null}
-            {showPublishComposer && publishProps ? (
+            {publishProps ? (
               <FindingPublishComposer
                 finding={finding}
                 detail={publishProps.detail}
@@ -1185,14 +1185,17 @@ function AgentFindingThreadCard({
                 inFlight={publishInFlight}
                 errorMessage={publishError ?? null}
                 providerKind={publishProps.providerKind}
+                open={showPublishComposer}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setShowPublishComposer(false);
+                    if (publishError) {
+                      publishProps.onClearPublishError(sourceKey);
+                    }
+                  }
+                }}
                 onSubmit={(body) => {
                   publishProps.onPublishFinding(finding, body);
-                }}
-                onCancel={() => {
-                  setShowPublishComposer(false);
-                  if (publishError) {
-                    publishProps.onClearPublishError(sourceKey);
-                  }
                 }}
               />
             ) : null}
