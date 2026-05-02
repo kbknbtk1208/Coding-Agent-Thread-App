@@ -8,7 +8,6 @@ import {
   ChevronUp,
   ExternalLink,
   FileCode2,
-  FileText,
   FunctionSquare,
   GitBranch,
   Loader2,
@@ -37,12 +36,9 @@ import { Streamdown } from 'streamdown';
 import type { AppSession, ConversationTurn } from '../../../../shared/domain/agent';
 import type { GraphRenderNode } from '../../../../shared/poc3-domain/graph';
 import type {
-  NodeCodeExcerpt,
   NodeDetailSnapshot,
   NodeDetailViewMode,
-  NodeDiffExcerpt,
   NodeFileContext,
-  NodeFunctionCode,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3AgentThreadMessage } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import { useAgentThreadConversationContext } from '../agent-review/agent-thread-conversation-context';
@@ -58,6 +54,11 @@ import {
 import type { Poc3PublishedCommentRecord } from '../../../../shared/poc3-domain/comment-publish';
 import type { Poc3InlineCommentAnchor } from '../../../../shared/poc3-domain/comment-publish';
 import type { NodeDetailState } from './use-node-detail';
+import {
+  buildDiffAwareSourceLines,
+  type DiffAwareSourceBase,
+  type DiffAwareSourceLine,
+} from './diff-aware-source-model';
 
 const PANEL_WIDTH_CLASS = 'w-[min(660px,calc(100vw-28px))]';
 
@@ -294,7 +295,6 @@ function PanelBody({
         publishComments={publishComments}
       />
       {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
-      {detail ? <DiffPatchSummary detail={detail} publishComments={publishComments} /> : null}
       {detail ? <DiagnosticsSection detail={detail} /> : null}
     </div>
   );
@@ -342,91 +342,107 @@ function PrimarySection({
     return <UnavailableSection selectedNode={selectedNode} />;
   }
 
-  const isExpanded = viewMode !== 'function';
-  const source =
-    isExpanded && detail.fileContext
-      ? detail.fileContext
-      : (detail.functionCode ?? detail.fileContext ?? detail.codeExcerpt);
-  const canExpand = detail.functionCode !== null;
-  const scrollToLine =
-    isExpanded && detail.fileContext ? detail.functionCode?.startLine : undefined;
+  const source = detail.functionCode ?? detail.fileContext ?? detail.codeExcerpt;
 
-  if (source) {
+  if (source || detail.diffExcerpt || detail.diffSummary.patch) {
     return (
-      <section className="flex flex-col gap-2">
-        <SourceCodeSection
-          source={source}
-          scrollToLine={scrollToLine}
-          findings={detail.findings}
-          remoteThreads={detail.threads.remote}
-          detail={detail}
-          publishComments={publishComments}
-        />
-        {canExpand && !isExpanded ? (
-          <button
-            type="button"
-            className="flex items-center justify-center gap-1.5 self-center rounded-full border border-white/[0.1] bg-white/[0.03] px-3 py-1 text-[11px] text-white/55 transition hover:border-white/[0.18] hover:text-white/80"
-            onClick={() => onViewModeChange('file')}
-          >
-            <ChevronDown className="size-3" aria-hidden="true" />
-            ファイルを展開
-          </button>
-        ) : canExpand && isExpanded && detail.fileContext ? (
-          <button
-            type="button"
-            className="flex items-center justify-center gap-1.5 self-center rounded-full border border-white/[0.1] bg-white/[0.03] px-3 py-1 text-[11px] text-white/55 transition hover:border-white/[0.18] hover:text-white/80"
-            onClick={() => onViewModeChange('function')}
-          >
-            <ChevronUp className="size-3" aria-hidden="true" />
-            折りたたむ
-          </button>
-        ) : null}
-      </section>
-    );
-  }
-
-  if (detail.diffExcerpt) {
-    return (
-      <DiffExcerptSection
-        excerpt={detail.diffExcerpt}
-        remoteThreads={detail.threads.remote}
+      <DiffAwareSourceSection
         detail={detail}
+        source={source}
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
         publishComments={publishComments}
-        interactive
       />
     );
   }
   return <UnavailableSection selectedNode={selectedNode} detail={detail} />;
 }
 
-function DiffExcerptSection({
-  excerpt,
-  remoteThreads = [],
+function DiffAwareSourceSection({
   detail,
+  source,
+  viewMode,
+  onViewModeChange,
   publishComments,
-  interactive = false,
 }: {
-  excerpt: NodeDiffExcerpt;
-  remoteThreads?: NodeDetailSnapshot['threads']['remote'];
-  detail?: NodeDetailSnapshot;
-  publishComments?: UsePublishCommentsReturn;
-  interactive?: boolean;
+  detail: NodeDetailSnapshot;
+  source: DiffAwareSourceBase | null;
+  viewMode: NodeDetailViewMode;
+  onViewModeChange(viewMode: NodeDetailViewMode): void;
+  publishComments: UsePublishCommentsReturn;
 }) {
-  const language = useMemo(() => resolveHighlightLanguage(excerpt.filePath), [excerpt.filePath]);
-  const rows = useMemo(
-    () =>
-      buildUnifiedDiffRows(excerpt.patch.trim().length > 0 ? excerpt.patch : excerpt.hunkHeaders),
-    [excerpt.hunkHeaders, excerpt.patch],
-  );
-  const remoteByDiffLine = useMemo(
-    () => groupRemoteThreadsByDiffLine(remoteThreads),
-    [remoteThreads],
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [expandedRange, setExpandedRange] = useState<{ startLine: number; endLine: number } | null>(
+    null,
   );
   const [selectionState, setSelectionState] = useState<DiffSelectionState>({ status: 'idle' });
   const [selectionKeySeed, setSelectionKeySeed] = useState(0);
   const [submittedSourceKey, setSubmittedSourceKey] = useState<string | null>(null);
   const dragAnchorRef = useRef<{ side: 'LEFT' | 'RIGHT'; line: number } | null>(null);
-  const canInteract = interactive && Boolean(detail && publishComments && excerpt.filePath);
+  const baseSource = source;
+  const fileContext = detail.fileContext;
+  const functionCode = detail.functionCode;
+  const canExpandWithinFile =
+    Boolean(functionCode && fileContext && functionCode.filePath === fileContext.filePath) &&
+    baseSource?.filePath === functionCode?.filePath;
+  const effectiveRange = useMemo(() => {
+    if (!functionCode || !fileContext || !canExpandWithinFile) {
+      return null;
+    }
+    if (viewMode !== 'function') {
+      return { startLine: fileContext.startLine, endLine: fileContext.endLine };
+    }
+    return expandedRange ?? { startLine: functionCode.startLine, endLine: functionCode.endLine };
+  }, [canExpandWithinFile, expandedRange, fileContext, functionCode, viewMode]);
+  const effectiveSource = useMemo(
+    () => buildEffectiveSource(baseSource, fileContext, effectiveRange),
+    [baseSource, effectiveRange, fileContext],
+  );
+  const language = useMemo(
+    () => resolveHighlightLanguage(effectiveSource?.filePath ?? detail.summary.filePath ?? ''),
+    [detail.summary.filePath, effectiveSource?.filePath],
+  );
+  const highlighted = useMemo(
+    () => new Set(effectiveSource?.highlightedLineNumbers ?? []),
+    [effectiveSource?.highlightedLineNumbers],
+  );
+  const lines = useMemo(
+    () =>
+      buildDiffAwareSourceLines({
+        source: effectiveSource,
+        diffExcerpt: detail.diffExcerpt,
+        diffSummary: detail.diffSummary,
+        filePath: detail.summary.filePath ?? detail.node.filePath,
+      }),
+    [
+      detail.diffExcerpt,
+      detail.diffSummary,
+      detail.node.filePath,
+      detail.summary.filePath,
+      effectiveSource,
+    ],
+  );
+  const findingsByLine = useMemo(
+    () => groupFindingsByAwareLine(detail.findings),
+    [detail.findings],
+  );
+  const remoteByLine = useMemo(
+    () => groupRemoteThreadsByAwareLine(detail.threads.remote),
+    [detail.threads.remote],
+  );
+  const overviewPublishProps = useMemo<AgentFindingPublishProps>(
+    () => ({
+      detail,
+      publishedBySourceKey: publishComments.publishedBySourceKey,
+      commentUrlBySourceKey: publishComments.commentUrlBySourceKey,
+      inFlightKey: publishComments.inFlightKey,
+      errorByKey: publishComments.errorByKey,
+      onPublishFinding: (finding, body) =>
+        void publishComments.publishFinding({ finding, detail, body }),
+      onClearPublishError: publishComments.clearError,
+    }),
+    [detail, publishComments],
+  );
   const activeSelection =
     selectionState.status === 'idle' ? null : normalizeDiffLineSelection(selectionState.selection);
   const composerSelection =
@@ -447,16 +463,34 @@ function DiffExcerptSection({
       ? publishComments.publishedBySourceKey[composerSourceKey]
       : null;
 
+  useEffect(() => {
+    setExpandedRange(null);
+    setSelectionState({ status: 'idle' });
+    setSubmittedSourceKey(null);
+    dragAnchorRef.current = null;
+  }, [detail.nodeId, viewMode]);
+
+  useEffect(() => {
+    if (!functionCode?.startLine || !scrollContainerRef.current || viewMode === 'function') return;
+    const container = scrollContainerRef.current;
+    const lineEl = container.querySelector(`[data-line="${functionCode.startLine}"]`);
+    if (lineEl instanceof HTMLElement) {
+      const containerTop = container.getBoundingClientRect().top;
+      const lineTop = lineEl.getBoundingClientRect().top;
+      container.scrollTop = Math.max(0, container.scrollTop + lineTop - containerTop - 48);
+    }
+  }, [functionCode?.startLine, viewMode]);
+
   const selectionHighlightStyle = useMemo(() => {
     if (!activeSelection) return '';
     const startLine = Math.min(activeSelection.startLine, activeSelection.endLine);
     const endLine = Math.max(activeSelection.startLine, activeSelection.endLine);
     const selectors: string[] = [];
     const escapedPath = escapeCssIdentifier(activeSelection.filePath);
-    const scope = `[data-poc3-diff-file-path="${escapedPath}"]`;
+    const scope = `[data-poc3-source-file-path="${escapedPath}"]`;
     for (let line = startLine; line <= endLine; line++) {
       selectors.push(
-        `${scope} [data-diff-line="true"][data-side="${activeSelection.side}"][data-line="${line}"]`,
+        `${scope} [data-poc3-source-line="true"][data-side="${activeSelection.side}"][data-line="${line}"]`,
       );
     }
     if (selectors.length === 0) return '';
@@ -485,9 +519,9 @@ function DiffExcerptSection({
   }, [composerError, composerSourceKey, publishComments, selectionState.status]);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (!canInteract || event.button !== 0) return;
-    const info = extractPoc3DiffLineInfoFromPoint(event.clientX, event.clientY);
-    if (!info || info.filePath !== excerpt.filePath) return;
+    if (event.button !== 0) return;
+    const info = extractPoc3SourceLineInfoFromPoint(event.clientX, event.clientY);
+    if (!info || !isSelectableDiffAwareLine(lines, info)) return;
 
     event.preventDefault();
     if (composerSourceKey && composerError && publishComments) {
@@ -499,7 +533,7 @@ function DiffExcerptSection({
     setSelectionState({
       status: 'selecting',
       selection: {
-        filePath: excerpt.filePath,
+        filePath: info.filePath,
         oldPath: null,
         side: info.side,
         startLine: info.line,
@@ -509,11 +543,10 @@ function DiffExcerptSection({
   };
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!canInteract) return;
     const anchor = dragAnchorRef.current;
     if (!anchor) return;
-    const info = extractPoc3DiffLineInfoFromPoint(event.clientX, event.clientY);
-    if (!info || info.filePath !== excerpt.filePath || info.side !== anchor.side) return;
+    const info = extractPoc3SourceLineInfoFromPoint(event.clientX, event.clientY);
+    if (!info || info.side !== anchor.side || !isSelectableDiffAwareLine(lines, info)) return;
 
     setSelectionState((prev) => {
       if (prev.status !== 'selecting') return prev;
@@ -530,25 +563,27 @@ function DiffExcerptSection({
   };
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    if (!canInteract) return;
     const anchor = dragAnchorRef.current;
     if (!anchor) return;
     dragAnchorRef.current = null;
-    const info = extractPoc3DiffLineInfoFromPoint(event.clientX, event.clientY);
+    const info = extractPoc3SourceLineInfoFromPoint(event.clientX, event.clientY);
     setSelectionState((prev) => {
       const endLine =
-        info && info.filePath === excerpt.filePath && info.side === anchor.side
+        info && info.side === anchor.side
           ? info.line
           : prev.status === 'selecting'
             ? prev.selection.endLine
             : anchor.line;
       const selection = normalizeDiffLineSelection({
-        filePath: excerpt.filePath,
+        filePath: info?.filePath ?? (prev.status === 'selecting' ? prev.selection.filePath : ''),
         oldPath: null,
         side: anchor.side,
         startLine: anchor.line,
         endLine,
       });
+      if (!isContiguousProviderSelection(lines, selection)) {
+        return { status: 'idle' };
+      }
       return { status: 'composing', selection, actionKind: 'publish-comment' };
     });
   };
@@ -561,12 +596,41 @@ function DiffExcerptSection({
     setSelectionState({ status: 'idle' });
   };
 
+  const canExpandUp =
+    canExpandWithinFile &&
+    viewMode === 'function' &&
+    effectiveRange !== null &&
+    fileContext !== null &&
+    effectiveRange.startLine > fileContext.startLine;
+  const canExpandDown =
+    canExpandWithinFile &&
+    viewMode === 'function' &&
+    effectiveRange !== null &&
+    fileContext !== null &&
+    effectiveRange.endLine < fileContext.endLine;
+  const expandRange = (direction: 'up' | 'down') => {
+    if (!functionCode || !fileContext || !effectiveRange) return;
+    const next =
+      direction === 'up'
+        ? {
+            startLine: Math.max(fileContext.startLine, effectiveRange.startLine - 20),
+            endLine: effectiveRange.endLine,
+          }
+        : {
+            startLine: effectiveRange.startLine,
+            endLine: Math.min(fileContext.endLine, effectiveRange.endLine + 20),
+          };
+    setExpandedRange(next);
+    onViewModeChange('function');
+  };
+
   return (
-    <section className="node-detail-diff diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
+    <section className="node-detail-code diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
       <div className="overflow-hidden rounded-[12px] border border-white/[0.08] bg-black/45">
-        {rows.length > 0 ? (
+        {lines.length > 0 ? (
           <div
-            className="max-h-[calc(100vh-132px)] overflow-auto font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]"
+            ref={scrollContainerRef}
+            className="max-h-[calc(100vh-132px)] overflow-auto p-2 font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -579,26 +643,50 @@ function DiffExcerptSection({
               ...(selectionState.status === 'selecting' ? { userSelect: 'none' as const } : {}),
             }}
           >
-            <div className="min-w-max" data-poc3-diff-file-path={excerpt.filePath}>
-              {rows.map((row, index) => {
-                const lineThreads =
-                  row.type === 'line'
-                    ? (remoteByDiffLine.get(
-                        diffLineKey(row.marker, row.oldLineNumber, row.newLineNumber),
-                      ) ?? [])
-                    : [];
+            {canExpandUp ? (
+              <ExpandSourceButton direction="up" onClick={() => expandRange('up')} />
+            ) : null}
+            <OverviewFindingThreads
+              findings={detail.findings}
+              publishProps={overviewPublishProps}
+            />
+            <div
+              className="min-w-max"
+              data-poc3-source-file-path={
+                effectiveSource?.filePath ?? detail.summary.filePath ?? ''
+              }
+            >
+              {lines.map((line) => {
+                const lineFindings = findingsByLine.get(awareLineLookupKey(line)) ?? [];
+                const lineThreads = remoteByLine.get(awareLineLookupKey(line)) ?? [];
+                const providerLineNumber = providerLineNumberForAwareLine(line);
                 return (
-                  <div key={`${row.type}-${row.text}-${index}`}>
-                    <DiffRowView row={row} language={language} filePath={excerpt.filePath} />
+                  <div
+                    key={line.key}
+                    data-line={line.newLineNumber ?? line.oldLineNumber ?? undefined}
+                  >
+                    <DiffAwareSourceRow
+                      line={line}
+                      language={language}
+                      isHighlighted={
+                        line.newLineNumber !== null && highlighted.has(line.newLineNumber)
+                      }
+                      findingCount={lineFindings.length}
+                      remoteThreadCount={lineThreads.length}
+                    />
+                    {lineFindings.length > 0 ? (
+                      <AgentFindingThreadLayer
+                        findings={lineFindings}
+                        publishProps={overviewPublishProps}
+                      />
+                    ) : null}
                     {lineThreads.length > 0 ? (
                       <RemoteCommentThreadLayer threads={lineThreads} />
                     ) : null}
                     {composerSelection &&
-                    row.type === 'line' &&
-                    rowLineSide(row) === composerSelection.side &&
-                    rowLineNumber(row, composerSelection.side) === composerSelection.endLine &&
+                    line.side === composerSelection.side &&
+                    providerLineNumber === composerSelection.endLine &&
                     composerSourceKey &&
-                    detail &&
                     publishComments ? (
                       <DiffInlineCommentComposer
                         selection={composerSelection}
@@ -623,134 +711,116 @@ function DiffExcerptSection({
               })}
               {selectionHighlightStyle ? <style>{selectionHighlightStyle}</style> : null}
             </div>
+            {canExpandDown ? (
+              <ExpandSourceButton direction="down" onClick={() => expandRange('down')} />
+            ) : null}
           </div>
         ) : (
-          <div className="px-4 py-3 text-[12px] text-white/55">No patch content.</div>
+          <div className="px-4 py-3 text-[12px] text-white/55">
+            表示できるコードまたは diff がありません。
+          </div>
         )}
       </div>
     </section>
   );
 }
 
-type DiffRow =
-  | { type: 'hunk'; text: string }
-  | {
-      type: 'line';
-      marker: ' ' | '+' | '-';
-      oldLineNumber: number | null;
-      newLineNumber: number | null;
-      text: string;
-    };
-
-function DiffRowView({
-  row,
+function DiffAwareSourceRow({
+  line,
   language,
-  filePath,
+  isHighlighted,
+  findingCount,
+  remoteThreadCount,
 }: {
-  row: DiffRow;
+  line: DiffAwareSourceLine;
   language: string;
-  filePath: string;
+  isHighlighted: boolean;
+  findingCount: number;
+  remoteThreadCount: number;
 }) {
-  if (row.type === 'hunk') {
-    return (
-      <div className="min-w-full bg-[#0f2742] px-3 py-2 text-[#79c0ff]">
-        <span className="whitespace-pre">{row.text}</span>
-      </div>
-    );
-  }
-
   const toneClass =
-    row.marker === '+'
+    line.kind === 'added'
       ? 'bg-[#12261b] text-[#b6f0c2]'
-      : row.marker === '-'
+      : line.kind === 'removed'
         ? 'bg-[#2f1721] text-[#ffd7d5]'
-        : 'bg-transparent text-[#c9d1d9]';
-  const side = rowLineSide(row);
-  const lineNumber = rowLineNumber(row, side);
+        : findingCount > 0
+          ? 'bg-[#ffbf6b]/12 text-[#ffe0b5]'
+          : remoteThreadCount > 0
+            ? 'bg-[#58d7ff]/10 text-[#dff7ff]'
+            : isHighlighted
+              ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
+              : line.kind === 'hunk'
+                ? 'bg-[#0f2742] text-[#79c0ff]'
+                : 'bg-transparent text-[#c9d1d9]';
+  const providerLineNumber = providerLineNumberForAwareLine(line);
+  const marker = line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : '';
 
   return (
     <div
-      className={`grid min-w-full grid-cols-[28px_28px_12px_auto] gap-x-1.5 px-2 py-1 ${toneClass}`}
-      data-diff-line="true"
-      data-side={side}
-      data-line={lineNumber ?? undefined}
-      data-selectable={lineNumber !== null}
+      className={`grid min-w-full grid-cols-[34px_34px_12px_auto] gap-x-1.5 rounded-[4px] px-1 py-1 ${toneClass}`}
+      data-poc3-source-line="true"
+      data-file-path={line.filePath}
+      data-side={line.side ?? undefined}
+      data-line={providerLineNumber ?? undefined}
+      data-provider-selectable={line.selectableForProviderComment}
+      data-agent-selectable={line.selectableForAgentMention}
     >
-      <span className="overflow-hidden text-right text-white/28">{row.oldLineNumber ?? ''}</span>
-      <span className="overflow-hidden text-right text-white/28">{row.newLineNumber ?? ''}</span>
-      <span className="text-center text-white/40">{row.marker}</span>
-      <span className="whitespace-pre">
-        <HighlightedSourceLine filePath={filePath} language={language} text={row.text} />
+      <span className="overflow-hidden text-right text-white/28">{line.oldLineNumber ?? ''}</span>
+      <span className="overflow-hidden text-right text-white/28">{line.newLineNumber ?? ''}</span>
+      <span className="text-center text-white/40">{marker}</span>
+      <span className="min-w-0 whitespace-pre-wrap break-all">
+        {findingCount > 0 ? (
+          <span className="mr-2 inline-flex rounded-[4px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/12 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#ffe0b5]">
+            F{findingCount}
+          </span>
+        ) : null}
+        {remoteThreadCount > 0 ? (
+          <span className="mr-2 inline-flex rounded-[4px] border border-[#58d7ff]/25 bg-[#58d7ff]/10 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#dff7ff]">
+            R{remoteThreadCount}
+          </span>
+        ) : null}
+        <HighlightedSourceLine filePath={line.filePath} language={language} text={line.text} />
       </span>
     </div>
   );
 }
 
-function buildUnifiedDiffRows(content: string | string[]): DiffRow[] {
-  const text = Array.isArray(content) ? content.join('\n') : content;
-  if (text.trim().length === 0) {
-    return [];
-  }
-
-  const rows: DiffRow[] = [];
-  let currentOldLine: number | null = null;
-  let currentNewLine: number | null = null;
-
-  for (const line of text.split('\n')) {
-    if (line.startsWith('@@')) {
-      const parsed = parseHunkHeader(line);
-      currentOldLine = parsed?.oldStart ?? null;
-      currentNewLine = parsed?.newStart ?? null;
-      rows.push({ type: 'hunk', text: line });
-      continue;
-    }
-
-    if (line.startsWith('+')) {
-      rows.push({
-        type: 'line',
-        marker: '+',
-        oldLineNumber: null,
-        newLineNumber: currentNewLine,
-        text: line.slice(1),
-      });
-      currentNewLine = currentNewLine === null ? null : currentNewLine + 1;
-      continue;
-    }
-
-    if (line.startsWith('-')) {
-      rows.push({
-        type: 'line',
-        marker: '-',
-        oldLineNumber: currentOldLine,
-        newLineNumber: null,
-        text: line.slice(1),
-      });
-      currentOldLine = currentOldLine === null ? null : currentOldLine + 1;
-      continue;
-    }
-
-    rows.push({
-      type: 'line',
-      marker: ' ',
-      oldLineNumber: currentOldLine,
-      newLineNumber: currentNewLine,
-      text: line.startsWith(' ') ? line.slice(1) : line,
-    });
-    currentOldLine = currentOldLine === null ? null : currentOldLine + 1;
-    currentNewLine = currentNewLine === null ? null : currentNewLine + 1;
-  }
-
-  return rows;
+function ExpandSourceButton({ direction, onClick }: { direction: 'up' | 'down'; onClick(): void }) {
+  const Icon = direction === 'up' ? ChevronUp : ChevronDown;
+  return (
+    <button
+      type="button"
+      className="mb-1 flex w-full items-center justify-center gap-1.5 rounded-[6px] border border-white/[0.08] bg-white/[0.025] px-2 py-1 text-[11px] text-white/48 transition hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-white/75"
+      onClick={onClick}
+      aria-label={direction === 'up' ? '上へ展開' : '下へ展開'}
+    >
+      <Icon className="size-3" aria-hidden="true" />
+    </button>
+  );
 }
 
-function parseHunkHeader(header: string): { oldStart: number; newStart: number } | null {
-  const matched = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header);
-  if (!matched) {
-    return null;
+function buildEffectiveSource(
+  source: DiffAwareSourceBase | null,
+  fileContext: NodeFileContext | null,
+  range: { startLine: number; endLine: number } | null,
+): DiffAwareSourceBase | null {
+  if (!source || !fileContext || !range || source.filePath !== fileContext.filePath) {
+    return source;
   }
+
+  const startLine = Math.max(fileContext.startLine, range.startLine);
+  const endLine = Math.min(fileContext.endLine, range.endLine);
+  const lines = fileContext.content.split('\n');
+  const startIndex = Math.max(0, startLine - fileContext.startLine);
+  const endIndex = Math.max(startIndex, endLine - fileContext.startLine);
   return {
-    oldStart: Number(matched[1]),
-    newStart: Number(matched[2]),
+    ...fileContext,
+    startLine,
+    endLine,
+    content: lines.slice(startIndex, endIndex + 1).join('\n'),
+    highlightedLineNumbers: fileContext.highlightedLineNumbers.filter(
+      (line) => line >= startLine && line <= endLine,
+    ),
   };
 }
 
@@ -762,134 +832,6 @@ interface AgentFindingPublishProps {
   errorByKey: Record<string, string>;
   onPublishFinding(finding: NodeDetailSnapshot['findings'][number], body: string): void;
   onClearPublishError(sourceKey: string): void;
-}
-
-function SourceCodeSection({
-  findings,
-  remoteThreads,
-  source,
-  scrollToLine,
-  detail,
-  publishComments,
-}: {
-  findings?: NodeDetailSnapshot['findings'];
-  remoteThreads?: NodeDetailSnapshot['threads']['remote'];
-  source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
-  scrollToLine?: number;
-  detail?: NodeDetailSnapshot;
-  publishComments?: UsePublishCommentsReturn;
-}) {
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
-  const highlighted = new Set(source.highlightedLineNumbers);
-  const findingsByLine = useMemo(() => groupFindingsByLine(findings ?? []), [findings]);
-  const remoteThreadsByLine = useMemo(
-    () => groupRemoteThreadsByLine(remoteThreads ?? []),
-    [remoteThreads],
-  );
-  const lines = source.content.split('\n');
-
-  useEffect(() => {
-    if (!scrollToLine || !scrollContainerRef.current) return;
-    const container = scrollContainerRef.current;
-    const lineEl = container.querySelector(`[data-line="${scrollToLine}"]`);
-    if (lineEl instanceof HTMLElement) {
-      const containerTop = container.getBoundingClientRect().top;
-      const lineTop = lineEl.getBoundingClientRect().top;
-      container.scrollTop = Math.max(0, container.scrollTop + lineTop - containerTop - 48);
-    }
-  }, [scrollToLine]);
-
-  return (
-    <section className="node-detail-code diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
-      <div className="overflow-hidden rounded-[12px] border border-white/[0.08] bg-black/45">
-        <div
-          ref={scrollContainerRef}
-          className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 text-[11px] leading-[1.35rem] text-[#c9d1d9]"
-        >
-          <OverviewFindingThreads
-            findings={findings ?? []}
-            publishProps={
-              detail && publishComments
-                ? {
-                    detail,
-                    publishedBySourceKey: publishComments.publishedBySourceKey,
-                    commentUrlBySourceKey: publishComments.commentUrlBySourceKey,
-                    inFlightKey: publishComments.inFlightKey,
-                    errorByKey: publishComments.errorByKey,
-                    onPublishFinding: (finding, body) =>
-                      void publishComments.publishFinding({ finding, detail, body }),
-                    onClearPublishError: publishComments.clearError,
-                  }
-                : undefined
-            }
-          />
-          {lines.map((line, index) => {
-            const actualLine = source.startLine + index;
-            const isHighlighted = highlighted.has(actualLine);
-            const lineFindings = findingsByLine.get(actualLine) ?? [];
-            const lineRemoteThreads = remoteThreadsByLine.get(actualLine) ?? [];
-            return (
-              <div key={actualLine} data-line={actualLine}>
-                <div
-                  className={`grid grid-cols-[16px_minmax(0,1fr)] gap-x-1.5 rounded-[4px] px-1 font-mono ${
-                    lineFindings.length > 0
-                      ? 'bg-[#ffbf6b]/12 text-[#ffe0b5]'
-                      : lineRemoteThreads.length > 0
-                        ? 'bg-[#58d7ff]/10 text-[#dff7ff]'
-                        : isHighlighted
-                          ? 'bg-[#d8e071]/10 text-[#f6ffc0]'
-                          : ''
-                  }`}
-                >
-                  <span className="overflow-hidden text-right text-white/28">{actualLine}</span>
-                  <span className="min-w-0 whitespace-pre-wrap break-all">
-                    {lineFindings.length > 0 ? (
-                      <span className="mr-2 inline-flex rounded-[4px] border border-[#ffbf6b]/25 bg-[#ffbf6b]/12 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#ffe0b5]">
-                        F{lineFindings.length}
-                      </span>
-                    ) : null}
-                    {lineRemoteThreads.length > 0 ? (
-                      <span className="mr-2 inline-flex rounded-[4px] border border-[#58d7ff]/25 bg-[#58d7ff]/10 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#dff7ff]">
-                        R{lineRemoteThreads.length}
-                      </span>
-                    ) : null}
-                    <HighlightedSourceLine
-                      filePath={source.filePath}
-                      language={language}
-                      text={line}
-                    />
-                  </span>
-                </div>
-                {lineFindings.length > 0 ? (
-                  <AgentFindingThreadLayer
-                    findings={lineFindings}
-                    publishProps={
-                      detail && publishComments
-                        ? {
-                            detail,
-                            publishedBySourceKey: publishComments.publishedBySourceKey,
-                            commentUrlBySourceKey: publishComments.commentUrlBySourceKey,
-                            inFlightKey: publishComments.inFlightKey,
-                            errorByKey: publishComments.errorByKey,
-                            onPublishFinding: (finding, body) =>
-                              void publishComments.publishFinding({ finding, detail, body }),
-                            onClearPublishError: publishComments.clearError,
-                          }
-                        : undefined
-                    }
-                  />
-                ) : null}
-                {lineRemoteThreads.length > 0 ? (
-                  <RemoteCommentThreadLayer threads={lineRemoteThreads} />
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
 }
 
 function RemoteCommentThreadLayer({
@@ -1429,37 +1371,37 @@ function formatFindingLocation(finding: NodeDetailSnapshot['findings'][number]):
   return `${finding.side ?? 'new'} L${finding.line}`;
 }
 
-function groupFindingsByLine(findings: NodeDetailSnapshot['findings']) {
-  const map = new Map<number, NodeDetailSnapshot['findings']>();
+function groupFindingsByAwareLine(findings: NodeDetailSnapshot['findings']) {
+  const map = new Map<string, NodeDetailSnapshot['findings']>();
+  const addFinding = (key: string, finding: NodeDetailSnapshot['findings'][number]) => {
+    const current = map.get(key) ?? [];
+    if (!current.some((entry) => entry.findingId === finding.findingId)) {
+      current.push(finding);
+    }
+    map.set(key, current);
+  };
   for (const finding of findings) {
     if (finding.line === null) {
       continue;
     }
-    const current = map.get(finding.line) ?? [];
-    current.push(finding);
-    map.set(finding.line, current);
+    const line = finding.endLine ?? finding.line;
+    if (finding.side === 'old') {
+      addFinding(`LEFT:${line}`, finding);
+      continue;
+    }
+    if (finding.side === 'new') {
+      addFinding(`RIGHT:${line}`, finding);
+      addFinding(`LINE:${line}`, finding);
+      continue;
+    }
+    addFinding(`RIGHT:${line}`, finding);
+    addFinding(`LEFT:${line}`, finding);
+    addFinding(`LINE:${line}`, finding);
   }
   return map;
 }
 
-function groupRemoteThreadsByLine(threads: NodeDetailSnapshot['threads']['remote']) {
-  const map = new Map<number, NodeDetailSnapshot['threads']['remote']>();
-  for (const thread of threads) {
-    if (thread.location.kind !== 'diff') {
-      continue;
-    }
-    const line = thread.location.endLine ?? thread.location.startLine;
-    if (line === null) {
-      continue;
-    }
-    const current = map.get(line) ?? [];
-    current.push(thread);
-    map.set(line, current);
-  }
-  return map;
-}
-
-function groupRemoteThreadsByDiffLine(threads: NodeDetailSnapshot['threads']['remote']) {
+function groupRemoteThreadsByAwareLine(threads: NodeDetailSnapshot['threads']['remote']) {
   const map = new Map<string, NodeDetailSnapshot['threads']['remote']>();
   for (const thread of threads) {
     if (thread.location.kind !== 'diff') {
@@ -1477,40 +1419,77 @@ function groupRemoteThreadsByDiffLine(threads: NodeDetailSnapshot['threads']['re
   return map;
 }
 
-function diffLineKey(
-  marker: ' ' | '+' | '-',
-  oldLineNumber: number | null,
-  newLineNumber: number | null,
-): string {
-  if (marker === '-') {
-    return `LEFT:${oldLineNumber ?? ''}`;
+function awareLineLookupKey(line: DiffAwareSourceLine): string {
+  if (line.side === 'LEFT' && line.oldLineNumber !== null) {
+    return `LEFT:${line.oldLineNumber}`;
   }
-  return `RIGHT:${newLineNumber ?? ''}`;
+  if (line.side === 'RIGHT' && line.newLineNumber !== null) {
+    return `RIGHT:${line.newLineNumber}`;
+  }
+  if (line.newLineNumber !== null) {
+    return `LINE:${line.newLineNumber}`;
+  }
+  return `LINE:${line.oldLineNumber ?? ''}`;
 }
 
-function rowLineSide(row: Extract<DiffRow, { type: 'line' }>): 'LEFT' | 'RIGHT' {
-  return row.marker === '-' ? 'LEFT' : 'RIGHT';
+function providerLineNumberForAwareLine(line: DiffAwareSourceLine): number | null {
+  if (line.side === 'LEFT') {
+    return line.oldLineNumber;
+  }
+  if (line.side === 'RIGHT') {
+    return line.newLineNumber;
+  }
+  return null;
 }
 
-function rowLineNumber(
-  row: Extract<DiffRow, { type: 'line' }>,
-  side: 'LEFT' | 'RIGHT',
-): number | null {
-  return side === 'LEFT' ? row.oldLineNumber : row.newLineNumber;
+function isSelectableDiffAwareLine(
+  lines: DiffAwareSourceLine[],
+  info: { filePath: string; side: 'LEFT' | 'RIGHT'; line: number },
+): boolean {
+  return lines.some(
+    (line) =>
+      line.filePath === info.filePath &&
+      line.side === info.side &&
+      providerLineNumberForAwareLine(line) === info.line &&
+      line.selectableForProviderComment,
+  );
 }
 
-function extractPoc3DiffLineInfoFromPoint(
+function isContiguousProviderSelection(
+  lines: DiffAwareSourceLine[],
+  selection: Poc3DiffLineSelection,
+): boolean {
+  const normalized = normalizeDiffLineSelection(selection);
+  const providerLines = lines
+    .filter(
+      (line) =>
+        line.filePath === normalized.filePath &&
+        line.side === normalized.side &&
+        line.selectableForProviderComment,
+    )
+    .map((line) => providerLineNumberForAwareLine(line))
+    .filter((line): line is number => line !== null)
+    .sort((a, b) => a - b);
+
+  for (let line = normalized.startLine; line <= normalized.endLine; line++) {
+    if (!providerLines.includes(line)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function extractPoc3SourceLineInfoFromPoint(
   clientX: number,
   clientY: number,
 ): { filePath: string; side: 'LEFT' | 'RIGHT'; line: number } | null {
   let element = document.elementFromPoint(clientX, clientY);
   while (element) {
-    if (element instanceof HTMLElement && element.dataset.diffLine === 'true') {
-      if (element.dataset.selectable !== 'true') return null;
+    if (element instanceof HTMLElement && element.dataset.poc3SourceLine === 'true') {
+      if (element.dataset.providerSelectable !== 'true') return null;
       const side = element.dataset.side;
       const line = Number(element.dataset.line);
-      const fileElement = element.closest<HTMLElement>('[data-poc3-diff-file-path]');
-      const filePath = fileElement?.dataset.poc3DiffFilePath;
+      const filePath = element.dataset.filePath;
       if ((side === 'LEFT' || side === 'RIGHT') && Number.isFinite(line) && line > 0 && filePath) {
         return { filePath, side, line };
       }
@@ -1652,47 +1631,6 @@ function RelationGroup({
         </p>
       )}
     </div>
-  );
-}
-
-function DiffPatchSummary({
-  detail,
-  publishComments,
-}: {
-  detail: NodeDetailSnapshot;
-  publishComments?: UsePublishCommentsReturn;
-}) {
-  const patch = detail.diffSummary.patch ?? detail.diffExcerpt?.patch ?? null;
-  if (!detail.diffSummary.hasDiff && !patch) {
-    return null;
-  }
-  return (
-    <details className="border-t border-white/[0.08] pt-3">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/48">
-        <FileText className="size-3.5" aria-hidden="true" />
-        Diff Patch
-      </summary>
-      <div className="mt-2">
-        {patch ? (
-          <DiffExcerptSection
-            excerpt={{
-              filePath: detail.summary.filePath ?? detail.node.filePath ?? '',
-              patch,
-              hunkHeaders: detail.diffSummary.hunks.map((hunk) => hunk.header),
-              changedLineNumbers: detail.diffSummary.changedLineNumbers,
-            }}
-            remoteThreads={detail.threads.remote}
-            detail={detail}
-            publishComments={publishComments}
-            interactive={Boolean(publishComments)}
-          />
-        ) : (
-          <p className="text-[12px] text-white/42">
-            {detail.diffSummary.changedLineNumbers.length} changed lines
-          </p>
-        )}
-      </div>
-    </details>
   );
 }
 
