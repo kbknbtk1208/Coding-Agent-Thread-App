@@ -89,8 +89,9 @@ export async function publishInlineComment(
     return resolved;
   }
   const { sourceSnapshot, profile, token } = resolved;
+  const anchor = resolveInlineCommentAnchorOldPath(input.anchor, sourceSnapshot);
 
-  const anchorValidation = validateInlineCommentAnchor(input.anchor, sourceSnapshot);
+  const anchorValidation = validateInlineCommentAnchor(anchor, sourceSnapshot);
   if (!anchorValidation.ok) {
     return { ok: false, reason: 'invalidAnchor', message: anchorValidation.message };
   }
@@ -115,7 +116,7 @@ export async function publishInlineComment(
         repo: locator.repo,
         pullNumber: sourceSnapshot.reviewId,
         body: input.body,
-        anchor: input.anchor,
+        anchor,
         sourceSnapshot,
       });
     } else {
@@ -134,7 +135,7 @@ export async function publishInlineComment(
         projectPathOrId: locator.projectPathOrId,
         mergeRequestIid: sourceSnapshot.reviewId,
         body: input.body,
-        anchor: input.anchor,
+        anchor,
         sourceSnapshot,
       });
     }
@@ -147,12 +148,12 @@ export async function publishInlineComment(
       providerThreadId: result.providerThreadId,
       providerCommentIds: result.providerCommentIds,
       body: input.body,
-      anchor: input.anchor,
+      anchor,
       createdAt: new Date().toISOString(),
     };
     deps.savePublishedRecord(published);
 
-    const remoteThread = buildRemoteThread(published, input.anchor);
+    const remoteThread = buildRemoteThread(published, anchor);
     const updatedSnapshot = mergeThreadIntoSnapshot(sourceSnapshot, remoteThread);
     deps.graphStore.saveSourceSnapshot(updatedSnapshot);
     deps.clearWorkspaceCaches(input.reviewWorkspaceId);
@@ -417,6 +418,20 @@ function buildRemoteThread(
       anchorRefs: {},
     },
   };
+}
+
+function resolveInlineCommentAnchorOldPath(
+  anchor: Poc3InlineCommentAnchor,
+  sourceSnapshot: ReviewSourceSnapshot,
+): Poc3InlineCommentAnchor {
+  if (anchor.oldPath) {
+    return anchor;
+  }
+  const changedFile = sourceSnapshot.changedFiles.find((file) => file.path === anchor.filePath);
+  if (!changedFile?.oldPath) {
+    return anchor;
+  }
+  return { ...anchor, oldPath: changedFile.oldPath };
 }
 
 function extractDiscussionId(providerThreadId: string): string {

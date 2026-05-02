@@ -18,7 +18,15 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type RefObject,
+} from 'react';
 import {
   SessionIntermediateSegments,
   renderStreamingRichText,
@@ -41,7 +49,14 @@ import { useAgentThreadConversationContext } from '../agent-review/agent-thread-
 import { usePublishComments } from '../provider-comments/use-publish-comments';
 import type { UsePublishCommentsReturn } from '../provider-comments/use-publish-comments';
 import { FindingPublishComposer } from '../provider-comments/finding-publish-composer';
+import { DiffInlineCommentComposer } from '../provider-comments/diff-inline-comment-composer';
+import {
+  normalizeDiffLineSelection,
+  type DiffSelectionState,
+  type Poc3DiffLineSelection,
+} from '../provider-comments/diff-inline-selection';
 import type { Poc3PublishedCommentRecord } from '../../../../shared/poc3-domain/comment-publish';
+import type { Poc3InlineCommentAnchor } from '../../../../shared/poc3-domain/comment-publish';
 import type { NodeDetailState } from './use-node-detail';
 
 const PANEL_WIDTH_CLASS = 'w-[min(660px,calc(100vw-28px))]';
@@ -279,7 +294,7 @@ function PanelBody({
         publishComments={publishComments}
       />
       {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
-      {detail ? <DiffPatchSummary detail={detail} /> : null}
+      {detail ? <DiffPatchSummary detail={detail} publishComments={publishComments} /> : null}
       {detail ? <DiagnosticsSection detail={detail} /> : null}
     </div>
   );
@@ -372,7 +387,13 @@ function PrimarySection({
 
   if (detail.diffExcerpt) {
     return (
-      <DiffExcerptSection excerpt={detail.diffExcerpt} remoteThreads={detail.threads.remote} />
+      <DiffExcerptSection
+        excerpt={detail.diffExcerpt}
+        remoteThreads={detail.threads.remote}
+        detail={detail}
+        publishComments={publishComments}
+        interactive
+      />
     );
   }
   return <UnavailableSection selectedNode={selectedNode} detail={detail} />;
@@ -381,9 +402,15 @@ function PrimarySection({
 function DiffExcerptSection({
   excerpt,
   remoteThreads = [],
+  detail,
+  publishComments,
+  interactive = false,
 }: {
   excerpt: NodeDiffExcerpt;
   remoteThreads?: NodeDetailSnapshot['threads']['remote'];
+  detail?: NodeDetailSnapshot;
+  publishComments?: UsePublishCommentsReturn;
+  interactive?: boolean;
 }) {
   const language = useMemo(() => resolveHighlightLanguage(excerpt.filePath), [excerpt.filePath]);
   const rows = useMemo(
@@ -395,13 +422,164 @@ function DiffExcerptSection({
     () => groupRemoteThreadsByDiffLine(remoteThreads),
     [remoteThreads],
   );
+  const [selectionState, setSelectionState] = useState<DiffSelectionState>({ status: 'idle' });
+  const [selectionKeySeed, setSelectionKeySeed] = useState(0);
+  const [submittedSourceKey, setSubmittedSourceKey] = useState<string | null>(null);
+  const dragAnchorRef = useRef<{ side: 'LEFT' | 'RIGHT'; line: number } | null>(null);
+  const canInteract = interactive && Boolean(detail && publishComments && excerpt.filePath);
+  const activeSelection =
+    selectionState.status === 'idle' ? null : normalizeDiffLineSelection(selectionState.selection);
+  const composerSelection =
+    selectionState.status === 'composing'
+      ? normalizeDiffLineSelection(selectionState.selection)
+      : null;
+  const composerSourceKey = composerSelection
+    ? buildManualSelectionSourceKey(composerSelection, detail, selectionKeySeed)
+    : null;
+  const composerError =
+    composerSourceKey && publishComments
+      ? (publishComments.errorByKey[composerSourceKey] ?? '')
+      : '';
+  const isComposerInFlight =
+    composerSourceKey !== null && publishComments?.inFlightKey === composerSourceKey;
+  const publishedManualSelection =
+    composerSourceKey && publishComments
+      ? publishComments.publishedBySourceKey[composerSourceKey]
+      : null;
+
+  const selectionHighlightStyle = useMemo(() => {
+    if (!activeSelection) return '';
+    const startLine = Math.min(activeSelection.startLine, activeSelection.endLine);
+    const endLine = Math.max(activeSelection.startLine, activeSelection.endLine);
+    const selectors: string[] = [];
+    const escapedPath = escapeCssIdentifier(activeSelection.filePath);
+    const scope = `[data-poc3-diff-file-path="${escapedPath}"]`;
+    for (let line = startLine; line <= endLine; line++) {
+      selectors.push(
+        `${scope} [data-diff-line="true"][data-side="${activeSelection.side}"][data-line="${line}"]`,
+      );
+    }
+    if (selectors.length === 0) return '';
+    return `${selectors.join(',\n')} { background-color: rgba(216, 224, 113, 0.18) !important; box-shadow: inset 3px 0 0 rgba(216, 224, 113, 0.62); }`;
+  }, [activeSelection]);
+
+  useEffect(() => {
+    if (!publishedManualSelection || submittedSourceKey !== composerSourceKey) return;
+    setSelectionState({ status: 'idle' });
+    setSubmittedSourceKey(null);
+  }, [composerSourceKey, publishedManualSelection, submittedSourceKey]);
+
+  useEffect(() => {
+    if (selectionState.status !== 'composing') return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (composerSourceKey && composerError && publishComments) {
+          publishComments.clearError(composerSourceKey);
+        }
+        setSubmittedSourceKey(null);
+        setSelectionState({ status: 'idle' });
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [composerError, composerSourceKey, publishComments, selectionState.status]);
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canInteract || event.button !== 0) return;
+    const info = extractPoc3DiffLineInfoFromPoint(event.clientX, event.clientY);
+    if (!info || info.filePath !== excerpt.filePath) return;
+
+    event.preventDefault();
+    if (composerSourceKey && composerError && publishComments) {
+      publishComments.clearError(composerSourceKey);
+    }
+    setSelectionKeySeed((current) => current + 1);
+    setSubmittedSourceKey(null);
+    dragAnchorRef.current = { side: info.side, line: info.line };
+    setSelectionState({
+      status: 'selecting',
+      selection: {
+        filePath: excerpt.filePath,
+        oldPath: null,
+        side: info.side,
+        startLine: info.line,
+        endLine: info.line,
+      },
+    });
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canInteract) return;
+    const anchor = dragAnchorRef.current;
+    if (!anchor) return;
+    const info = extractPoc3DiffLineInfoFromPoint(event.clientX, event.clientY);
+    if (!info || info.filePath !== excerpt.filePath || info.side !== anchor.side) return;
+
+    setSelectionState((prev) => {
+      if (prev.status !== 'selecting') return prev;
+      const next = normalizeDiffLineSelection({
+        ...prev.selection,
+        startLine: anchor.line,
+        endLine: info.line,
+      });
+      if (prev.selection.startLine === next.startLine && prev.selection.endLine === next.endLine) {
+        return prev;
+      }
+      return { status: 'selecting', selection: next };
+    });
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canInteract) return;
+    const anchor = dragAnchorRef.current;
+    if (!anchor) return;
+    dragAnchorRef.current = null;
+    const info = extractPoc3DiffLineInfoFromPoint(event.clientX, event.clientY);
+    setSelectionState((prev) => {
+      const endLine =
+        info && info.filePath === excerpt.filePath && info.side === anchor.side
+          ? info.line
+          : prev.status === 'selecting'
+            ? prev.selection.endLine
+            : anchor.line;
+      const selection = normalizeDiffLineSelection({
+        filePath: excerpt.filePath,
+        oldPath: null,
+        side: anchor.side,
+        startLine: anchor.line,
+        endLine,
+      });
+      return { status: 'composing', selection, actionKind: 'publish-comment' };
+    });
+  };
+
+  const closeComposer = () => {
+    if (composerSourceKey && composerError && publishComments) {
+      publishComments.clearError(composerSourceKey);
+    }
+    setSubmittedSourceKey(null);
+    setSelectionState({ status: 'idle' });
+  };
 
   return (
     <section className="node-detail-diff diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
       <div className="overflow-hidden rounded-[12px] border border-white/[0.08] bg-black/45">
         {rows.length > 0 ? (
-          <div className="max-h-[calc(100vh-132px)] overflow-auto font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]">
-            <div className="min-w-max">
+          <div
+            className="max-h-[calc(100vh-132px)] overflow-auto font-mono text-[11px] leading-[1.35rem] text-[#c9d1d9]"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={() => {
+              dragAnchorRef.current = null;
+              setSelectionState({ status: 'idle' });
+            }}
+            style={{
+              touchAction: 'none',
+              ...(selectionState.status === 'selecting' ? { userSelect: 'none' as const } : {}),
+            }}
+          >
+            <div className="min-w-max" data-poc3-diff-file-path={excerpt.filePath}>
               {rows.map((row, index) => {
                 const lineThreads =
                   row.type === 'line'
@@ -415,9 +593,35 @@ function DiffExcerptSection({
                     {lineThreads.length > 0 ? (
                       <RemoteCommentThreadLayer threads={lineThreads} />
                     ) : null}
+                    {composerSelection &&
+                    row.type === 'line' &&
+                    rowLineSide(row) === composerSelection.side &&
+                    rowLineNumber(row, composerSelection.side) === composerSelection.endLine &&
+                    composerSourceKey &&
+                    detail &&
+                    publishComments ? (
+                      <DiffInlineCommentComposer
+                        selection={composerSelection}
+                        inFlight={isComposerInFlight}
+                        errorMessage={composerError || null}
+                        onClose={closeComposer}
+                        onSubmit={(body) => {
+                          setSubmittedSourceKey(composerSourceKey);
+                          void publishComments.publishInlineComment({
+                            reviewWorkspaceId: detail.reviewWorkspaceId,
+                            revisionId: detail.revisionId,
+                            body,
+                            anchor: selectionToAnchor(composerSelection),
+                            source: { kind: 'manual-selection' },
+                            sourceKey: composerSourceKey,
+                          });
+                        }}
+                      />
+                    ) : null}
                   </div>
                 );
               })}
+              {selectionHighlightStyle ? <style>{selectionHighlightStyle}</style> : null}
             </div>
           </div>
         ) : (
@@ -461,10 +665,16 @@ function DiffRowView({
       : row.marker === '-'
         ? 'bg-[#2f1721] text-[#ffd7d5]'
         : 'bg-transparent text-[#c9d1d9]';
+  const side = rowLineSide(row);
+  const lineNumber = rowLineNumber(row, side);
 
   return (
     <div
       className={`grid min-w-full grid-cols-[28px_28px_12px_auto] gap-x-1.5 px-2 py-1 ${toneClass}`}
+      data-diff-line="true"
+      data-side={side}
+      data-line={lineNumber ?? undefined}
+      data-selectable={lineNumber !== null}
     >
       <span className="overflow-hidden text-right text-white/28">{row.oldLineNumber ?? ''}</span>
       <span className="overflow-hidden text-right text-white/28">{row.newLineNumber ?? ''}</span>
@@ -1278,6 +1488,74 @@ function diffLineKey(
   return `RIGHT:${newLineNumber ?? ''}`;
 }
 
+function rowLineSide(row: Extract<DiffRow, { type: 'line' }>): 'LEFT' | 'RIGHT' {
+  return row.marker === '-' ? 'LEFT' : 'RIGHT';
+}
+
+function rowLineNumber(
+  row: Extract<DiffRow, { type: 'line' }>,
+  side: 'LEFT' | 'RIGHT',
+): number | null {
+  return side === 'LEFT' ? row.oldLineNumber : row.newLineNumber;
+}
+
+function extractPoc3DiffLineInfoFromPoint(
+  clientX: number,
+  clientY: number,
+): { filePath: string; side: 'LEFT' | 'RIGHT'; line: number } | null {
+  let element = document.elementFromPoint(clientX, clientY);
+  while (element) {
+    if (element instanceof HTMLElement && element.dataset.diffLine === 'true') {
+      if (element.dataset.selectable !== 'true') return null;
+      const side = element.dataset.side;
+      const line = Number(element.dataset.line);
+      const fileElement = element.closest<HTMLElement>('[data-poc3-diff-file-path]');
+      const filePath = fileElement?.dataset.poc3DiffFilePath;
+      if ((side === 'LEFT' || side === 'RIGHT') && Number.isFinite(line) && line > 0 && filePath) {
+        return { filePath, side, line };
+      }
+      return null;
+    }
+    element = element.parentElement;
+  }
+  return null;
+}
+
+function buildManualSelectionSourceKey(
+  selection: Poc3DiffLineSelection,
+  detail?: NodeDetailSnapshot,
+  seed = 0,
+): string {
+  return [
+    'manual-selection',
+    seed,
+    detail?.reviewWorkspaceId ?? '',
+    detail?.revisionId ?? '',
+    selection.filePath,
+    selection.side,
+    selection.startLine,
+    selection.endLine,
+  ].join(':');
+}
+
+function selectionToAnchor(selection: Poc3DiffLineSelection): Poc3InlineCommentAnchor {
+  return {
+    kind: 'diff',
+    filePath: selection.filePath,
+    oldPath: selection.oldPath,
+    side: selection.side,
+    startLine: selection.startLine === selection.endLine ? null : selection.startLine,
+    endLine: selection.endLine,
+  };
+}
+
+function escapeCssIdentifier(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value);
+  }
+  return value.replace(/["\\]/g, '\\$&');
+}
+
 function formatShortDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -1377,7 +1655,13 @@ function RelationGroup({
   );
 }
 
-function DiffPatchSummary({ detail }: { detail: NodeDetailSnapshot }) {
+function DiffPatchSummary({
+  detail,
+  publishComments,
+}: {
+  detail: NodeDetailSnapshot;
+  publishComments?: UsePublishCommentsReturn;
+}) {
   const patch = detail.diffSummary.patch ?? detail.diffExcerpt?.patch ?? null;
   if (!detail.diffSummary.hasDiff && !patch) {
     return null;
@@ -1397,6 +1681,10 @@ function DiffPatchSummary({ detail }: { detail: NodeDetailSnapshot }) {
               hunkHeaders: detail.diffSummary.hunks.map((hunk) => hunk.header),
               changedLineNumbers: detail.diffSummary.changedLineNumbers,
             }}
+            remoteThreads={detail.threads.remote}
+            detail={detail}
+            publishComments={publishComments}
+            interactive={Boolean(publishComments)}
           />
         ) : (
           <p className="text-[12px] text-white/42">
