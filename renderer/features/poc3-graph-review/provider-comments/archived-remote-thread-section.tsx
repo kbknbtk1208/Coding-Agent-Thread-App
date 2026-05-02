@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ChevronRight, History, MessageSquareText } from 'lucide-react';
+import { ChevronDown, History, MessageSquareText } from 'lucide-react';
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import type { Poc3ArchivedRemoteThread } from '../../../../shared/poc3-contracts/graph-review-ipc';
@@ -34,11 +34,10 @@ export function ArchivedRemoteThreadSection({ threads }: { threads: Poc3Archived
                 )
               }
             >
-              {expanded ? (
-                <ChevronDown className="size-3.5 shrink-0 text-white/38" aria-hidden="true" />
-              ) : (
-                <ChevronRight className="size-3.5 shrink-0 text-white/38" aria-hidden="true" />
-              )}
+              <ChevronDown
+                className={`size-3.5 shrink-0 text-white/38 transition-transform duration-200 ease-in-out ${expanded ? 'rotate-0' : '-rotate-90'}`}
+                aria-hidden="true"
+              />
               <MessageSquareText
                 className="size-3.5 shrink-0 text-[#58d7ff]/70"
                 aria-hidden="true"
@@ -50,32 +49,36 @@ export function ArchivedRemoteThreadSection({ threads }: { threads: Poc3Archived
                 {item.thread.anchorStatus}
               </span>
             </button>
-            {expanded ? (
-              <div className="border-t border-[#58d7ff]/10 px-2.5 py-2">
-                <p className="mb-1 truncate font-mono text-[10px] text-white/34">
-                  {item.headSha.slice(0, 7)}
-                </p>
-                <p className="mb-2 text-[10px] text-white/38">{formatLocation(item)}</p>
-                <div className="space-y-2">
-                  {item.thread.comments.map((comment) => (
-                    <div
-                      key={comment.providerCommentId}
-                      className="border-t border-white/[0.06] pt-2 first:border-t-0 first:pt-0"
-                    >
-                      <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-white/42">
-                        <span className="font-semibold text-[#dff7ff]/78">
-                          {comment.author.login}
-                        </span>
-                        <span>{formatShortDate(comment.createdAt)}</span>
+            <div
+              className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+            >
+              <div className="overflow-hidden">
+                <div className="border-t border-[#58d7ff]/10 px-2.5 py-2">
+                  <p className="mb-1 truncate font-mono text-[10px] text-white/34">
+                    {item.headSha.slice(0, 7)}
+                  </p>
+                  <p className="mb-2 text-[10px] text-white/38">{formatLocation(item)}</p>
+                  <div className="space-y-2">
+                    {item.thread.comments.map((comment) => (
+                      <div
+                        key={comment.providerCommentId}
+                        className="border-t border-white/[0.06] pt-2 first:border-t-0 first:pt-0"
+                      >
+                        <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-white/42">
+                          <span className="font-semibold text-[#dff7ff]/78">
+                            {comment.author.login}
+                          </span>
+                          <span>{formatShortDate(comment.createdAt)}</span>
+                        </div>
+                        <div className="text-[11px] leading-5 text-white/58">
+                          <Streamdown>{comment.body}</Streamdown>
+                        </div>
                       </div>
-                      <div className="text-[11px] leading-5 text-white/58">
-                        <Streamdown>{comment.body}</Streamdown>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            ) : null}
+            </div>
           </div>
         );
       })}

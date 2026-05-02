@@ -4,7 +4,6 @@ import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/
 import {
   AlertTriangle,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   ExternalLink,
   FileCode2,
@@ -1020,8 +1019,13 @@ function AgentFindingThreadCard({
           isExpanded={isExpanded}
           onToggle={() => setIsExpanded((current) => !current)}
         />
-        {isExpanded ? (
-          <div id={contentId} role="region" aria-labelledby={headerId}>
+        <div
+          id={contentId}
+          role="region"
+          aria-labelledby={headerId}
+          className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        >
+          <div className="overflow-hidden">
             <FindingHeaderBadges finding={finding} />
             {published ? (
               <div className="mt-2 flex items-center gap-1.5">
@@ -1093,7 +1097,7 @@ function AgentFindingThreadCard({
               />
             ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
     </article>
   );
@@ -1112,7 +1116,6 @@ function FindingThreadAccordionHeader({
   isExpanded: boolean;
   onToggle(): void;
 }) {
-  const Icon = isExpanded ? ChevronDown : ChevronRight;
   return (
     <button
       id={headerId}
@@ -1122,7 +1125,10 @@ function FindingThreadAccordionHeader({
       aria-expanded={isExpanded}
       aria-controls={contentId}
     >
-      <Icon className="size-4 shrink-0 text-fuchsia-100/75" aria-hidden="true" />
+      <ChevronDown
+        className={`size-4 shrink-0 text-fuchsia-100/75 transition-transform duration-200 ease-in-out ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+        aria-hidden="true"
+      />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
         {finding.title}
       </span>

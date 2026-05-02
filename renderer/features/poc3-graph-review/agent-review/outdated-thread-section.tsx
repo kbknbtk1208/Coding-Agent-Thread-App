@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ChevronRight, History } from 'lucide-react';
+import { ChevronDown, History } from 'lucide-react';
 import { useState } from 'react';
 import type { Poc3OutdatedAgentThread } from '../../../../shared/poc3-contracts/graph-review-ipc';
 
@@ -33,11 +33,10 @@ export function OutdatedThreadSection({ threads }: { threads: Poc3OutdatedAgentT
                 )
               }
             >
-              {expanded ? (
-                <ChevronDown className="size-3.5 shrink-0 text-white/38" aria-hidden="true" />
-              ) : (
-                <ChevronRight className="size-3.5 shrink-0 text-white/38" aria-hidden="true" />
-              )}
+              <ChevronDown
+                className={`size-3.5 shrink-0 text-white/38 transition-transform duration-200 ease-in-out ${expanded ? 'rotate-0' : '-rotate-90'}`}
+                aria-hidden="true"
+              />
               <span className="min-w-0 flex-1 truncate text-[11px] text-white/62">
                 {item.thread.title}
               </span>
@@ -45,18 +44,22 @@ export function OutdatedThreadSection({ threads }: { threads: Poc3OutdatedAgentT
                 {item.tracking.reason ?? item.tracking.status}
               </span>
             </button>
-            {expanded ? (
-              <div className="border-t border-white/[0.06] px-2.5 py-2">
-                <p className="mb-1 truncate font-mono text-[10px] text-white/34">
-                  {item.sourceRevision.headSha.slice(0, 7)} {'->'}{' '}
-                  {item.checkedRevision.headSha.slice(0, 7)}
-                </p>
-                {location ? <p className="mb-2 text-[10px] text-white/38">{location}</p> : null}
-                <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/55">
-                  {item.thread.draftBody}
-                </p>
+            <div
+              className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+            >
+              <div className="overflow-hidden">
+                <div className="border-t border-white/[0.06] px-2.5 py-2">
+                  <p className="mb-1 truncate font-mono text-[10px] text-white/34">
+                    {item.sourceRevision.headSha.slice(0, 7)} {'->'}{' '}
+                    {item.checkedRevision.headSha.slice(0, 7)}
+                  </p>
+                  {location ? <p className="mb-2 text-[10px] text-white/38">{location}</p> : null}
+                  <p className="whitespace-pre-wrap text-[11px] leading-5 text-white/55">
+                    {item.thread.draftBody}
+                  </p>
+                </div>
               </div>
-            ) : null}
+            </div>
           </div>
         );
       })}
