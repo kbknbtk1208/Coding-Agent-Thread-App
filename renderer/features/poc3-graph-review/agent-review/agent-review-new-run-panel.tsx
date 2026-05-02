@@ -96,7 +96,7 @@ export function AgentReviewNewRunPanel({
         <button
           type="button"
           onClick={onBack}
-          className="flex size-6 shrink-0 items-center justify-center rounded-[5px] text-white/40 transition hover:bg-white/[0.08] hover:text-white/80"
+          className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-white/40 transition hover:bg-white/[0.08] hover:text-white/80"
           aria-label="履歴一覧に戻る"
         >
           <ArrowLeft className="size-3.5" aria-hidden="true" />

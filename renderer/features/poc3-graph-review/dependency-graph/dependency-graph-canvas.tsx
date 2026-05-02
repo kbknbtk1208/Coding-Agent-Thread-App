@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphRenderNode, GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import type { NodeDetailViewMode } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-workspace';
 import { NodeDetailPanel } from '../node-detail/node-detail-panel';
 import { useNodeDetail } from '../node-detail/use-node-detail';
 import { Poc3GraphNode } from './graph-node';
@@ -28,6 +29,7 @@ const FIT_VIEW_OPTIONS = { padding: 0.28, maxZoom: 1.8 };
 export interface DependencyGraphCanvasProps {
   graph: GraphRenderSnapshot;
   reviewWorkspaceId: string;
+  providerKind: ReviewProviderKind;
   highlightedFilePath?: string | null;
 }
 
@@ -42,6 +44,7 @@ export function DependencyGraphCanvas(props: DependencyGraphCanvasProps) {
 function DependencyGraphCanvasInner({
   graph,
   reviewWorkspaceId,
+  providerKind,
   highlightedFilePath,
 }: DependencyGraphCanvasProps) {
   const elements = useMemo(() => toReactFlowElements(graph), [graph]);
@@ -189,6 +192,7 @@ function DependencyGraphCanvasInner({
           }}
           onClose={() => setSelectedNodeId(null)}
           onNodeDetailRefresh={() => setNodeDetailRefreshKey((k) => k + 1)}
+          providerKind={providerKind}
         />
       ) : null}
     </div>

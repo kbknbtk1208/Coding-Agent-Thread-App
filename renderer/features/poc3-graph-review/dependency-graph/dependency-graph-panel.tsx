@@ -51,6 +51,7 @@ export function DependencyGraphPanel({
           <DependencyGraphCanvas
             graph={state.result.graph}
             reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
+            providerKind={selectedWorkspace.provider}
             highlightedFilePath={highlightedFilePath}
           />
           <AgentControlCenter

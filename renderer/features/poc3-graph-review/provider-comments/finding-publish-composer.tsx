@@ -3,6 +3,7 @@
 import { Loader2, SendHorizontal, X } from 'lucide-react';
 import { useState } from 'react';
 import type { NodeDetailSnapshot } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-workspace';
 
 export interface FindingPublishComposerProps {
   finding: NodeDetailSnapshot['findings'][number];
@@ -10,6 +11,7 @@ export interface FindingPublishComposerProps {
   initialBody: string;
   inFlight: boolean;
   errorMessage: string | null;
+  providerKind?: ReviewProviderKind;
   onSubmit(body: string): void;
   onCancel(): void;
 }
@@ -18,6 +20,7 @@ export function FindingPublishComposer({
   initialBody,
   inFlight,
   errorMessage,
+  providerKind,
   onSubmit,
   onCancel,
 }: FindingPublishComposerProps) {
@@ -29,7 +32,8 @@ export function FindingPublishComposer({
     <div className="border-t border-white/[0.08] pt-3">
       <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d8e071]/80">
         <SendHorizontal className="size-3" aria-hidden="true" />
-        Provider にコメント投稿
+        {providerKind === 'github' ? 'GitHub' : providerKind === 'gitlab' ? 'GitLab' : 'Provider'}{' '}
+        にコメント投稿
       </div>
       {errorMessage ? (
         <div className="mb-2 rounded-[8px] border border-[#FF5C5C]/20 bg-[#FF5C5C]/10 px-3 py-2 text-[12px] text-[#ffd9d9]">
@@ -63,7 +67,7 @@ export function FindingPublishComposer({
           <button
             type="submit"
             disabled={disabled || composing}
-            className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-[#d8e071]/25 bg-[#d8e071]/12 text-[#f6ffc0] transition hover:border-[#d8e071]/45 hover:bg-[#d8e071]/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.03] disabled:text-white/25"
+            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[8px] border border-[#d8e071]/25 bg-[#d8e071]/12 text-[#f6ffc0] transition hover:border-[#d8e071]/45 hover:bg-[#d8e071]/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.03] disabled:text-white/25"
             aria-label="Publish finding as provider comment"
           >
             {inFlight ? (
@@ -75,7 +79,7 @@ export function FindingPublishComposer({
           <button
             type="button"
             disabled={inFlight}
-            className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-white/[0.08] bg-white/[0.03] text-white/55 transition hover:border-white/[0.16] hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[8px] border border-white/[0.08] bg-white/[0.03] text-white/55 transition hover:border-white/[0.16] hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onCancel}
             aria-label="Cancel publishing finding"
           >

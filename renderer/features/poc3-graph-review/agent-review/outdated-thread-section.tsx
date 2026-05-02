@@ -26,7 +26,7 @@ export function OutdatedThreadSection({ threads }: { threads: Poc3OutdatedAgentT
           >
             <button
               type="button"
-              className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+              className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left"
               onClick={() =>
                 setExpandedId((current) =>
                   current === item.thread.localThreadId ? null : item.thread.localThreadId,

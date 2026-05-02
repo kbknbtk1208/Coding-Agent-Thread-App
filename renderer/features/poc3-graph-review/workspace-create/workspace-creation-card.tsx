@@ -88,7 +88,7 @@ export function WorkspaceCreationCard({
         <button
           type="button"
           onClick={() => onToggleExpand(job.jobId)}
-          className="flex h-full min-w-0 flex-1 items-center justify-between text-left"
+          className="flex h-full min-w-0 flex-1 cursor-pointer items-center justify-between text-left"
           aria-expanded={job.expanded}
           aria-label={`Toggle ${job.repositoryLabel} creation log`}
         >

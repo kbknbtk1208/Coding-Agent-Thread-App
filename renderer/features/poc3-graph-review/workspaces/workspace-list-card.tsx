@@ -166,7 +166,7 @@ export function WorkspaceListCard({
             type="button"
             disabled={selectedWorkspaceIsRemoving}
             onClick={() => setOpen((current) => !current)}
-            className="group flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
+            className="group flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
             aria-expanded={open}
             aria-controls={listId}
           >

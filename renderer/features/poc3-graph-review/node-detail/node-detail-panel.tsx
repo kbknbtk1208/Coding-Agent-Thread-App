@@ -3,6 +3,7 @@
 import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/lowlight';
 import {
   AlertTriangle,
+  Bot,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -53,6 +54,7 @@ import {
 } from '../provider-comments/diff-inline-selection';
 import type { Poc3PublishedCommentRecord } from '../../../../shared/poc3-domain/comment-publish';
 import type { Poc3InlineCommentAnchor } from '../../../../shared/poc3-domain/comment-publish';
+import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-workspace';
 import type { NodeDetailState } from './use-node-detail';
 import {
   buildDiffAwareSourceLines,
@@ -70,6 +72,7 @@ export interface NodeDetailPanelProps {
   onSelectNode(nodeId: string): void;
   onClose(): void;
   onNodeDetailRefresh?: () => void;
+  providerKind?: ReviewProviderKind;
 }
 
 export function NodeDetailPanel({
@@ -80,6 +83,7 @@ export function NodeDetailPanel({
   onSelectNode,
   onClose,
   onNodeDetailRefresh,
+  providerKind,
 }: NodeDetailPanelProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLElement | null>(null);
@@ -143,6 +147,7 @@ export function NodeDetailPanel({
                   onViewModeChange={onViewModeChange}
                   onSelectNode={onSelectNode}
                   onNodeDetailRefresh={onNodeDetailRefresh}
+                  providerKind={providerKind}
                 />
               </div>
             </div>
@@ -216,7 +221,7 @@ function PanelHeader({
         <button
           type="button"
           ref={closeButtonRef}
-          className="flex size-8 items-center justify-center rounded-[7px] border border-white/[0.08] bg-white/[0.03] text-white/55 transition hover:border-white/[0.16] hover:bg-white/[0.08] hover:text-white"
+          className="flex size-8 cursor-pointer items-center justify-center rounded-[7px] border border-white/[0.08] bg-white/[0.03] text-white/55 transition hover:border-white/[0.16] hover:bg-white/[0.08] hover:text-white"
           onClick={onClose}
           aria-label="Close node detail"
         >
@@ -248,6 +253,7 @@ function PanelBody({
   onViewModeChange,
   onSelectNode,
   onNodeDetailRefresh,
+  providerKind,
 }: {
   state: NodeDetailState;
   selectedNode: GraphRenderNode;
@@ -255,6 +261,7 @@ function PanelBody({
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   onSelectNode(nodeId: string): void;
   onNodeDetailRefresh?: () => void;
+  providerKind?: ReviewProviderKind;
 }) {
   const detail = state.detail;
   const publishComments = usePublishComments({
@@ -293,6 +300,7 @@ function PanelBody({
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
         publishComments={publishComments}
+        providerKind={providerKind}
       />
       {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
       {detail ? <DiagnosticsSection detail={detail} /> : null}
@@ -331,12 +339,14 @@ function PrimarySection({
   viewMode,
   onViewModeChange,
   publishComments,
+  providerKind,
 }: {
   detail: NodeDetailSnapshot | null;
   selectedNode: GraphRenderNode;
   viewMode: NodeDetailViewMode;
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   publishComments: UsePublishCommentsReturn;
+  providerKind?: ReviewProviderKind;
 }) {
   if (!detail) {
     return <UnavailableSection selectedNode={selectedNode} />;
@@ -352,6 +362,7 @@ function PrimarySection({
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
         publishComments={publishComments}
+        providerKind={providerKind}
       />
     );
   }
@@ -364,12 +375,14 @@ function DiffAwareSourceSection({
   viewMode,
   onViewModeChange,
   publishComments,
+  providerKind,
 }: {
   detail: NodeDetailSnapshot;
   source: DiffAwareSourceBase | null;
   viewMode: NodeDetailViewMode;
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   publishComments: UsePublishCommentsReturn;
+  providerKind?: ReviewProviderKind;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [expandedRange, setExpandedRange] = useState<{ startLine: number; endLine: number } | null>(
@@ -440,8 +453,9 @@ function DiffAwareSourceSection({
       onPublishFinding: (finding, body) =>
         void publishComments.publishFinding({ finding, detail, body }),
       onClearPublishError: publishComments.clearError,
+      providerKind,
     }),
-    [detail, publishComments],
+    [detail, providerKind, publishComments],
   );
   const remoteReplyProps = useMemo<RemoteCommentReplyProps>(
     () => ({
@@ -807,7 +821,7 @@ function ExpandSourceButton({ direction, onClick }: { direction: 'up' | 'down'; 
   return (
     <button
       type="button"
-      className="mb-1 flex w-full items-center justify-center gap-1.5 rounded-[6px] border border-white/[0.08] bg-white/[0.025] px-2 py-1 text-[11px] text-white/48 transition hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-white/75"
+      className="mb-1 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-[6px] border border-white/[0.08] bg-white/[0.025] px-2 py-1 text-[11px] text-white/48 transition hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-white/75"
       onClick={onClick}
       aria-label={direction === 'up' ? '上へ展開' : '下へ展開'}
     >
@@ -849,6 +863,7 @@ interface AgentFindingPublishProps {
   errorByKey: Record<string, string>;
   onPublishFinding(finding: NodeDetailSnapshot['findings'][number], body: string): void;
   onClearPublishError(sourceKey: string): void;
+  providerKind?: ReviewProviderKind;
 }
 
 interface RemoteCommentReplyProps {
@@ -901,77 +916,103 @@ function RemoteCommentThreadCard({
   thread: NodeDetailSnapshot['threads']['remote'][number];
   replyProps?: RemoteCommentReplyProps;
 }) {
-  const first = thread.comments[0] ?? null;
-  const title = first?.author.login ?? 'remote';
+  const headerId = useId();
+  const contentId = useId();
+  const [isExpanded, setIsExpanded] = useState(false);
   const commentCount = thread.comments.length;
+  const firstUrl = thread.comments[0]?.url ?? null;
+
   return (
-    <article className="rounded-[8px] border border-[#58d7ff]/18 bg-[#58d7ff]/[0.045] px-3 py-2 text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]">
-      <div className="mb-2 flex items-start gap-2">
-        <MessageSquareText className="mt-0.5 size-3.5 shrink-0 text-[#58d7ff]" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-[11px] font-semibold text-[#dff7ff]">{title}</span>
-            <span className="rounded-full border border-[#58d7ff]/20 bg-[#58d7ff]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#dff7ff]/80">
-              {commentCount} comment{commentCount === 1 ? '' : 's'}
+    <article className="relative overflow-hidden rounded-[8px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(88,215,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(88,215,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(88,215,255,0.045)_0%,rgba(88,215,255,0.02)_48%,rgba(255,255,255,0.01)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"
+      />
+      <div className="relative z-10">
+        <button
+          id={headerId}
+          type="button"
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[6px] px-1 py-1 text-left text-[#dff7ff] transition hover:bg-[#58d7ff]/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#58d7ff]/35"
+          onClick={() => setIsExpanded((v) => !v)}
+          aria-expanded={isExpanded}
+          aria-controls={contentId}
+        >
+          <ChevronDown
+            className={`size-4 shrink-0 text-[#58d7ff]/75 transition-transform duration-200 ease-in-out ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+            aria-hidden="true"
+          />
+          <MessageSquareText className="size-3.5 shrink-0 text-[#58d7ff]/70" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+            {commentCount}件のコメントスレッド
+          </span>
+          {thread.isResolved !== null ? (
+            <span className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white/55">
+              {thread.isResolved ? 'resolved' : 'open'}
             </span>
-            {thread.isResolved !== null ? (
-              <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white/55">
-                {thread.isResolved ? 'resolved' : 'open'}
-              </span>
-            ) : null}
-            {thread.isOutdated ? (
-              <span className="rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
-                outdated
-              </span>
-            ) : null}
-          </div>
-          {first?.createdAt ? (
-            <p className="mt-0.5 text-[10px] text-white/36">{formatShortDate(first.createdAt)}</p>
           ) : null}
-        </div>
-        {first?.url ? (
-          <a
-            href={first.url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex size-6 shrink-0 items-center justify-center rounded-[6px] border border-[#58d7ff]/18 text-[#dff7ff]/70 transition hover:bg-[#58d7ff]/10 hover:text-[#dff7ff]"
-            aria-label="Open remote comment"
-          >
-            <ExternalLink className="size-3" aria-hidden="true" />
-          </a>
-        ) : null}
-      </div>
-      <div className="space-y-2">
-        {thread.comments.map((comment) => (
-          <div
-            key={comment.providerCommentId}
-            className="border-t border-[#58d7ff]/10 pt-2 first:border-t-0 first:pt-0"
-          >
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-white/42">
-              <span className="font-semibold text-[#dff7ff]/78">{comment.author.login}</span>
-              <span>{formatShortDate(comment.createdAt)}</span>
-            </div>
-            <div className="poc3-remote-comment-body text-[11px] leading-5 text-white/70">
-              <Streamdown>{comment.body}</Streamdown>
+          {thread.isOutdated ? (
+            <span className="shrink-0 rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
+              outdated
+            </span>
+          ) : null}
+          {firstUrl ? (
+            <a
+              href={firstUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex size-5 shrink-0 items-center justify-center rounded-[5px] border border-[#58d7ff]/18 text-[#dff7ff]/70 transition hover:bg-[#58d7ff]/10 hover:text-[#dff7ff]"
+              aria-label="Open remote comment"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="size-3" aria-hidden="true" />
+            </a>
+          ) : null}
+        </button>
+        <div
+          id={contentId}
+          role="region"
+          aria-labelledby={headerId}
+          className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        >
+          <div className="overflow-hidden">
+            <div className="space-y-2 border-t border-[#58d7ff]/15 pt-2">
+              {thread.comments.map((comment) => (
+                <div
+                  key={comment.providerCommentId}
+                  className="border-t border-[#58d7ff]/10 pt-2 first:border-t-0 first:pt-0"
+                >
+                  <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-white/42">
+                    <span className="font-semibold text-[#dff7ff]/78">{comment.author.login}</span>
+                    <span>{formatShortDate(comment.createdAt)}</span>
+                  </div>
+                  <div className="poc3-remote-comment-body text-[11px] leading-5 text-white/70">
+                    <Streamdown>{comment.body}</Streamdown>
+                  </div>
+                </div>
+              ))}
+              {replyProps && isRemoteThreadReplyable(thread) ? (
+                <RemoteThreadReplyComposer
+                  thread={thread}
+                  inFlight={replyProps.inFlightKey === `remote-thread:${thread.providerThreadId}`}
+                  published={
+                    !!replyProps.publishedBySourceKey[`remote-thread:${thread.providerThreadId}`]
+                  }
+                  errorMessage={
+                    replyProps.errorByKey[`remote-thread:${thread.providerThreadId}`] || null
+                  }
+                  initialDraft={replyProps.draftReplyByThread[thread.providerThreadId] ?? ''}
+                  onSubmit={(body) => {
+                    replyProps.onReply(thread.providerThreadId, body);
+                  }}
+                  onDraftChange={(body) => {
+                    replyProps.onDraftChange(thread.providerThreadId, body);
+                  }}
+                />
+              ) : null}
             </div>
           </div>
-        ))}
+        </div>
       </div>
-      {replyProps && isRemoteThreadReplyable(thread) ? (
-        <RemoteThreadReplyComposer
-          thread={thread}
-          inFlight={replyProps.inFlightKey === `remote-thread:${thread.providerThreadId}`}
-          published={!!replyProps.publishedBySourceKey[`remote-thread:${thread.providerThreadId}`]}
-          errorMessage={replyProps.errorByKey[`remote-thread:${thread.providerThreadId}`] || null}
-          initialDraft={replyProps.draftReplyByThread[thread.providerThreadId] ?? ''}
-          onSubmit={(body) => {
-            replyProps.onReply(thread.providerThreadId, body);
-          }}
-          onDraftChange={(body) => {
-            replyProps.onDraftChange(thread.providerThreadId, body);
-          }}
-        />
-      ) : null}
     </article>
   );
 }
@@ -1105,25 +1146,7 @@ function AgentFindingThreadCard({
                     <ExternalLink className="size-3" aria-hidden="true" />
                   </a>
                 ) : null}
-                {published.providerCommentIds.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowPublishComposer(true)}
-                    className="text-[10px] text-white/42 underline"
-                  >
-                    再投稿
-                  </button>
-                ) : null}
               </div>
-            ) : finding.line !== null && publishProps ? (
-              <button
-                type="button"
-                className="mt-2 flex items-center gap-1.5 rounded-full border border-[#d8e071]/20 bg-[#d8e071]/08 px-2 py-0.5 text-[10px] font-semibold text-[#f6ffc0] transition hover:border-[#d8e071]/40 hover:bg-[#d8e071]/14"
-                onClick={() => setShowPublishComposer(true)}
-              >
-                <SendHorizontal className="size-3" aria-hidden="true" />
-                Provider に投稿
-              </button>
             ) : null}
             <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
             {replyStatus === 'replying' ? (
@@ -1132,6 +1155,28 @@ function AgentFindingThreadCard({
             {conversation?.lastError ? (
               <ThreadErrorBanner message={conversation.lastError} />
             ) : null}
+            {finding.line !== null && publishProps && !showPublishComposer ? (
+              published ? (
+                published.providerCommentIds.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowPublishComposer(true)}
+                    className="mt-2 cursor-pointer text-[10px] text-white/42 underline"
+                  >
+                    再投稿
+                  </button>
+                ) : null
+              ) : (
+                <button
+                  type="button"
+                  className="mt-2 flex cursor-pointer items-center gap-1.5 rounded-full border border-[#d8e071]/20 bg-[#d8e071]/08 px-2 py-0.5 text-[10px] font-semibold text-[#f6ffc0] transition hover:border-[#d8e071]/40 hover:bg-[#d8e071]/14"
+                  onClick={() => setShowPublishComposer(true)}
+                >
+                  <SendHorizontal className="size-3" aria-hidden="true" />
+                  {resolveProviderLabel(publishProps.providerKind)} に投稿
+                </button>
+              )
+            ) : null}
             {showPublishComposer && publishProps ? (
               <FindingPublishComposer
                 finding={finding}
@@ -1139,6 +1184,7 @@ function AgentFindingThreadCard({
                 initialBody={finding.body}
                 inFlight={publishInFlight}
                 errorMessage={publishError ?? null}
+                providerKind={publishProps.providerKind}
                 onSubmit={(body) => {
                   publishProps.onPublishFinding(finding, body);
                 }}
@@ -1182,7 +1228,7 @@ function FindingThreadAccordionHeader({
     <button
       id={headerId}
       type="button"
-      className="flex w-full min-w-0 items-center gap-2 rounded-[6px] px-1 py-1 text-left text-[#f8f7f4] transition hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300/35"
+      className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[6px] px-1 py-1 text-left text-[#f8f7f4] transition hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300/35"
       onClick={onToggle}
       aria-expanded={isExpanded}
       aria-controls={contentId}
@@ -1191,6 +1237,7 @@ function FindingThreadAccordionHeader({
         className={`size-4 shrink-0 text-fuchsia-100/75 transition-transform duration-200 ease-in-out ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
         aria-hidden="true"
       />
+      <Bot className="size-3.5 shrink-0 text-fuchsia-200/70" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
         {finding.title}
       </span>
@@ -1205,7 +1252,6 @@ function FindingHeaderBadges({ finding }: { finding: NodeDetailSnapshot['finding
       <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
         Agent Review
       </span>
-      <FindingSeverityBadge finding={finding} />
       <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
         {finding.category}
       </span>
@@ -1266,12 +1312,9 @@ function FindingMessagesList({
 
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <div className="flex items-start gap-2">
-        <MessageSquareText className="mt-0.5 size-4 shrink-0 text-fuchsia-200/80" />
-        <div className="min-w-0">
-          <h4 className="text-[13px] font-semibold leading-5 text-[#f8f7f4]">{finding.title}</h4>
-          <p className="mt-1 text-[11px] text-[#8b949e]">{formatFindingLocation(finding)}</p>
-        </div>
+      <div className="flex items-center gap-1.5">
+        <MessageSquareText className="size-3.5 shrink-0 text-fuchsia-200/60" aria-hidden="true" />
+        <p className="text-[11px] text-white/45">{formatFindingLocation(finding)}</p>
       </div>
       {visibleMessages.map((message) => (
         <ThreadMessageBubble key={message.localMessageId} message={message} />
@@ -1408,7 +1451,7 @@ function ThreadReplyComposer({
       <button
         type="submit"
         disabled={disabled || composing}
-        className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-[#479FFA]/25 bg-[#479FFA]/12 text-[#d7eaff] transition hover:border-[#479FFA]/45 hover:bg-[#479FFA]/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.03] disabled:text-white/25"
+        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[8px] border border-[#479FFA]/25 bg-[#479FFA]/12 text-[#d7eaff] transition hover:border-[#479FFA]/45 hover:bg-[#479FFA]/18 disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:bg-white/[0.03] disabled:text-white/25"
         aria-label="Send finding thread reply"
       >
         {replyStatus === 'replying' ? (
@@ -1887,6 +1930,12 @@ function renderSyntaxNode(node: SyntaxNode, key: string) {
 
 function joinClassNames(classNames?: string[]) {
   return classNames?.filter(Boolean).join(' ') || undefined;
+}
+
+function resolveProviderLabel(providerKind: ReviewProviderKind | undefined): string {
+  if (providerKind === 'github') return 'GitHub';
+  if (providerKind === 'gitlab') return 'GitLab';
+  return 'Provider';
 }
 
 function resolveHighlightLanguage(filePath: string): string {

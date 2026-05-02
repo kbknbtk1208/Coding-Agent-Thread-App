@@ -104,7 +104,7 @@ export function CommitListDock({
             <button
               type="button"
               onClick={() => setOpen((current) => !current)}
-              className="mr-1 flex size-8 shrink-0 items-center justify-center rounded-[5px] text-white/54 transition hover:bg-white/[0.07] hover:text-white/86"
+              className="mr-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-white/54 transition hover:bg-white/[0.07] hover:text-white/86"
               aria-label={open ? 'Commit list を閉じる' : 'Commit list を開く'}
             >
               <motion.span animate={{ rotate: open ? 180 : 0 }}>

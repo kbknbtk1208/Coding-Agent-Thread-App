@@ -986,7 +986,7 @@ function RepositoryDraftRow({
                   showSetupScript: !draft.showSetupScript,
                 })
               }
-              className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.12] px-3 text-sm text-white transition hover:border-[#d8e071]/35"
+              className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-white/[0.12] px-3 text-sm text-white transition hover:border-[#d8e071]/35"
             >
               <motion.span
                 animate={{ rotate: draft.showSetupScript ? 180 : 0 }}
