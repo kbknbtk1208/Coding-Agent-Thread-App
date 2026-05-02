@@ -60,7 +60,7 @@ import {
   type DiffAwareSourceLine,
 } from './diff-aware-source-model';
 
-const PANEL_WIDTH_CLASS = 'w-[min(660px,calc(100vw-28px))]';
+const PANEL_WIDTH_CLASS = 'w-[min(710px,calc(100vw-28px))]';
 
 export interface NodeDetailPanelProps {
   state: NodeDetailState;
@@ -665,7 +665,7 @@ function DiffAwareSourceSection({
               publishProps={overviewPublishProps}
             />
             <div
-              className="min-w-max"
+              className="min-w-full"
               data-poc3-source-file-path={
                 effectiveSource?.filePath ?? detail.summary.filePath ?? ''
               }
