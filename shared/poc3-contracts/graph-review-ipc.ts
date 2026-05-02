@@ -36,7 +36,12 @@ import type {
   ReviewWorkspaceCreationJobSnapshot,
   WorkspaceCreationEvent,
 } from '../poc3-domain/review-workspace';
-import type { ReviewRemoteThread } from '../poc3-domain/source-snapshot';
+import type { ReviewRemoteThread, ReviewSourceSnapshot } from '../poc3-domain/source-snapshot';
+import type {
+  Poc3InlineCommentAnchor,
+  Poc3PublishCommentSource,
+  Poc3PublishedCommentRecord,
+} from '../poc3-domain/comment-publish';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
 export type {
@@ -92,7 +97,15 @@ export type {
   ReviewRemoteThread,
   ReviewRemoteThreadAnchorStatus,
   ReviewRemoteThreadLocation,
+  ReviewSourceSnapshot,
 } from '../poc3-domain/source-snapshot';
+export type {
+  Poc3CommentPublishSourceKind,
+  Poc3CommentReplySourceKind,
+  Poc3InlineCommentAnchor,
+  Poc3PublishCommentSource,
+  Poc3PublishedCommentRecord,
+} from '../poc3-domain/comment-publish';
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
@@ -167,6 +180,8 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   listAgentReviewRuns: 'poc3:agent-review:list-runs',
   listOutdatedAgentThreads: 'poc3:agent-review:outdated-threads:list',
   listArchivedRemoteThreads: 'poc3:remote-comment:archive:list',
+  publishInlineComment: 'poc3:remote-comment:publish-inline',
+  replyRemoteComment: 'poc3:remote-comment:reply',
   getAgentReviewRunDetail: 'poc3:agent-review:get-run-detail',
   respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
   agentReviewEvent: 'poc3:agent-review:event',
@@ -369,6 +384,65 @@ export interface ListArchivedRemoteThreadsResult {
   threads: Poc3ArchivedRemoteThread[];
 }
 
+export interface PublishInlineCommentInput {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  body: string;
+  anchor: Poc3InlineCommentAnchor;
+  source: Poc3PublishCommentSource;
+}
+
+export type PublishInlineCommentResult =
+  | {
+      ok: true;
+      published: Poc3PublishedCommentRecord;
+      remoteThread: ReviewRemoteThread;
+      sourceSnapshot: ReviewSourceSnapshot;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'workspaceNotFound'
+        | 'revisionNotFound'
+        | 'sourceSnapshotNotFound'
+        | 'inactiveRevision'
+        | 'providerUnavailable'
+        | 'tokenNotFound'
+        | 'invalidBody'
+        | 'invalidAnchor'
+        | 'providerRejected';
+      message: string;
+    };
+
+export interface ReplyRemoteCommentInput {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  providerThreadId: string;
+  body: string;
+}
+
+export type ReplyRemoteCommentResult =
+  | {
+      ok: true;
+      published: Poc3PublishedCommentRecord;
+      remoteThread: ReviewRemoteThread;
+      sourceSnapshot: ReviewSourceSnapshot;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'workspaceNotFound'
+        | 'revisionNotFound'
+        | 'sourceSnapshotNotFound'
+        | 'threadNotFound'
+        | 'threadNotReplyable'
+        | 'providerUnavailable'
+        | 'tokenNotFound'
+        | 'invalidBody'
+        | 'providerRejected';
+      message: string;
+    };
+
 export type RevisionRefreshEvent =
   | { type: 'revision.refresh.snapshot'; refresh: RevisionRefreshSnapshot }
   | { type: 'revision.refresh.log'; refreshId: string; line: string; updatedAt: string };
@@ -549,6 +623,8 @@ export interface Poc3GraphReviewApi {
   listArchivedRemoteThreads(
     input: ListArchivedRemoteThreadsInput,
   ): Promise<ListArchivedRemoteThreadsResult>;
+  publishInlineComment(input: PublishInlineCommentInput): Promise<PublishInlineCommentResult>;
+  replyRemoteComment(input: ReplyRemoteCommentInput): Promise<ReplyRemoteCommentResult>;
   getAgentReviewRunDetail(
     input: GetAgentReviewRunDetailInput,
   ): Promise<GetAgentReviewRunDetailResult>;

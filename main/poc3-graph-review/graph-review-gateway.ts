@@ -35,6 +35,10 @@ import type {
   RevisionRefreshEvent,
   SelectWorkspaceRevisionInput,
   SelectWorkspaceRevisionResult,
+  PublishInlineCommentInput,
+  PublishInlineCommentResult,
+  ReplyRemoteCommentInput,
+  ReplyRemoteCommentResult,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { AgentEventPayload, RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import type {
@@ -94,6 +98,10 @@ import type { AgentGateway } from '../agent-gateway/agent-gateway';
 import { RevisionRefreshCoordinator } from './revision/revision-refresh-coordinator';
 import { RevisionViewBuilder } from './revision/revision-view-builder';
 import { ThreadRetentionService } from './revision/thread-retention-service';
+import {
+  publishInlineComment as coordinatePublishInlineComment,
+  replyRemoteComment as coordinateReplyRemoteComment,
+} from './source/review-comment-publish-coordinator';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -1314,6 +1322,45 @@ export class GraphReviewGateway {
         thread,
       })),
     };
+  }
+
+  async publishInlineComment(
+    input: PublishInlineCommentInput,
+  ): Promise<PublishInlineCommentResult> {
+    return coordinatePublishInlineComment(
+      {
+        reviewWorkspaceId: input.reviewWorkspaceId.trim(),
+        revisionId: input.revisionId.trim(),
+        body: input.body,
+        anchor: input.anchor,
+        source: input.source,
+      },
+      {
+        graphStore: this.graphStore,
+        providerStore: this.providerStore,
+        profileStore: this.profileStore,
+        savePublishedRecord: (record) => this.graphStore.savePublishedCommentRecord(record),
+        clearWorkspaceCaches: (id) => this.clearWorkspaceCaches(id),
+      },
+    );
+  }
+
+  async replyRemoteComment(input: ReplyRemoteCommentInput): Promise<ReplyRemoteCommentResult> {
+    return coordinateReplyRemoteComment(
+      {
+        reviewWorkspaceId: input.reviewWorkspaceId.trim(),
+        revisionId: input.revisionId.trim(),
+        providerThreadId: input.providerThreadId.trim(),
+        body: input.body,
+      },
+      {
+        graphStore: this.graphStore,
+        providerStore: this.providerStore,
+        profileStore: this.profileStore,
+        savePublishedRecord: (record) => this.graphStore.savePublishedCommentRecord(record),
+        clearWorkspaceCaches: (id) => this.clearWorkspaceCaches(id),
+      },
+    );
   }
 
   private clearWorkspaceCaches(reviewWorkspaceId: string): void {

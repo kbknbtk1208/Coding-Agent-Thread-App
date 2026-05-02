@@ -24,6 +24,8 @@ import type {
   StartAgentReviewInput,
   TestRepositoryProviderInput,
   ValidateRepositoryProfileInput,
+  PublishInlineCommentInput,
+  ReplyRemoteCommentInput,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import { POC3_GRAPH_REVIEW_IPC_CHANNELS } from '../../shared/poc3-contracts/graph-review-ipc';
@@ -241,6 +243,20 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.listArchivedRemoteThreads,
     (_event, input: ListArchivedRemoteThreadsInput) => {
       return gateway.listArchivedRemoteThreads(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.publishInlineComment,
+    (_event, input: PublishInlineCommentInput) => {
+      return gateway.publishInlineComment(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.replyRemoteComment,
+    (_event, input: ReplyRemoteCommentInput) => {
+      return gateway.replyRemoteComment(input);
     },
   );
 }

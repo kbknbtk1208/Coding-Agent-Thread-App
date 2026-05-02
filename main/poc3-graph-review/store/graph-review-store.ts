@@ -8,6 +8,7 @@ import type {
   GraphRenderSnapshot,
   LayoutSnapshot,
 } from '../../../shared/poc3-domain/graph';
+import type { Poc3PublishedCommentRecord } from '../../../shared/poc3-domain/comment-publish';
 import type { RevisionContext } from '../../../shared/poc3-domain/revision';
 import type {
   RevisionCommit,
@@ -772,6 +773,81 @@ export class GraphReviewStore {
     transaction();
   }
 
+  savePublishedCommentRecord(record: Poc3PublishedCommentRecord): Poc3PublishedCommentRecord {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO published_comment_records (
+            local_publish_id, review_workspace_id, revision_id, source_kind, source_id,
+            provider_thread_id, provider_comment_ids_json, body, anchor_json, created_at
+          ) VALUES (
+            @local_publish_id, @review_workspace_id, @revision_id, @source_kind, @source_id,
+            @provider_thread_id, @provider_comment_ids_json, @body, @anchor_json, @created_at
+          )
+        `,
+      )
+      .run({
+        local_publish_id: record.localPublishId,
+        review_workspace_id: record.reviewWorkspaceId,
+        revision_id: record.revisionId,
+        source_kind: record.source.kind,
+        source_id:
+          'localThreadId' in record.source
+            ? (record.source.localThreadId ?? null)
+            : 'providerThreadId' in record.source && record.source.kind === 'remote-thread'
+              ? (record.source as { kind: string; providerThreadId: string }).providerThreadId
+              : null,
+        provider_thread_id: record.providerThreadId,
+        provider_comment_ids_json: JSON.stringify(record.providerCommentIds),
+        body: record.body,
+        anchor_json: record.anchor ? JSON.stringify(record.anchor) : null,
+        created_at: record.createdAt,
+      });
+    return record;
+  }
+
+  listPublishedCommentRecords(input: {
+    reviewWorkspaceId: string;
+    revisionId: string;
+  }): Poc3PublishedCommentRecord[] {
+    interface PublishedCommentRow {
+      local_publish_id: string;
+      review_workspace_id: string;
+      revision_id: string;
+      source_kind: string;
+      source_id: string | null;
+      provider_thread_id: string;
+      provider_comment_ids_json: string;
+      body: string;
+      anchor_json: string | null;
+      created_at: string;
+    }
+    const rows = this.db
+      .prepare(
+        `
+          SELECT * FROM published_comment_records
+          WHERE review_workspace_id = ? AND revision_id = ?
+          ORDER BY created_at ASC
+        `,
+      )
+      .all(input.reviewWorkspaceId, input.revisionId) as PublishedCommentRow[];
+
+    return rows.map((row) => ({
+      localPublishId: row.local_publish_id,
+      reviewWorkspaceId: row.review_workspace_id,
+      revisionId: row.revision_id,
+      source: {
+        kind: row.source_kind as Poc3PublishedCommentRecord['source']['kind'],
+        ...(row.source_id ? { localThreadId: row.source_id } : {}),
+      } as Poc3PublishedCommentRecord['source'],
+      providerThreadId: row.provider_thread_id,
+      providerCommentIds: parseJson<string[]>(row.provider_comment_ids_json),
+      body: row.body,
+      anchor: row.anchor_json ? parseJson(row.anchor_json) : null,
+      createdAt: row.created_at,
+    }));
+  }
+
   close(): void {
     this.db.close();
   }
@@ -1163,6 +1239,22 @@ export class GraphReviewStore {
 
       CREATE INDEX IF NOT EXISTS idx_revision_refresh_runs_workspace
         ON revision_refresh_runs(review_workspace_id, started_at);
+
+      CREATE TABLE IF NOT EXISTS published_comment_records (
+        local_publish_id TEXT PRIMARY KEY,
+        review_workspace_id TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_id TEXT,
+        provider_thread_id TEXT NOT NULL,
+        provider_comment_ids_json TEXT NOT NULL,
+        body TEXT NOT NULL,
+        anchor_json TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_published_comment_records_source
+        ON published_comment_records(review_workspace_id, revision_id, source_kind, source_id);
     `);
     try {
       this.db.exec(`ALTER TABLE review_source_snapshots ADD COLUMN remote_threads_json TEXT`);
