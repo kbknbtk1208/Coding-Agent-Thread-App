@@ -18,6 +18,7 @@ import type { RepositoryProfile } from '../../../shared/poc3-domain/repository';
 import type { RepositoryProviderStore } from '../workspace/repository-provider-store';
 import type { RepositoryProfileStore } from '../workspace/repository-profile-store';
 import type { GraphReviewStore } from '../store/graph-review-store';
+import { Poc3AgentReviewStore } from '../agent/store';
 import {
   postGitHubInlineComment,
   postGitHubReply,
@@ -34,6 +35,7 @@ export interface PublishCoordinatorDeps {
   graphStore: GraphReviewStore;
   providerStore: RepositoryProviderStore;
   profileStore: RepositoryProfileStore;
+  agentReviewStore: Poc3AgentReviewStore;
   savePublishedRecord: (record: Poc3PublishedCommentRecord) => void;
   clearWorkspaceCaches: (reviewWorkspaceId: string) => void;
 }
@@ -51,6 +53,35 @@ export async function publishInlineComment(
   const bodyValidation = validateCommentBody(input.body);
   if (!bodyValidation.ok) {
     return { ok: false, reason: 'invalidBody', message: bodyValidation.message };
+  }
+
+  if (input.source.kind === 'agent-finding') {
+    const localThreadId = input.source.localThreadId;
+    if (!localThreadId) {
+      return {
+        ok: false,
+        reason: 'invalidAnchor',
+        message: 'Finding thread ID が指定されていません。',
+      };
+    }
+    const thread = deps.agentReviewStore.getThreadDraft(localThreadId);
+    if (!thread) {
+      return { ok: false, reason: 'invalidAnchor', message: 'Finding thread が見つかりません。' };
+    }
+    if (thread.revisionId !== input.revisionId) {
+      return {
+        ok: false,
+        reason: 'inactiveRevision',
+        message: '最新 revision に切り替えてから投稿してください。',
+      };
+    }
+    if (thread.location.kind !== 'diff') {
+      return {
+        ok: false,
+        reason: 'invalidAnchor',
+        message: 'この Finding は現在の diff 上に投稿できません。',
+      };
+    }
   }
 
   const resolved = resolveWorkspaceContext(input.reviewWorkspaceId, input.revisionId, deps);
@@ -155,6 +186,9 @@ export async function replyRemoteComment(
 
   const resolved = resolveWorkspaceContext(input.reviewWorkspaceId, input.revisionId, deps);
   if (!resolved.ok) {
+    if (resolved.reason === 'inactiveRevision') {
+      return { ok: false, reason: 'revisionNotFound', message: resolved.message };
+    }
     return resolved;
   }
   const { sourceSnapshot, profile, token } = resolved;

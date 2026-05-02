@@ -38,6 +38,10 @@ import type {
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3AgentThreadMessage } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import { useAgentThreadConversationContext } from '../agent-review/agent-thread-conversation-context';
+import { usePublishComments } from '../provider-comments/use-publish-comments';
+import type { UsePublishCommentsReturn } from '../provider-comments/use-publish-comments';
+import { FindingPublishComposer } from '../provider-comments/finding-publish-composer';
+import type { Poc3PublishedCommentRecord } from '../../../../shared/poc3-domain/comment-publish';
 import type { NodeDetailState } from './use-node-detail';
 
 const PANEL_WIDTH_CLASS = 'w-[min(660px,calc(100vw-28px))]';
@@ -49,6 +53,7 @@ export interface NodeDetailPanelProps {
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   onSelectNode(nodeId: string): void;
   onClose(): void;
+  onNodeDetailRefresh?: () => void;
 }
 
 export function NodeDetailPanel({
@@ -58,6 +63,7 @@ export function NodeDetailPanel({
   onViewModeChange,
   onSelectNode,
   onClose,
+  onNodeDetailRefresh,
 }: NodeDetailPanelProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLElement | null>(null);
@@ -120,6 +126,7 @@ export function NodeDetailPanel({
                   viewMode={viewMode}
                   onViewModeChange={onViewModeChange}
                   onSelectNode={onSelectNode}
+                  onNodeDetailRefresh={onNodeDetailRefresh}
                 />
               </div>
             </div>
@@ -224,14 +231,19 @@ function PanelBody({
   viewMode,
   onViewModeChange,
   onSelectNode,
+  onNodeDetailRefresh,
 }: {
   state: NodeDetailState;
   selectedNode: GraphRenderNode;
   viewMode: NodeDetailViewMode;
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   onSelectNode(nodeId: string): void;
+  onNodeDetailRefresh?: () => void;
 }) {
   const detail = state.detail;
+  const publishComments = usePublishComments({
+    onPublished: () => onNodeDetailRefresh?.(),
+  });
 
   if (state.status === 'loading' && !detail) {
     return (
@@ -264,6 +276,7 @@ function PanelBody({
         selectedNode={selectedNode}
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
+        publishComments={publishComments}
       />
       {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
       {detail ? <DiffPatchSummary detail={detail} /> : null}
@@ -302,11 +315,13 @@ function PrimarySection({
   selectedNode,
   viewMode,
   onViewModeChange,
+  publishComments,
 }: {
   detail: NodeDetailSnapshot | null;
   selectedNode: GraphRenderNode;
   viewMode: NodeDetailViewMode;
   onViewModeChange(viewMode: NodeDetailViewMode): void;
+  publishComments: UsePublishCommentsReturn;
 }) {
   if (!detail) {
     return <UnavailableSection selectedNode={selectedNode} />;
@@ -329,6 +344,8 @@ function PrimarySection({
           scrollToLine={scrollToLine}
           findings={detail.findings}
           remoteThreads={detail.threads.remote}
+          detail={detail}
+          publishComments={publishComments}
         />
         {canExpand && !isExpanded ? (
           <button
@@ -527,16 +544,30 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
   };
 }
 
+interface AgentFindingPublishProps {
+  detail: NodeDetailSnapshot;
+  publishedBySourceKey: Record<string, Poc3PublishedCommentRecord>;
+  commentUrlBySourceKey: Record<string, string>;
+  inFlightKey: string | null;
+  errorByKey: Record<string, string>;
+  onPublishFinding(finding: NodeDetailSnapshot['findings'][number], body: string): void;
+  onClearPublishError(sourceKey: string): void;
+}
+
 function SourceCodeSection({
   findings,
   remoteThreads,
   source,
   scrollToLine,
+  detail,
+  publishComments,
 }: {
   findings?: NodeDetailSnapshot['findings'];
   remoteThreads?: NodeDetailSnapshot['threads']['remote'];
   source: NodeCodeExcerpt | NodeFunctionCode | NodeFileContext;
   scrollToLine?: number;
+  detail?: NodeDetailSnapshot;
+  publishComments?: UsePublishCommentsReturn;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const language = useMemo(() => resolveHighlightLanguage(source.filePath), [source.filePath]);
@@ -566,7 +597,23 @@ function SourceCodeSection({
           ref={scrollContainerRef}
           className="max-h-[calc(100vh-132px)] overflow-y-auto p-2 text-[11px] leading-[1.35rem] text-[#c9d1d9]"
         >
-          <OverviewFindingThreads findings={findings ?? []} />
+          <OverviewFindingThreads
+            findings={findings ?? []}
+            publishProps={
+              detail && publishComments
+                ? {
+                    detail,
+                    publishedBySourceKey: publishComments.publishedBySourceKey,
+                    commentUrlBySourceKey: publishComments.commentUrlBySourceKey,
+                    inFlightKey: publishComments.inFlightKey,
+                    errorByKey: publishComments.errorByKey,
+                    onPublishFinding: (finding, body) =>
+                      void publishComments.publishFinding({ finding, detail, body }),
+                    onClearPublishError: publishComments.clearError,
+                  }
+                : undefined
+            }
+          />
           {lines.map((line, index) => {
             const actualLine = source.startLine + index;
             const isHighlighted = highlighted.has(actualLine);
@@ -605,7 +652,23 @@ function SourceCodeSection({
                   </span>
                 </div>
                 {lineFindings.length > 0 ? (
-                  <AgentFindingThreadLayer findings={lineFindings} />
+                  <AgentFindingThreadLayer
+                    findings={lineFindings}
+                    publishProps={
+                      detail && publishComments
+                        ? {
+                            detail,
+                            publishedBySourceKey: publishComments.publishedBySourceKey,
+                            commentUrlBySourceKey: publishComments.commentUrlBySourceKey,
+                            inFlightKey: publishComments.inFlightKey,
+                            errorByKey: publishComments.errorByKey,
+                            onPublishFinding: (finding, body) =>
+                              void publishComments.publishFinding({ finding, detail, body }),
+                            onClearPublishError: publishComments.clearError,
+                          }
+                        : undefined
+                    }
+                  />
                 ) : null}
                 {lineRemoteThreads.length > 0 ? (
                   <RemoteCommentThreadLayer threads={lineRemoteThreads} />
@@ -700,7 +763,13 @@ function RemoteCommentThreadCard({
   );
 }
 
-function OverviewFindingThreads({ findings }: { findings: NodeDetailSnapshot['findings'] }) {
+function OverviewFindingThreads({
+  findings,
+  publishProps,
+}: {
+  findings: NodeDetailSnapshot['findings'];
+  publishProps?: AgentFindingPublishProps;
+}) {
   const overviewFindings = findings.filter((finding) => finding.line === null);
   if (overviewFindings.length === 0) {
     return null;
@@ -709,35 +778,62 @@ function OverviewFindingThreads({ findings }: { findings: NodeDetailSnapshot['fi
     <div className="mb-2 border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-3 py-3">
       <div className="space-y-3">
         {overviewFindings.map((finding) => (
-          <AgentFindingThreadCard key={finding.findingId} finding={finding} />
+          <AgentFindingThreadCard
+            key={finding.findingId}
+            finding={finding}
+            publishProps={publishProps}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function AgentFindingThreadLayer({ findings }: { findings: NodeDetailSnapshot['findings'] }) {
+function AgentFindingThreadLayer({
+  findings,
+  publishProps,
+}: {
+  findings: NodeDetailSnapshot['findings'];
+  publishProps?: AgentFindingPublishProps;
+}) {
   return (
     <div className="border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-3 py-3">
       <div className="space-y-3">
         {findings.map((finding) => (
-          <AgentFindingThreadCard key={finding.findingId} finding={finding} />
+          <AgentFindingThreadCard
+            key={finding.findingId}
+            finding={finding}
+            publishProps={publishProps}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
+function AgentFindingThreadCard({
+  finding,
+  publishProps,
+}: {
+  finding: NodeDetailSnapshot['findings'][number];
+  publishProps?: AgentFindingPublishProps;
+}) {
   const threadContext = useAgentThreadConversationContext();
   const { loadOne } = threadContext;
   const headerId = useId();
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showPublishComposer, setShowPublishComposer] = useState(false);
   const conversation = threadContext.conversations[finding.localThreadId] ?? null;
   const draft = threadContext.draftReplies[finding.localThreadId] ?? '';
   const isReplyPending = threadContext.isReplyPending(finding.localThreadId);
   const replyStatus = isReplyPending ? 'replying' : (conversation?.replyStatus ?? 'idle');
+
+  const sourceKey = `agent-finding:${finding.localThreadId}`;
+  const published = publishProps?.publishedBySourceKey[sourceKey] ?? null;
+  const publishInFlight = publishProps?.inFlightKey === sourceKey;
+  const publishError = publishProps?.errorByKey[sourceKey] ?? null;
+  const publishedCommentUrl = publishProps?.commentUrlBySourceKey[sourceKey] ?? null;
 
   useEffect(() => {
     if (!isExpanded) {
@@ -751,6 +847,12 @@ function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['find
       setIsExpanded(true);
     }
   }, [conversation?.lastError, replyStatus]);
+
+  useEffect(() => {
+    if (published) {
+      setShowPublishComposer(false);
+    }
+  }, [published]);
 
   return (
     <article className="relative overflow-hidden rounded-[8px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(255,255,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(255,255,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
@@ -769,12 +871,66 @@ function AgentFindingThreadCard({ finding }: { finding: NodeDetailSnapshot['find
         {isExpanded ? (
           <div id={contentId} role="region" aria-labelledby={headerId}>
             <FindingHeaderBadges finding={finding} />
+            {published ? (
+              <div className="mt-2 flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5 rounded-full border border-[#4EBE96]/25 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d7f5e8]">
+                  posted
+                </span>
+                {publishedCommentUrl ? (
+                  <a
+                    href={publishedCommentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex size-5 items-center justify-center rounded-[5px] border border-[#4EBE96]/20 text-[#d7f5e8]/70 transition hover:bg-[#4EBE96]/10 hover:text-[#d7f5e8]"
+                    aria-label="Open published comment"
+                  >
+                    <ExternalLink className="size-3" aria-hidden="true" />
+                  </a>
+                ) : null}
+                {published.providerCommentIds.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowPublishComposer(true)}
+                    className="text-[10px] text-white/42 underline"
+                  >
+                    再投稿
+                  </button>
+                ) : null}
+              </div>
+            ) : finding.line !== null && publishProps ? (
+              <button
+                type="button"
+                className="mt-2 flex items-center gap-1.5 rounded-full border border-[#d8e071]/20 bg-[#d8e071]/08 px-2 py-0.5 text-[10px] font-semibold text-[#f6ffc0] transition hover:border-[#d8e071]/40 hover:bg-[#d8e071]/14"
+                onClick={() => setShowPublishComposer(true)}
+              >
+                <SendHorizontal className="size-3" aria-hidden="true" />
+                Provider に投稿
+              </button>
+            ) : null}
             <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
             {replyStatus === 'replying' ? (
               <InlineThreadStreamingPanel conversation={conversation} />
             ) : null}
             {conversation?.lastError ? (
               <ThreadErrorBanner message={conversation.lastError} />
+            ) : null}
+            {showPublishComposer && publishProps ? (
+              <FindingPublishComposer
+                finding={finding}
+                detail={publishProps.detail}
+                initialBody={finding.body}
+                inFlight={publishInFlight}
+                errorMessage={publishError ?? null}
+                onSubmit={(body) => {
+                  publishProps.onPublishFinding(finding, body);
+                }}
+                onCancel={() => {
+                  setShowPublishComposer(false);
+                  if (publishError) {
+                    publishProps.onClearPublishError(sourceKey);
+                  }
+                }}
+              />
             ) : null}
             {finding.hasReplyableSession ? (
               <ThreadReplyComposer

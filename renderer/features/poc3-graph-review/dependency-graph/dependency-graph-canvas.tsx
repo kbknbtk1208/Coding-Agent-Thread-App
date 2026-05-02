@@ -52,6 +52,7 @@ function DependencyGraphCanvasInner({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [detailViewMode, setDetailViewMode] = useState<NodeDetailViewMode>('function');
   const [reactFlowReady, setReactFlowReady] = useState(false);
+  const [nodeDetailRefreshKey, setNodeDetailRefreshKey] = useState(0);
 
   const nodeById = useMemo(() => {
     const map = new Map<string, GraphRenderNode>();
@@ -67,6 +68,7 @@ function DependencyGraphCanvasInner({
     graphSnapshotId: graph.graphSnapshotId,
     selectedNodeId,
     viewMode: detailViewMode,
+    refreshKey: nodeDetailRefreshKey,
   });
 
   useEffect(() => {
@@ -186,6 +188,7 @@ function DependencyGraphCanvasInner({
             setSelectedNodeId(nodeId);
           }}
           onClose={() => setSelectedNodeId(null)}
+          onNodeDetailRefresh={() => setNodeDetailRefreshKey((k) => k + 1)}
         />
       ) : null}
     </div>

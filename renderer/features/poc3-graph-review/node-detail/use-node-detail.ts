@@ -36,6 +36,7 @@ export interface UseNodeDetailOptions {
   graphSnapshotId?: string | null;
   selectedNodeId: string | null;
   viewMode?: NodeDetailViewMode;
+  refreshKey?: number;
 }
 
 export interface UseNodeDetailResult {
@@ -49,6 +50,7 @@ export function useNodeDetail({
   graphSnapshotId,
   selectedNodeId,
   viewMode = 'function',
+  refreshKey,
 }: UseNodeDetailOptions): UseNodeDetailResult {
   const [state, setState] = useState<NodeDetailState>(IDLE_STATE);
   const activeRequestRef = useRef<{
@@ -57,6 +59,7 @@ export function useNodeDetail({
     viewMode: NodeDetailViewMode;
   } | null>(null);
   const cacheRef = useRef<Map<string, NodeDetailSnapshot>>(new Map());
+  const prevRefreshKeyRef = useRef<number | undefined>(undefined);
 
   const buildCacheKey = useCallback(
     (
@@ -91,6 +94,11 @@ export function useNodeDetail({
   }, [graphSnapshotId, reviewWorkspaceId, scopeKey]);
 
   useEffect(() => {
+    if (refreshKey !== undefined && refreshKey !== 0 && prevRefreshKeyRef.current !== refreshKey) {
+      prevRefreshKeyRef.current = refreshKey;
+      cacheRef.current.clear();
+    }
+
     if (!reviewWorkspaceId || !selectedNodeId) {
       activeRequestRef.current = null;
       setState(IDLE_STATE);
@@ -166,7 +174,15 @@ export function useNodeDetail({
         message: result.message,
       });
     })();
-  }, [buildCacheKey, graphSnapshotId, reviewWorkspaceId, scopeKey, selectedNodeId, viewMode]);
+  }, [
+    buildCacheKey,
+    graphSnapshotId,
+    refreshKey,
+    reviewWorkspaceId,
+    scopeKey,
+    selectedNodeId,
+    viewMode,
+  ]);
 
   return { state, reset };
 }
