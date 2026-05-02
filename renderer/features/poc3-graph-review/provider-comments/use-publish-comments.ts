@@ -12,6 +12,7 @@ interface PublishCommentState {
   errorByKey: Record<string, string>;
   publishedBySourceKey: Record<string, Poc3PublishedCommentRecord>;
   commentUrlBySourceKey: Record<string, string>;
+  draftReplyByThread: Record<string, string>;
 }
 
 export interface UsePublishCommentsOptions {
@@ -35,6 +36,12 @@ export interface ReplyRemoteCommentArgs {
   sourceKey: string;
 }
 
+export interface ReplyRemoteThreadArgs {
+  detail: NodeDetailSnapshot;
+  providerThreadId: string;
+  body: string;
+}
+
 export interface PublishFindingArgs {
   finding: NodeDetailSnapshot['findings'][number];
   detail: NodeDetailSnapshot;
@@ -46,8 +53,11 @@ export interface UsePublishCommentsReturn {
   errorByKey: Record<string, string>;
   publishedBySourceKey: Record<string, Poc3PublishedCommentRecord>;
   commentUrlBySourceKey: Record<string, string>;
+  draftReplyByThread: Record<string, string>;
   publishInlineComment: (args: PublishInlineCommentArgs) => Promise<void>;
   replyRemoteComment: (args: ReplyRemoteCommentArgs) => Promise<void>;
+  replyRemoteThread: (args: ReplyRemoteThreadArgs) => Promise<void>;
+  setDraftReplyByThread: (threadId: string, body: string) => void;
   publishFinding: (args: PublishFindingArgs) => Promise<void>;
   clearError: (sourceKey: string) => void;
 }
@@ -62,6 +72,7 @@ export function usePublishComments(
     errorByKey: {},
     publishedBySourceKey: {},
     commentUrlBySourceKey: {},
+    draftReplyByThread: {},
   });
 
   const publishInlineComment = useCallback(
@@ -147,7 +158,10 @@ export function usePublishComments(
           setState((prev) => ({
             ...prev,
             inFlightKey: null,
-            errorByKey: { ...prev.errorByKey, [args.sourceKey]: result.message },
+            errorByKey: {
+              ...prev.errorByKey,
+              [args.sourceKey]: resolveReplyErrorMessage(result.reason, result.message),
+            },
           }));
         }
       } catch (err) {
@@ -160,6 +174,27 @@ export function usePublishComments(
       }
     },
     [onPublished],
+  );
+
+  const setDraftReplyByThread = useCallback((threadId: string, body: string) => {
+    setState((prev) => ({
+      ...prev,
+      draftReplyByThread: { ...prev.draftReplyByThread, [threadId]: body },
+    }));
+  }, []);
+
+  const replyRemoteThread = useCallback(
+    async (args: ReplyRemoteThreadArgs): Promise<void> => {
+      const sourceKey = `remote-thread:${args.providerThreadId}`;
+      await replyRemoteComment({
+        reviewWorkspaceId: args.detail.reviewWorkspaceId,
+        revisionId: args.detail.revisionId,
+        providerThreadId: args.providerThreadId,
+        body: args.body,
+        sourceKey,
+      });
+    },
+    [replyRemoteComment],
   );
 
   const clearError = useCallback((sourceKey: string) => {
@@ -195,11 +230,33 @@ export function usePublishComments(
     errorByKey: state.errorByKey,
     publishedBySourceKey: state.publishedBySourceKey,
     commentUrlBySourceKey: state.commentUrlBySourceKey,
+    draftReplyByThread: state.draftReplyByThread,
     publishInlineComment,
     replyRemoteComment,
+    replyRemoteThread,
+    setDraftReplyByThread,
     publishFinding,
     clearError,
   };
+}
+
+function resolveReplyErrorMessage(reason: string, fallbackMessage: string): string {
+  switch (reason) {
+    case 'threadNotFound':
+      return 'コメントスレッドが見つかりません。refresh してください';
+    case 'threadNotReplyable':
+      return 'このコメントには返信できません';
+    case 'invalidBody':
+      return '返信内容を入力してください';
+    case 'inactiveRevision':
+      return '最新 revision に切り替えてから返信してください';
+    case 'tokenNotFound':
+      return 'Repository Provider の token を設定してください';
+    case 'providerRejected':
+      return `Provider への返信投稿に失敗しました。${fallbackMessage}`;
+    default:
+      return fallbackMessage;
+  }
 }
 
 function resolvePublishErrorMessage(reason: string, fallbackMessage: string): string {

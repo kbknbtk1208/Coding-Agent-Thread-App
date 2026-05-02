@@ -45,6 +45,7 @@ import { usePublishComments } from '../provider-comments/use-publish-comments';
 import type { UsePublishCommentsReturn } from '../provider-comments/use-publish-comments';
 import { FindingPublishComposer } from '../provider-comments/finding-publish-composer';
 import { DiffInlineCommentComposer } from '../provider-comments/diff-inline-comment-composer';
+import { RemoteThreadReplyComposer } from '../provider-comments/remote-thread-reply-composer';
 import {
   normalizeDiffLineSelection,
   type DiffSelectionState,
@@ -442,6 +443,20 @@ function DiffAwareSourceSection({
     }),
     [detail, publishComments],
   );
+  const remoteReplyProps = useMemo<RemoteCommentReplyProps>(
+    () => ({
+      detail,
+      inFlightKey: publishComments.inFlightKey,
+      errorByKey: publishComments.errorByKey,
+      publishedBySourceKey: publishComments.publishedBySourceKey,
+      draftReplyByThread: publishComments.draftReplyByThread,
+      onReply: (providerThreadId, body) =>
+        void publishComments.replyRemoteThread({ detail, providerThreadId, body }),
+      onDraftChange: publishComments.setDraftReplyByThread,
+      onClearError: publishComments.clearError,
+    }),
+    [detail, publishComments],
+  );
   const activeSelection =
     selectionState.status === 'idle' ? null : normalizeDiffLineSelection(selectionState.selection);
   const composerSelection =
@@ -680,7 +695,10 @@ function DiffAwareSourceSection({
                       />
                     ) : null}
                     {lineThreads.length > 0 ? (
-                      <RemoteCommentThreadLayer threads={lineThreads} />
+                      <RemoteCommentThreadLayer
+                        threads={lineThreads}
+                        replyProps={remoteReplyProps}
+                      />
                     ) : null}
                     {composerSelection &&
                     line.side === composerSelection.side &&
@@ -833,16 +851,43 @@ interface AgentFindingPublishProps {
   onClearPublishError(sourceKey: string): void;
 }
 
+interface RemoteCommentReplyProps {
+  detail: NodeDetailSnapshot;
+  inFlightKey: string | null;
+  errorByKey: Record<string, string>;
+  publishedBySourceKey: Record<string, Poc3PublishedCommentRecord>;
+  draftReplyByThread: Record<string, string>;
+  onReply(providerThreadId: string, body: string): void;
+  onDraftChange(threadId: string, body: string): void;
+  onClearError(sourceKey: string): void;
+}
+
+function isRemoteThreadReplyable(thread: NodeDetailSnapshot['threads']['remote'][number]): boolean {
+  return (
+    thread.anchorStatus === 'current' &&
+    thread.location.kind === 'diff' &&
+    thread.comments.length > 0 &&
+    (thread.providerThreadId.startsWith('github-review-comment:') ||
+      thread.providerThreadId.startsWith('gitlab-discussion:'))
+  );
+}
+
 function RemoteCommentThreadLayer({
   threads,
+  replyProps,
 }: {
   threads: NodeDetailSnapshot['threads']['remote'];
+  replyProps?: RemoteCommentReplyProps;
 }) {
   return (
     <div className="border-l-2 border-[#58d7ff]/35 bg-[#58d7ff]/[0.045] px-3 py-3">
       <div className="space-y-3">
         {threads.map((thread) => (
-          <RemoteCommentThreadCard key={thread.providerThreadId} thread={thread} />
+          <RemoteCommentThreadCard
+            key={thread.providerThreadId}
+            thread={thread}
+            replyProps={replyProps}
+          />
         ))}
       </div>
     </div>
@@ -851,8 +896,10 @@ function RemoteCommentThreadLayer({
 
 function RemoteCommentThreadCard({
   thread,
+  replyProps,
 }: {
   thread: NodeDetailSnapshot['threads']['remote'][number];
+  replyProps?: RemoteCommentReplyProps;
 }) {
   const first = thread.comments[0] ?? null;
   const title = first?.author.login ?? 'remote';
@@ -910,6 +957,21 @@ function RemoteCommentThreadCard({
           </div>
         ))}
       </div>
+      {replyProps && isRemoteThreadReplyable(thread) ? (
+        <RemoteThreadReplyComposer
+          thread={thread}
+          inFlight={replyProps.inFlightKey === `remote-thread:${thread.providerThreadId}`}
+          published={!!replyProps.publishedBySourceKey[`remote-thread:${thread.providerThreadId}`]}
+          errorMessage={replyProps.errorByKey[`remote-thread:${thread.providerThreadId}`] || null}
+          initialDraft={replyProps.draftReplyByThread[thread.providerThreadId] ?? ''}
+          onSubmit={(body) => {
+            replyProps.onReply(thread.providerThreadId, body);
+          }}
+          onDraftChange={(body) => {
+            replyProps.onDraftChange(thread.providerThreadId, body);
+          }}
+        />
+      ) : null}
     </article>
   );
 }
