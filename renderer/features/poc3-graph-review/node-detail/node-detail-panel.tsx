@@ -385,10 +385,13 @@ function DiffAwareSourceSection({
   providerKind?: ReviewProviderKind;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [expandedRange, setExpandedRange] = useState<{ startLine: number; endLine: number } | null>(
-    null,
-  );
-  const [selectionState, setSelectionState] = useState<DiffSelectionState>({ status: 'idle' });
+  const [expandedRange, setExpandedRange] = useState<{
+    startLine: number;
+    endLine: number;
+  } | null>(null);
+  const [selectionState, setSelectionState] = useState<DiffSelectionState>({
+    status: 'idle',
+  });
   const [selectionKeySeed, setSelectionKeySeed] = useState(0);
   const [submittedSourceKey, setSubmittedSourceKey] = useState<string | null>(null);
   const dragAnchorRef = useRef<{ side: 'LEFT' | 'RIGHT'; line: number } | null>(null);
@@ -405,7 +408,12 @@ function DiffAwareSourceSection({
     if (viewMode !== 'function') {
       return { startLine: fileContext.startLine, endLine: fileContext.endLine };
     }
-    return expandedRange ?? { startLine: functionCode.startLine, endLine: functionCode.endLine };
+    return (
+      expandedRange ?? {
+        startLine: functionCode.startLine,
+        endLine: functionCode.endLine,
+      }
+    );
   }, [canExpandWithinFile, expandedRange, fileContext, functionCode, viewMode]);
   const effectiveSource = useMemo(
     () => buildEffectiveSource(baseSource, fileContext, effectiveRange),
@@ -465,7 +473,11 @@ function DiffAwareSourceSection({
       publishedBySourceKey: publishComments.publishedBySourceKey,
       draftReplyByThread: publishComments.draftReplyByThread,
       onReply: (providerThreadId, body) =>
-        void publishComments.replyRemoteThread({ detail, providerThreadId, body }),
+        void publishComments.replyRemoteThread({
+          detail,
+          providerThreadId,
+          body,
+        }),
       onDraftChange: publishComments.setDraftReplyByThread,
       onClearError: publishComments.clearError,
     }),
@@ -788,7 +800,7 @@ function DiffAwareSourceRow({
 
   return (
     <div
-      className={`grid min-w-full grid-cols-[34px_34px_12px_auto] gap-x-1.5 rounded-[4px] px-1 py-1 ${toneClass}`}
+      className={`grid min-w-full grid-cols-[34px_34px_12px_auto] gap-x-1.5 rounded-[4px] px-1 ${toneClass}`}
       data-poc3-source-line="true"
       data-file-path={line.filePath}
       data-side={line.side ?? undefined}
