@@ -1,7 +1,7 @@
 'use client';
 
 import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/lowlight';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 
 export function resolveHighlightLanguage(filePath: string): string {
   const normalized = filePath.toLowerCase();
@@ -145,7 +145,7 @@ function joinClassNames(classNames?: string[]) {
   return classNames?.filter(Boolean).join(' ') || undefined;
 }
 
-export function HighlightedSourceLine({
+export const HighlightedSourceLine = memo(function HighlightedSourceLine({
   text,
   filePath,
   language,
@@ -172,4 +172,4 @@ export function HighlightedSourceLine({
       </code>
     </span>
   );
-}
+});

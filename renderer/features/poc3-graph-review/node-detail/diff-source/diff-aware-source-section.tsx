@@ -7,25 +7,16 @@ import type {
 } from '../../../../../shared/poc3-contracts/graph-review-ipc';
 import type { UsePublishCommentsReturn } from '../../provider-comments/use-publish-comments';
 import type { ReviewProviderKind } from '../../../../../shared/poc3-domain/review-workspace';
-import { DiffInlineCommentComposer } from '../../provider-comments/diff-inline-comment-composer';
 import type { DiffAwareSourceBase } from '../diff-aware-source-model';
 import {
-  awareLineLookupKey,
   groupFindingsByAwareLine,
   groupRemoteThreadsByAwareLine,
-  providerLineNumberForAwareLine,
 } from '../utils/aware-line-lookup';
-import {
-  RemoteCommentThreadLayer,
-  type RemoteCommentReplyProps,
-} from '../thread/remote-thread-layer';
-import {
-  AgentFindingThreadLayer,
-  OverviewFindingThreads,
-  type AgentFindingPublishProps,
-} from '../thread/agent-finding-thread-layer';
-import { DiffAwareSourceRow, ExpandSourceButton } from './diff-aware-source-row';
+import type { RemoteCommentReplyProps } from '../thread/remote-thread-layer';
+import type { AgentFindingPublishProps } from '../thread/agent-finding-thread-layer';
+import { buildDiffSourceVirtualItems, buildLineMetaByKey } from './diff-source-virtual-items';
 import { useDiffLineSelection } from './use-diff-line-selection';
+import { VirtualDiffSourceList } from './virtual-diff-source-list';
 
 export function DiffAwareSourceSection({
   detail,
@@ -71,6 +62,7 @@ export function DiffAwareSourceSection({
     closeComposer,
     submitInlineComment,
     expandRange,
+    registerVirtualScroller,
     scrollContainerRef,
   } = useDiffLineSelection({
     detail,
@@ -89,6 +81,20 @@ export function DiffAwareSourceSection({
   const remoteByLine = useMemo(
     () => groupRemoteThreadsByAwareLine(detail.threads.remote),
     [detail.threads.remote],
+  );
+  const virtualItemsModel = useMemo(
+    () =>
+      buildDiffSourceVirtualItems({
+        lines,
+        canExpandUp,
+        canExpandDown,
+        includeOverviewFindings: detail.findings.length > 0,
+      }),
+    [canExpandDown, canExpandUp, detail.findings.length, lines],
+  );
+  const lineMetaByKey = useMemo(
+    () => buildLineMetaByKey({ lines, findingsByLine, remoteByLine }),
+    [findingsByLine, lines, remoteByLine],
   );
   const overviewPublishProps = useMemo<AgentFindingPublishProps>(
     () => ({
@@ -122,6 +128,24 @@ export function DiffAwareSourceSection({
     }),
     [detail, publishComments],
   );
+  const listHandlers = useMemo(
+    () => ({
+      onExpandRange: expandRange,
+      onRowFocus: handleRowFocus,
+      onRowKeyDown: handleRowKeyDown,
+      onCloseComposer: closeComposer,
+      onSubmitInlineComment: submitInlineComment,
+      registerVirtualScroller,
+    }),
+    [
+      closeComposer,
+      expandRange,
+      handleRowFocus,
+      handleRowKeyDown,
+      registerVirtualScroller,
+      submitInlineComment,
+    ],
+  );
 
   return (
     <section className="node-detail-code diff-tailwindcss-wrapper flex flex-col" data-theme="dark">
@@ -139,81 +163,24 @@ export function DiffAwareSourceSection({
               ...(selectionState.status === 'selecting' ? { userSelect: 'none' as const } : {}),
             }}
           >
-            {canExpandUp ? (
-              <ExpandSourceButton direction="up" onClick={() => expandRange('up')} />
-            ) : null}
-            <OverviewFindingThreads
-              findings={detail.findings}
-              publishProps={overviewPublishProps}
+            <VirtualDiffSourceList
+              items={virtualItemsModel.items}
+              virtualItemsModel={virtualItemsModel}
+              lineMetaByKey={lineMetaByKey}
+              scrollContainerRef={scrollContainerRef}
+              activeSelection={activeSelection}
+              activeSelectableLine={activeSelectableLine}
+              composerSelection={composerSelection}
+              composerSourceKey={composerSourceKey}
+              composerError={composerError}
+              isComposerInFlight={isComposerInFlight}
+              language={language}
+              highlighted={highlighted}
+              effectiveFilePath={effectiveFilePath}
+              overviewPublishProps={overviewPublishProps}
+              remoteReplyProps={remoteReplyProps}
+              handlers={listHandlers}
             />
-            <div className="min-w-full" data-poc3-source-file-path={effectiveFilePath}>
-              {lines.map((line) => {
-                const lineFindings = findingsByLine.get(awareLineLookupKey(line)) ?? [];
-                const lineThreads = remoteByLine.get(awareLineLookupKey(line)) ?? [];
-                const providerLineNumber = providerLineNumberForAwareLine(line);
-                const isSelected =
-                  activeSelection !== null &&
-                  providerLineNumber !== null &&
-                  line.side === activeSelection.side &&
-                  providerLineNumber >= activeSelection.startLine &&
-                  providerLineNumber <= activeSelection.endLine;
-                return (
-                  <div
-                    key={line.key}
-                    data-line={line.newLineNumber ?? line.oldLineNumber ?? undefined}
-                  >
-                    <DiffAwareSourceRow
-                      line={line}
-                      language={language}
-                      isHighlighted={
-                        line.newLineNumber !== null && highlighted.has(line.newLineNumber)
-                      }
-                      isSelected={isSelected}
-                      isSelectable={line.selectableForProviderComment}
-                      isActive={line === activeSelectableLine}
-                      findingCount={lineFindings.length}
-                      remoteThreadCount={lineThreads.length}
-                      onFocus={
-                        line.selectableForProviderComment ? () => handleRowFocus(line) : undefined
-                      }
-                      onKeyDown={
-                        line.selectableForProviderComment
-                          ? (e) => handleRowKeyDown(e, line)
-                          : undefined
-                      }
-                    />
-                    {lineFindings.length > 0 ? (
-                      <AgentFindingThreadLayer
-                        findings={lineFindings}
-                        publishProps={overviewPublishProps}
-                      />
-                    ) : null}
-                    {lineThreads.length > 0 ? (
-                      <RemoteCommentThreadLayer
-                        threads={lineThreads}
-                        replyProps={remoteReplyProps}
-                      />
-                    ) : null}
-                    {composerSelection &&
-                    line.side === composerSelection.side &&
-                    providerLineNumber === composerSelection.endLine &&
-                    composerSourceKey &&
-                    publishComments ? (
-                      <DiffInlineCommentComposer
-                        selection={composerSelection}
-                        inFlight={isComposerInFlight}
-                        errorMessage={composerError || null}
-                        onClose={closeComposer}
-                        onSubmit={submitInlineComment}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-            {canExpandDown ? (
-              <ExpandSourceButton direction="down" onClick={() => expandRange('down')} />
-            ) : null}
           </div>
         ) : (
           <div className="px-4 py-3 text-[12px] text-white/55">

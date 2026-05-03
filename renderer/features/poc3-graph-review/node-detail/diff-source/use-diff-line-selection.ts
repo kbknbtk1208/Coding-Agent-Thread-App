@@ -67,7 +67,16 @@ export interface UseDiffLineSelectionReturn {
   closeComposer(): void;
   submitInlineComment(body: string): void;
   expandRange(direction: 'up' | 'down'): void;
+  registerVirtualScroller(scroller: DiffLineVirtualScroller | null): void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}
+
+export interface DiffLineVirtualScroller {
+  scrollToNewLine(
+    lineNumber: number,
+    options?: { align?: 'start' | 'center' | 'end' | 'auto'; offset?: number },
+  ): boolean;
+  focusLine(line: DiffAwareSourceLine): void;
 }
 
 export function useDiffLineSelection({
@@ -80,6 +89,7 @@ export function useDiffLineSelection({
   canExpandWithinFile,
 }: UseDiffLineSelectionProps): UseDiffLineSelectionReturn {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const virtualScrollerRef = useRef<DiffLineVirtualScroller | null>(null);
   const [expandedRange, setExpandedRange] = useState<{
     startLine: number;
     endLine: number;
@@ -178,6 +188,9 @@ export function useDiffLineSelection({
 
   useEffect(() => {
     if (!functionCode?.startLine || !scrollContainerRef.current || viewMode === 'function') return;
+    if (virtualScrollerRef.current?.scrollToNewLine(functionCode.startLine, { offset: 48 })) {
+      return;
+    }
     const container = scrollContainerRef.current;
     const lineEl = container.querySelector(`[data-line="${functionCode.startLine}"]`);
     if (lineEl instanceof HTMLElement) {
@@ -196,6 +209,14 @@ export function useDiffLineSelection({
     return scrollContainerRef.current.querySelector<HTMLElement>(
       `[data-poc3-source-line="true"][data-side="${targetSide}"][data-line="${targetProviderLine}"]`,
     );
+  };
+
+  const focusLine = (line: DiffAwareSourceLine) => {
+    if (virtualScrollerRef.current) {
+      virtualScrollerRef.current.focusLine(line);
+      return;
+    }
+    getRowElement(line)?.focus();
   };
 
   const handleRowFocus = (line: DiffAwareSourceLine) => {
@@ -223,7 +244,7 @@ export function useDiffLineSelection({
       if (nextIndex === currentSelectableIndex) return;
       const nextLine = selectableLines[nextIndex];
       setActiveSelectableIndex(nextIndex);
-      getRowElement(nextLine)?.focus();
+      focusLine(nextLine);
       return;
     }
 
@@ -234,7 +255,7 @@ export function useDiffLineSelection({
       if (prevIndex === currentSelectableIndex) return;
       const prevLine = selectableLines[prevIndex];
       setActiveSelectableIndex(prevIndex);
-      getRowElement(prevLine)?.focus();
+      focusLine(prevLine);
       return;
     }
 
@@ -309,7 +330,7 @@ export function useDiffLineSelection({
       }
       const nextSelectableIndex = selectableLines.indexOf(nextLine);
       if (nextSelectableIndex !== -1) setActiveSelectableIndex(nextSelectableIndex);
-      getRowElement(nextLine)?.focus();
+      focusLine(nextLine);
       return;
     }
 
@@ -349,7 +370,7 @@ export function useDiffLineSelection({
       }
       const prevSelectableIndex = selectableLines.indexOf(prevLine);
       if (prevSelectableIndex !== -1) setActiveSelectableIndex(prevSelectableIndex);
-      getRowElement(prevLine)?.focus();
+      focusLine(prevLine);
       return;
     }
 
@@ -506,6 +527,10 @@ export function useDiffLineSelection({
     onViewModeChange('function');
   };
 
+  const registerVirtualScroller = (scroller: DiffLineVirtualScroller | null) => {
+    virtualScrollerRef.current = scroller;
+  };
+
   return {
     lines,
     language,
@@ -529,6 +554,7 @@ export function useDiffLineSelection({
     closeComposer,
     submitInlineComment,
     expandRange,
+    registerVirtualScroller,
     scrollContainerRef,
   };
 }
