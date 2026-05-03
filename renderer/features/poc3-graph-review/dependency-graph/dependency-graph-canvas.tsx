@@ -29,6 +29,8 @@ export interface DependencyGraphCanvasProps {
   reviewWorkspaceId: string;
   providerKind: ReviewProviderKind;
   highlightedFilePath?: string | null;
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string | null) => void;
 }
 
 export function DependencyGraphCanvas(props: DependencyGraphCanvasProps) {
@@ -44,10 +46,11 @@ function DependencyGraphCanvasInner({
   reviewWorkspaceId,
   providerKind,
   highlightedFilePath,
+  selectedNodeId,
+  onSelectNode,
 }: DependencyGraphCanvasProps) {
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
   const appliedViewportSnapshotRef = useRef<string | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [detailViewMode, setDetailViewMode] = useState<NodeDetailViewMode>('function');
   const [reactFlowReady, setReactFlowReady] = useState(false);
   const [nodeDetailRefreshKey, setNodeDetailRefreshKey] = useState(0);
@@ -82,10 +85,10 @@ function DependencyGraphCanvasInner({
   }, [graph.graphSnapshotId]);
 
   useEffect(() => {
-    setSelectedNodeId(null);
+    onSelectNode(null);
     setDetailViewMode('function');
     resetNodeDetail();
-  }, [resetNodeDetail, reviewWorkspaceId]);
+  }, [onSelectNode, resetNodeDetail, reviewWorkspaceId]);
 
   useEffect(() => {
     if (!reactFlowReady || !reactFlowRef.current) {
@@ -113,10 +116,13 @@ function DependencyGraphCanvasInner({
     return () => window.cancelAnimationFrame(frameId);
   }, [graph.graphSnapshotId, graph.viewport, reactFlowReady]);
 
-  const handleNodeClick = useCallback((_: unknown, flowNode: Poc3FlowNode) => {
-    setDetailViewMode('function');
-    setSelectedNodeId(flowNode.data.graphNode.nodeId);
-  }, []);
+  const handleNodeClick = useCallback(
+    (_: unknown, flowNode: Poc3FlowNode) => {
+      setDetailViewMode('function');
+      onSelectNode(flowNode.data.graphNode.nodeId);
+    },
+    [onSelectNode],
+  );
 
   const selectedNode = selectedNodeId ? (nodeById.get(selectedNodeId) ?? null) : null;
 
@@ -160,9 +166,9 @@ function DependencyGraphCanvasInner({
           onViewModeChange={setDetailViewMode}
           onSelectNode={(nodeId) => {
             setDetailViewMode('function');
-            setSelectedNodeId(nodeId);
+            onSelectNode(nodeId);
           }}
-          onClose={() => setSelectedNodeId(null)}
+          onClose={() => onSelectNode(null)}
           onNodeDetailRefresh={() => setNodeDetailRefreshKey((k) => k + 1)}
           providerKind={providerKind}
         />

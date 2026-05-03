@@ -3,6 +3,7 @@
 import { Network } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { AgentControlCenter } from '../agent-review/agent-control-center';
+import { CommentListDock } from '../comment-list/comment-list-dock';
 import { FileTreeDock } from '../file-tree/file-tree-dock';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { DependencyGraphCanvas } from './dependency-graph-canvas';
@@ -19,6 +20,10 @@ export function DependencyGraphPanel({
 }) {
   const { state, reload, retry } = useWorkspaceGraph(selectedWorkspace, reloadNonce);
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const handleSelectNode = useCallback((id: string | null) => {
+    setSelectedNodeId(id);
+  }, []);
   const handleCompleted = useCallback(() => void reload(), [reload]);
 
   useEffect(() => {
@@ -48,11 +53,20 @@ export function DependencyGraphPanel({
       {state.status === 'ready' && state.result.graph && state.result.graph.nodes.length > 0 ? (
         <>
           <FileTreeDock graph={state.result.graph} onFileSelect={setHighlightedFilePath} />
+          <CommentListDock
+            graph={state.result.graph}
+            reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
+            onSelectNode={(nodeId) => {
+              handleSelectNode(nodeId);
+            }}
+          />
           <DependencyGraphCanvas
             graph={state.result.graph}
             reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
             providerKind={selectedWorkspace.provider}
             highlightedFilePath={highlightedFilePath}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={handleSelectNode}
           />
           <AgentControlCenter
             graph={state.result.graph}
