@@ -7,6 +7,11 @@ import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { ArchivedRemoteThreadSection } from '../provider-comments/archived-remote-thread-section';
 import { useArchivedRemoteThreads } from '../provider-comments/use-archived-remote-threads';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
+import {
+  DOCK_GLASS_STYLE,
+  DOCK_SHEEN_STYLE,
+  useDockAnimationStage,
+} from '../components/use-dock-animation-stage';
 import { isAgentReviewRunActive } from './agent-review-state';
 import { AgentReviewHistoryList } from './agent-review-history-list';
 import { AgentReviewNewRunPanel } from './agent-review-new-run-panel';
@@ -15,15 +20,6 @@ import type { AgentReviewDockView, AgentReviewRun, SlideDirection } from './agen
 import { OutdatedThreadSection } from './outdated-thread-section';
 import { useAgentReview } from './use-agent-review';
 import { useOutdatedAgentThreads } from './use-outdated-agent-threads';
-
-type AnimationStage =
-  | 'collapsed'
-  | 'widthExpanding'
-  | 'heightExpanding'
-  | 'fullyExpanded'
-  | 'contentFadingOut'
-  | 'heightCollapsing'
-  | 'widthCollapsing';
 
 const TRIGGER_WIDTH = 'min(90vw, 280px)';
 const TRIGGER_HEIGHT = 48;
@@ -62,17 +58,17 @@ export function AgentControlCenter({
   const review = useAgentReview(selectedWorkspace.reviewWorkspaceId);
   const outdatedThreads = useOutdatedAgentThreads(selectedWorkspace.reviewWorkspaceId);
   const archivedRemoteThreads = useArchivedRemoteThreads(selectedWorkspace.reviewWorkspaceId);
-  const [stage, setStage] = useState<AnimationStage>('collapsed');
+  const { stage, isCollapsed, isExpanded, expand, collapse } = useDockAnimationStage();
   const [pendingCompletedNotice, setPendingCompletedNotice] = useState(false);
   const [view, setView] = useState<AgentReviewDockView>({ kind: 'history' });
   const [slideDirection, setSlideDirection] = useState<SlideDirection>('forward');
   const dockRef = useRef<HTMLDivElement | null>(null);
   const notifiedCompletedRunRef = useRef<string | null>(null);
-  const stageRef = useRef<AnimationStage>('collapsed');
-  stageRef.current = stage;
+  const isCollapsedRef = useRef(false);
+  isCollapsedRef.current = isCollapsed;
+  const isExpandedRef = useRef(false);
+  isExpandedRef.current = isExpanded;
 
-  const isCollapsed = stage === 'collapsed';
-  const isExpanded = stage === 'fullyExpanded';
   const isRunning = review.activeRun !== null;
 
   const navigate = useCallback((nextView: AgentReviewDockView, direction: SlideDirection) => {
@@ -81,17 +77,8 @@ export function AgentControlCenter({
   }, []);
 
   const handleExpand = () => {
-    setStage('widthExpanding');
-    setTimeout(() => setStage('heightExpanding'), 400);
-    setTimeout(() => setStage('fullyExpanded'), 850);
+    expand();
     setPendingCompletedNotice(false);
-  };
-
-  const handleCollapse = () => {
-    setStage('contentFadingOut');
-    setTimeout(() => setStage('heightCollapsing'), 250);
-    setTimeout(() => setStage('widthCollapsing'), 650);
-    setTimeout(() => setStage('collapsed'), 1050);
   };
 
   useEffect(() => {
@@ -114,7 +101,7 @@ export function AgentControlCenter({
     if (latest.status === 'completed' || latest.status === 'fallback_rich_text') {
       notifiedCompletedRunRef.current = latest.runId;
       onCompleted?.();
-      if (stageRef.current === 'collapsed') {
+      if (isCollapsedRef.current) {
         setPendingCompletedNotice(true);
       }
     }
@@ -124,17 +111,17 @@ export function AgentControlCenter({
     if (isCollapsed) return;
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (stageRef.current !== 'fullyExpanded') return;
+      if (!isExpandedRef.current) return;
 
       const target = event.target;
       if (!(target instanceof Node) || dockRef.current?.contains(target)) return;
 
-      handleCollapse();
+      collapse();
     };
 
     document.addEventListener('pointerdown', handlePointerDown, true);
     return () => document.removeEventListener('pointerdown', handlePointerDown, true);
-  }, [isCollapsed]);
+  }, [isCollapsed, collapse]);
 
   const widthValue =
     stage === 'collapsed' || stage === 'widthCollapsing' ? TRIGGER_WIDTH : DOCK_WIDTH;
@@ -157,23 +144,12 @@ export function AgentControlCenter({
           width: { duration: 0.45, ease: [0.4, 0, 0.2, 1] },
           height: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
         }}
-        style={{
-          borderRadius: 10,
-          background: 'linear-gradient(135deg, rgba(62,62,62,0.52) 0%, rgba(30,30,30,0.44) 100%)',
-          backdropFilter: 'blur(36px)',
-          WebkitBackdropFilter: 'blur(36px)',
-          border: '1px solid rgba(255,255,255,0.06)',
-          boxShadow:
-            'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -24px 48px rgba(0,0,0,0.18), 0 8px 32px rgba(0,0,0,0.36)',
-        }}
+        style={DOCK_GLASS_STYLE}
       >
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'linear-gradient(155deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.1) 100%)',
-          }}
+          style={DOCK_SHEEN_STYLE}
         />
 
         <div
@@ -229,7 +205,7 @@ export function AgentControlCenter({
                 transition={{ duration: 0.2 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleCollapse();
+                  collapse();
                 }}
                 className="flex size-5 shrink-0 items-center justify-center rounded text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/80"
                 aria-label="Agent Review を閉じる"

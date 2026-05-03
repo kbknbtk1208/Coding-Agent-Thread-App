@@ -2,23 +2,19 @@
 
 import { Files, X } from 'lucide-react';
 import { AnimatePresence, motion, useDragControls, useMotionValue } from 'motion/react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import {
+  DOCK_GLASS_STYLE,
+  DOCK_SHEEN_STYLE,
+  useDockAnimationStage,
+} from '../components/use-dock-animation-stage';
 import {
   buildDiffFileTree,
   collectDefaultExpanded,
   type DiffFileTreeItem,
 } from './build-diff-file-tree';
 import { Poc3FolderTree } from './poc3-folder-tree';
-
-type AnimationStage =
-  | 'collapsed'
-  | 'widthExpanding'
-  | 'heightExpanding'
-  | 'fullyExpanded'
-  | 'contentFadingOut'
-  | 'heightCollapsing'
-  | 'widthCollapsing';
 
 const DOCK_WIDTH = 272;
 const DOCK_HEIGHT = 'min(72vh, 480px)';
@@ -31,27 +27,11 @@ interface FileTreeDockProps {
 }
 
 export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
-  const [stage, setStage] = useState<AnimationStage>('collapsed');
+  const { stage, isCollapsed, isExpanded, expand, collapse } = useDockAnimationStage();
   const dragControls = useDragControls();
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const isDraggingRef = useRef(false);
-
-  const isCollapsed = stage === 'collapsed';
-  const isExpanded = stage === 'fullyExpanded';
-
-  const handleExpand = () => {
-    setStage('widthExpanding');
-    setTimeout(() => setStage('heightExpanding'), 400);
-    setTimeout(() => setStage('fullyExpanded'), 850);
-  };
-
-  const handleCollapse = () => {
-    setStage('contentFadingOut');
-    setTimeout(() => setStage('heightCollapsing'), 250);
-    setTimeout(() => setStage('widthCollapsing'), 650);
-    setTimeout(() => setStage('collapsed'), 1050);
-  };
 
   const treeItems = buildDiffFileTree(graph.nodes);
   if (treeItems.length === 0) return null;
@@ -97,26 +77,12 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
         width: { duration: 0.45, ease: [0.4, 0, 0.2, 1] },
         height: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
       }}
-      style={{
-        x,
-        y,
-        borderRadius: 10,
-        background: 'linear-gradient(135deg, rgba(62,62,62,0.52) 0%, rgba(30,30,30,0.44) 100%)',
-        backdropFilter: 'blur(36px)',
-        WebkitBackdropFilter: 'blur(36px)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        boxShadow:
-          'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -24px 48px rgba(0,0,0,0.18), 0 8px 32px rgba(0,0,0,0.36)',
-      }}
+      style={{ ...DOCK_GLASS_STYLE, x, y }}
     >
-      {/* gradient sheen */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'linear-gradient(155deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.1) 100%)',
-        }}
+        style={DOCK_SHEEN_STYLE}
       />
 
       {/* header — drag handle, always rendered */}
@@ -124,7 +90,7 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
         className={`relative z-10 flex h-10 shrink-0 items-center gap-2 px-2.5 ${isCollapsed ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
         onPointerDown={(e) => dragControls.start(e)}
         onClick={() => {
-          if (isCollapsed && !isDraggingRef.current) handleExpand();
+          if (isCollapsed && !isDraggingRef.current) expand();
         }}
         role={isCollapsed ? 'button' : undefined}
         aria-label={isCollapsed ? 'File Tree を開く' : undefined}
@@ -134,7 +100,7 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
             ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  handleExpand();
+                  expand();
                 }
               }
             : undefined
@@ -158,7 +124,7 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleCollapse();
+                  collapse();
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
                 className="flex size-5 cursor-pointer items-center justify-center rounded text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/80"
