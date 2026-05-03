@@ -1299,7 +1299,7 @@ function FindingMessagesList({
         ];
 
   return (
-    <div className="mt-3 flex flex-col gap-2">
+    <div className="mt-2 space-y-0 border-t border-fuchsia-400/15 pt-2">
       {visibleMessages.map((message) => (
         <ThreadMessageBubble key={message.localMessageId} message={message} />
       ))}
@@ -1308,15 +1308,13 @@ function FindingMessagesList({
 }
 
 function ThreadMessageBubble({ message }: { message: Poc3AgentThreadMessage }) {
-  const className =
-    message.source === 'user-reply'
-      ? 'ml-6 border-[#479FFA]/25 bg-[#479FFA]/10 text-[#d7eaff]'
-      : message.source === 'agent-reply'
-        ? 'ml-6 border-fuchsia-300/18 bg-white/[0.04] text-[#d0d5db]'
-        : 'border-fuchsia-400/16 bg-fuchsia-400/[0.06] text-[#d0d5db]';
+  const indent = message.source === 'user-reply' || message.source === 'agent-reply' ? 'ml-4' : '';
+  const textColor = message.source === 'user-reply' ? 'text-[#d7eaff]' : 'text-[#d0d5db]';
   return (
-    <div className={`rounded-[8px] border px-3 py-2 ${className}`}>
-      <MarkdownBody>{message.body}</MarkdownBody>
+    <div className={`border-t border-fuchsia-400/10 pt-2 first:border-t-0 first:pt-0 ${indent}`}>
+      <div className={`poc3-remote-comment-body text-[11px] leading-5 ${textColor}`}>
+        <MarkdownBody>{message.body}</MarkdownBody>
+      </div>
     </div>
   );
 }
