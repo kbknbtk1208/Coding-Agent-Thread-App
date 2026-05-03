@@ -10,35 +10,44 @@ import type {
   NodeDetailViewMode,
   NodeFileContext,
 } from '../../../../../shared/poc3-contracts/graph-review-ipc';
-import type { DiffAwareSourceLine } from '../diff-aware-source-model';
-import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-domain/comment-publish';
+import {
+  buildDiffAwareSourceLines,
+  type DiffAwareSourceBase,
+  type DiffAwareSourceLine,
+} from '../diff-aware-source-model';
 import {
   isSelectableDiffAwareLine,
   isContiguousProviderSelection,
 } from '../utils/aware-line-lookup';
-import { buildManualSelectionSourceKey } from '../utils/manual-selection-source-key';
+import {
+  buildManualSelectionSourceKey,
+  selectionToAnchor,
+} from '../utils/manual-selection-source-key';
 import { escapeCssIdentifier } from '../utils/format';
 import { extractPoc3SourceLineInfoFromPoint } from '../utils/source-line-info';
+import { buildEffectiveSource } from './build-effective-source';
+import { resolveHighlightLanguage } from './highlighted-source-line';
 
 export interface UseDiffLineSelectionProps {
   detail: NodeDetailSnapshot;
-  lines: DiffAwareSourceLine[];
+  source: DiffAwareSourceBase | null;
   publishComments: UsePublishCommentsReturn;
   viewMode: NodeDetailViewMode;
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   fileContext: NodeFileContext | null;
   canExpandWithinFile: boolean;
-  effectiveRange: { startLine: number; endLine: number } | null;
 }
 
 export interface UseDiffLineSelectionReturn {
+  lines: DiffAwareSourceLine[];
+  language: string;
+  highlighted: Set<number>;
+  effectiveFilePath: string;
   selectionState: DiffSelectionState;
-  expandedRange: { startLine: number; endLine: number } | null;
   composerSelection: Poc3DiffLineSelection | null;
   composerSourceKey: string | null;
   composerError: string;
   isComposerInFlight: boolean;
-  publishedManualSelection: Poc3PublishedCommentRecord | null;
   selectionHighlightStyle: string;
   canExpandUp: boolean;
   canExpandDown: boolean;
@@ -47,19 +56,19 @@ export interface UseDiffLineSelectionReturn {
   handlePointerUp(event: PointerEvent<HTMLDivElement>): void;
   handlePointerCancel(): void;
   closeComposer(): void;
+  submitInlineComment(body: string): void;
   expandRange(direction: 'up' | 'down'): void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export function useDiffLineSelection({
   detail,
-  lines,
+  source,
   publishComments,
   viewMode,
   onViewModeChange,
   fileContext,
   canExpandWithinFile,
-  effectiveRange,
 }: UseDiffLineSelectionProps): UseDiffLineSelectionReturn {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [expandedRange, setExpandedRange] = useState<{
@@ -74,6 +83,48 @@ export function useDiffLineSelection({
   const dragAnchorRef = useRef<{ side: 'LEFT' | 'RIGHT'; line: number } | null>(null);
 
   const functionCode = detail.functionCode;
+
+  const effectiveRange = useMemo(() => {
+    if (!functionCode || !fileContext || !canExpandWithinFile) return null;
+    if (viewMode !== 'function') {
+      return { startLine: fileContext.startLine, endLine: fileContext.endLine };
+    }
+    return expandedRange ?? { startLine: functionCode.startLine, endLine: functionCode.endLine };
+  }, [canExpandWithinFile, expandedRange, fileContext, functionCode, viewMode]);
+
+  const effectiveSource = useMemo(
+    () => buildEffectiveSource(source, fileContext, effectiveRange),
+    [source, fileContext, effectiveRange],
+  );
+
+  const lines = useMemo(
+    () =>
+      buildDiffAwareSourceLines({
+        source: effectiveSource,
+        diffExcerpt: detail.diffExcerpt,
+        diffSummary: detail.diffSummary,
+        filePath: detail.summary.filePath ?? detail.node.filePath,
+      }),
+    [
+      detail.diffExcerpt,
+      detail.diffSummary,
+      detail.node.filePath,
+      detail.summary.filePath,
+      effectiveSource,
+    ],
+  );
+
+  const language = useMemo(
+    () => resolveHighlightLanguage(effectiveSource?.filePath ?? detail.summary.filePath ?? ''),
+    [detail.summary.filePath, effectiveSource?.filePath],
+  );
+
+  const highlighted = useMemo(
+    () => new Set(effectiveSource?.highlightedLineNumbers ?? []),
+    [effectiveSource?.highlightedLineNumbers],
+  );
+
+  const effectiveFilePath = effectiveSource?.filePath ?? detail.summary.filePath ?? '';
 
   const activeSelection =
     selectionState.status === 'idle' ? null : normalizeDiffLineSelection(selectionState.selection);
@@ -90,7 +141,7 @@ export function useDiffLineSelection({
       : '';
   const isComposerInFlight =
     composerSourceKey !== null && publishComments?.inFlightKey === composerSourceKey;
-  const publishedManualSelection: Poc3PublishedCommentRecord | null =
+  const publishedManualSelection =
     composerSourceKey && publishComments
       ? (publishComments.publishedBySourceKey[composerSourceKey] ?? null)
       : null;
@@ -233,6 +284,19 @@ export function useDiffLineSelection({
     setSelectionState({ status: 'idle' });
   };
 
+  const submitInlineComment = (body: string) => {
+    if (!composerSelection || !composerSourceKey || !publishComments) return;
+    setSubmittedSourceKey(composerSourceKey);
+    void publishComments.publishInlineComment({
+      reviewWorkspaceId: detail.reviewWorkspaceId,
+      revisionId: detail.revisionId,
+      body,
+      anchor: selectionToAnchor(composerSelection),
+      source: { kind: 'manual-selection' },
+      sourceKey: composerSourceKey,
+    });
+  };
+
   const canExpandUp =
     canExpandWithinFile &&
     viewMode === 'function' &&
@@ -263,13 +327,15 @@ export function useDiffLineSelection({
   };
 
   return {
+    lines,
+    language,
+    highlighted,
+    effectiveFilePath,
     selectionState,
-    expandedRange,
     composerSelection,
     composerSourceKey,
     composerError,
     isComposerInFlight,
-    publishedManualSelection,
     selectionHighlightStyle,
     canExpandUp,
     canExpandDown,
@@ -278,6 +344,7 @@ export function useDiffLineSelection({
     handlePointerUp,
     handlePointerCancel,
     closeComposer,
+    submitInlineComment,
     expandRange,
     scrollContainerRef,
   };
