@@ -104,7 +104,7 @@ function RemoteCommentThreadCard({
               href={firstUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex size-5 shrink-0 items-center justify-center rounded-[5px] border border-[#58d7ff]/18 text-[#dff7ff]/70 transition hover:bg-[#58d7ff]/10 hover:text-[#dff7ff]"
+              className="flex size-5 shrink-0 items-center justify-center rounded-[5px] border border-[#58d7ff]/18 text-[#dff7ff]/70 transition hover:bg-[#58d7ff]/10 hover:text-[#dff7ff] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#58d7ff]/35"
               aria-label="Open remote comment"
               onClick={(e) => e.stopPropagation()}
             >

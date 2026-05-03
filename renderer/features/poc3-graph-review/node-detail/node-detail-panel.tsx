@@ -76,8 +76,7 @@ export function NodeDetailPanel({
           />
           <motion.aside
             key="panel"
-            role="dialog"
-            aria-modal="false"
+            role="region"
             aria-labelledby={titleId}
             tabIndex={-1}
             ref={panelRef}
@@ -88,6 +87,14 @@ export function NodeDetailPanel({
             transition={{ duration: 0.22, ease: 'easeOut' }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                const target = event.target as HTMLElement;
+                if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') return;
+                if (target.closest('[data-diff-composer]')) return;
+                onClose();
+              }
+            }}
           >
             <div className="flex min-h-0 flex-1 flex-col">
               <PanelHeader

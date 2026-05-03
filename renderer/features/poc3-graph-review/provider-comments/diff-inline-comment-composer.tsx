@@ -28,7 +28,10 @@ export function DiffInlineCommentComposer({
       : `${selection.side} L${selection.startLine}-L${selection.endLine}`;
 
   return (
-    <div className="border-l-2 border-[#d8e071]/45 bg-[#d8e071]/[0.045] px-3 py-3">
+    <div
+      data-diff-composer="true"
+      className="border-l-2 border-[#d8e071]/45 bg-[#d8e071]/[0.045] px-3 py-3"
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="rounded-full border border-[#d8e071]/25 bg-[#d8e071]/10 px-2 py-0.5 text-[10px] font-semibold text-[#f6ffc0]">
           {lineLabel}

@@ -54,17 +54,20 @@ export function DiffAwareSourceSection({
     highlighted,
     effectiveFilePath,
     selectionState,
+    activeSelection,
+    activeSelectableLine,
     composerSelection,
     composerSourceKey,
     composerError,
     isComposerInFlight,
-    selectionHighlightStyle,
     canExpandUp,
     canExpandDown,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
+    handleRowFocus,
+    handleRowKeyDown,
     closeComposer,
     submitInlineComment,
     expandRange,
@@ -148,6 +151,12 @@ export function DiffAwareSourceSection({
                 const lineFindings = findingsByLine.get(awareLineLookupKey(line)) ?? [];
                 const lineThreads = remoteByLine.get(awareLineLookupKey(line)) ?? [];
                 const providerLineNumber = providerLineNumberForAwareLine(line);
+                const isSelected =
+                  activeSelection !== null &&
+                  providerLineNumber !== null &&
+                  line.side === activeSelection.side &&
+                  providerLineNumber >= activeSelection.startLine &&
+                  providerLineNumber <= activeSelection.endLine;
                 return (
                   <div
                     key={line.key}
@@ -159,8 +168,19 @@ export function DiffAwareSourceSection({
                       isHighlighted={
                         line.newLineNumber !== null && highlighted.has(line.newLineNumber)
                       }
+                      isSelected={isSelected}
+                      isSelectable={line.selectableForProviderComment}
+                      isActive={line === activeSelectableLine}
                       findingCount={lineFindings.length}
                       remoteThreadCount={lineThreads.length}
+                      onFocus={
+                        line.selectableForProviderComment ? () => handleRowFocus(line) : undefined
+                      }
+                      onKeyDown={
+                        line.selectableForProviderComment
+                          ? (e) => handleRowKeyDown(e, line)
+                          : undefined
+                      }
                     />
                     {lineFindings.length > 0 ? (
                       <AgentFindingThreadLayer
@@ -190,7 +210,6 @@ export function DiffAwareSourceSection({
                   </div>
                 );
               })}
-              {selectionHighlightStyle ? <style>{selectionHighlightStyle}</style> : null}
             </div>
             {canExpandDown ? (
               <ExpandSourceButton direction="down" onClick={() => expandRange('down')} />
