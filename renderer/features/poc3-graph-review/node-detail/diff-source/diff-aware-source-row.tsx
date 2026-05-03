@@ -9,17 +9,28 @@ export function DiffAwareSourceRow({
   line,
   language,
   isHighlighted,
+  isSelected,
+  isSelectable,
   findingCount,
   remoteThreadCount,
+  onKeyDown,
 }: {
   line: DiffAwareSourceLine;
   language: string;
   isHighlighted: boolean;
+  isSelected: boolean;
+  isSelectable: boolean;
   findingCount: number;
   remoteThreadCount: number;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 }) {
-  const toneClass =
-    line.kind === 'added'
+  const toneClass = isSelected
+    ? line.kind === 'added'
+      ? 'bg-[#d8e071]/20 text-[#b6f0c2]'
+      : line.kind === 'removed'
+        ? 'bg-[#d8e071]/20 text-[#ffd7d5]'
+        : 'text-[#f6ffc0]'
+    : line.kind === 'added'
       ? 'bg-[#12261b] text-[#b6f0c2]'
       : line.kind === 'removed'
         ? 'bg-[#2f1721] text-[#ffd7d5]'
@@ -37,13 +48,23 @@ export function DiffAwareSourceRow({
 
   return (
     <div
-      className={`grid min-w-full grid-cols-[34px_34px_12px_auto] gap-x-1.5 rounded-[4px] px-1 ${toneClass}`}
+      className={`grid min-w-full grid-cols-[34px_34px_12px_auto] gap-x-1.5 rounded-[4px] px-1 ${toneClass} ${isSelectable ? 'focus:outline-none focus-visible:ring-1 focus-visible:ring-[#d8e071]/60' : ''}`}
+      tabIndex={isSelectable ? 0 : undefined}
       data-poc3-source-line="true"
       data-file-path={line.filePath}
       data-side={line.side ?? undefined}
       data-line={providerLineNumber ?? undefined}
       data-provider-selectable={line.selectableForProviderComment}
       data-agent-selectable={line.selectableForAgentMention}
+      onKeyDown={onKeyDown}
+      style={
+        isSelected
+          ? {
+              backgroundColor: 'rgba(216, 224, 113, 0.18)',
+              boxShadow: 'inset 3px 0 0 rgba(216, 224, 113, 0.62)',
+            }
+          : undefined
+      }
     >
       <span className="overflow-hidden text-right text-white/28">{line.oldLineNumber ?? ''}</span>
       <span className="overflow-hidden text-right text-white/28">{line.newLineNumber ?? ''}</span>

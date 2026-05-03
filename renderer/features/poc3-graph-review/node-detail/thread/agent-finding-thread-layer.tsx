@@ -146,7 +146,7 @@ function AgentFindingThreadCard({
                     href={publishedCommentUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex size-5 items-center justify-center rounded-[5px] border border-[#4EBE96]/20 text-[#d7f5e8]/70 transition hover:bg-[#4EBE96]/10 hover:text-[#d7f5e8]"
+                    className="flex size-5 items-center justify-center rounded-[5px] border border-[#4EBE96]/20 text-[#d7f5e8]/70 transition hover:bg-[#4EBE96]/10 hover:text-[#d7f5e8] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4EBE96]/35"
                     aria-label="Open published comment"
                   >
                     <ExternalLink className="size-3" aria-hidden="true" />

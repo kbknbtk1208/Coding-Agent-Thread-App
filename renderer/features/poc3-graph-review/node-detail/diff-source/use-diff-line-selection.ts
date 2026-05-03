@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import {
   normalizeDiffLineSelection,
   type DiffSelectionState,
@@ -23,7 +30,6 @@ import {
   buildManualSelectionSourceKey,
   selectionToAnchor,
 } from '../utils/manual-selection-source-key';
-import { escapeCssIdentifier } from '../utils/format';
 import { extractPoc3SourceLineInfoFromPoint } from '../utils/source-line-info';
 import { buildEffectiveSource } from './build-effective-source';
 import { resolveHighlightLanguage } from './highlighted-source-line';
@@ -44,17 +50,18 @@ export interface UseDiffLineSelectionReturn {
   highlighted: Set<number>;
   effectiveFilePath: string;
   selectionState: DiffSelectionState;
+  activeSelection: Poc3DiffLineSelection | null;
   composerSelection: Poc3DiffLineSelection | null;
   composerSourceKey: string | null;
   composerError: string;
   isComposerInFlight: boolean;
-  selectionHighlightStyle: string;
   canExpandUp: boolean;
   canExpandDown: boolean;
   handlePointerDown(event: PointerEvent<HTMLDivElement>): void;
   handlePointerMove(event: PointerEvent<HTMLDivElement>): void;
   handlePointerUp(event: PointerEvent<HTMLDivElement>): void;
   handlePointerCancel(): void;
+  handleRowKeyDown(event: ReactKeyboardEvent<HTMLDivElement>, line: DiffAwareSourceLine): void;
   closeComposer(): void;
   submitInlineComment(body: string): void;
   expandRange(direction: 'up' | 'down'): void;
@@ -81,6 +88,11 @@ export function useDiffLineSelection({
   const [selectionKeySeed, setSelectionKeySeed] = useState(0);
   const [submittedSourceKey, setSubmittedSourceKey] = useState<string | null>(null);
   const dragAnchorRef = useRef<{ side: 'LEFT' | 'RIGHT'; line: number } | null>(null);
+  const keyboardSelectionAnchorRef = useRef<{
+    side: 'LEFT' | 'RIGHT';
+    line: number;
+    filePath: string;
+  } | null>(null);
 
   const functionCode = detail.functionCode;
 
@@ -151,6 +163,7 @@ export function useDiffLineSelection({
     setSelectionState({ status: 'idle' });
     setSubmittedSourceKey(null);
     dragAnchorRef.current = null;
+    keyboardSelectionAnchorRef.current = null;
   }, [detail.nodeId, viewMode]);
 
   useEffect(() => {
@@ -164,21 +177,160 @@ export function useDiffLineSelection({
     }
   }, [functionCode?.startLine, viewMode]);
 
-  const selectionHighlightStyle = useMemo(() => {
-    if (!activeSelection) return '';
-    const startLine = Math.min(activeSelection.startLine, activeSelection.endLine);
-    const endLine = Math.max(activeSelection.startLine, activeSelection.endLine);
-    const selectors: string[] = [];
-    const escapedPath = escapeCssIdentifier(activeSelection.filePath);
-    const scope = `[data-poc3-source-file-path="${escapedPath}"]`;
-    for (let line = startLine; line <= endLine; line++) {
-      selectors.push(
-        `${scope} [data-poc3-source-line="true"][data-side="${activeSelection.side}"][data-line="${line}"]`,
-      );
+  const getRowElement = (targetLine: DiffAwareSourceLine): HTMLElement | null => {
+    if (!scrollContainerRef.current) return null;
+    const targetSide = targetLine.side;
+    const targetProviderLine =
+      targetSide === 'LEFT' ? targetLine.oldLineNumber : targetLine.newLineNumber;
+    if (targetSide === null || targetProviderLine === null) return null;
+    return scrollContainerRef.current.querySelector<HTMLElement>(
+      `[data-poc3-source-line="true"][data-side="${targetSide}"][data-line="${targetProviderLine}"]`,
+    );
+  };
+
+  const handleRowKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    line: DiffAwareSourceLine,
+  ) => {
+    if (!line.selectableForProviderComment) return;
+    const side = line.side;
+    if (side === null) return;
+    const providerLine = side === 'LEFT' ? line.oldLineNumber : line.newLineNumber;
+    if (providerLine === null) return;
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (selectionState.status === 'idle') {
+        if (composerSourceKey && composerError && publishComments) {
+          publishComments.clearError(composerSourceKey);
+        }
+        setSelectionKeySeed((c) => c + 1);
+        setSubmittedSourceKey(null);
+        keyboardSelectionAnchorRef.current = { side, line: providerLine, filePath: line.filePath };
+        setSelectionState({
+          status: 'selecting',
+          selection: {
+            filePath: line.filePath,
+            oldPath: null,
+            side,
+            startLine: providerLine,
+            endLine: providerLine,
+          },
+        });
+      } else if (selectionState.status === 'selecting') {
+        const anchor = keyboardSelectionAnchorRef.current;
+        const selection = normalizeDiffLineSelection({
+          filePath: anchor?.filePath ?? line.filePath,
+          oldPath: null,
+          side: anchor?.side ?? side,
+          startLine: anchor?.line ?? providerLine,
+          endLine: providerLine,
+        });
+        if (isContiguousProviderSelection(lines, selection)) {
+          setSelectionState({ status: 'composing', selection, actionKind: 'publish-comment' });
+          keyboardSelectionAnchorRef.current = null;
+        }
+      }
+      return;
     }
-    if (selectors.length === 0) return '';
-    return `${selectors.join(',\n')} { background-color: rgba(216, 224, 113, 0.18) !important; box-shadow: inset 3px 0 0 rgba(216, 224, 113, 0.62); }`;
-  }, [activeSelection]);
+
+    if (event.key === 'ArrowDown' && event.shiftKey) {
+      event.preventDefault();
+      const currentIndex = lines.indexOf(line);
+      const nextLine = lines
+        .slice(currentIndex + 1)
+        .find((l) => l.selectableForProviderComment && l.side === side);
+      if (!nextLine) return;
+      const nextProviderLine =
+        nextLine.side === 'LEFT' ? nextLine.oldLineNumber : nextLine.newLineNumber;
+      if (nextProviderLine === null) return;
+      if (selectionState.status === 'idle') {
+        if (composerSourceKey && composerError && publishComments) {
+          publishComments.clearError(composerSourceKey);
+        }
+        setSelectionKeySeed((c) => c + 1);
+        setSubmittedSourceKey(null);
+        keyboardSelectionAnchorRef.current = { side, line: providerLine, filePath: line.filePath };
+        setSelectionState({
+          status: 'selecting',
+          selection: normalizeDiffLineSelection({
+            filePath: line.filePath,
+            oldPath: null,
+            side,
+            startLine: providerLine,
+            endLine: nextProviderLine,
+          }),
+        });
+      } else if (selectionState.status === 'selecting') {
+        const anchor = keyboardSelectionAnchorRef.current;
+        if (!anchor) return;
+        setSelectionState({
+          status: 'selecting',
+          selection: normalizeDiffLineSelection({
+            filePath: anchor.filePath,
+            oldPath: null,
+            side: anchor.side,
+            startLine: anchor.line,
+            endLine: nextProviderLine,
+          }),
+        });
+      }
+      getRowElement(nextLine)?.focus();
+      return;
+    }
+
+    if (event.key === 'ArrowUp' && event.shiftKey) {
+      event.preventDefault();
+      const currentIndex = lines.indexOf(line);
+      const prevLine = lines
+        .slice(0, currentIndex)
+        .reverse()
+        .find((l) => l.selectableForProviderComment && l.side === side);
+      if (!prevLine) return;
+      const prevProviderLine =
+        prevLine.side === 'LEFT' ? prevLine.oldLineNumber : prevLine.newLineNumber;
+      if (prevProviderLine === null) return;
+      if (selectionState.status === 'idle') {
+        if (composerSourceKey && composerError && publishComments) {
+          publishComments.clearError(composerSourceKey);
+        }
+        setSelectionKeySeed((c) => c + 1);
+        setSubmittedSourceKey(null);
+        keyboardSelectionAnchorRef.current = { side, line: providerLine, filePath: line.filePath };
+        setSelectionState({
+          status: 'selecting',
+          selection: normalizeDiffLineSelection({
+            filePath: line.filePath,
+            oldPath: null,
+            side,
+            startLine: prevProviderLine,
+            endLine: providerLine,
+          }),
+        });
+      } else if (selectionState.status === 'selecting') {
+        const anchor = keyboardSelectionAnchorRef.current;
+        if (!anchor) return;
+        setSelectionState({
+          status: 'selecting',
+          selection: normalizeDiffLineSelection({
+            filePath: anchor.filePath,
+            oldPath: null,
+            side: anchor.side,
+            startLine: prevProviderLine,
+            endLine: anchor.line,
+          }),
+        });
+      }
+      getRowElement(prevLine)?.focus();
+      return;
+    }
+
+    if (event.key === 'Escape' && selectionState.status === 'selecting') {
+      event.stopPropagation();
+      keyboardSelectionAnchorRef.current = null;
+      setSelectionState({ status: 'idle' });
+    }
+  };
 
   useEffect(() => {
     if (!publishedManualSelection || submittedSourceKey !== composerSourceKey) return;
@@ -332,17 +484,18 @@ export function useDiffLineSelection({
     highlighted,
     effectiveFilePath,
     selectionState,
+    activeSelection,
     composerSelection,
     composerSourceKey,
     composerError,
     isComposerInFlight,
-    selectionHighlightStyle,
     canExpandUp,
     canExpandDown,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
+    handleRowKeyDown,
     closeComposer,
     submitInlineComment,
     expandRange,
