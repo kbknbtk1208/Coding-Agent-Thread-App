@@ -112,3 +112,7 @@ export function isLineInActiveSelection(
     providerLineNumber <= activeSelection.endLine
   );
 }
+
+export function hasOverviewFindings(findings: NodeDetailSnapshot['findings']): boolean {
+  return findings.some((finding) => finding.line === null);
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DiffAwareSourceLine } from '../diff-aware-source-model';
-import { buildDiffSourceVirtualItems } from './diff-source-virtual-items';
+import { buildDiffSourceVirtualItems, hasOverviewFindings } from './diff-source-virtual-items';
 
 describe('buildDiffSourceVirtualItems', () => {
   const lines: DiffAwareSourceLine[] = [
@@ -56,6 +56,24 @@ describe('buildDiffSourceVirtualItems', () => {
     expect(model.firstNewLineItemIndexByLineNumber.get(20)).toBe(2);
     expect(model.firstNewLineItemIndexByLineNumber.get(21)).toBe(3);
     expect(model.firstNewLineItemIndexByLineNumber.has(10)).toBe(false);
+  });
+});
+
+describe('hasOverviewFindings', () => {
+  it('ignores line-scoped findings', () => {
+    expect(
+      hasOverviewFindings([{ findingId: 'line-finding', line: 42 }] as Parameters<
+        typeof hasOverviewFindings
+      >[0]),
+    ).toBe(false);
+  });
+
+  it('detects overview findings without a line anchor', () => {
+    expect(
+      hasOverviewFindings([{ findingId: 'overview-finding', line: null }] as Parameters<
+        typeof hasOverviewFindings
+      >[0]),
+    ).toBe(true);
   });
 });
 

@@ -14,7 +14,11 @@ import {
 } from '../utils/aware-line-lookup';
 import type { RemoteCommentReplyProps } from '../thread/remote-thread-layer';
 import type { AgentFindingPublishProps } from '../thread/agent-finding-thread-layer';
-import { buildDiffSourceVirtualItems, buildLineMetaByKey } from './diff-source-virtual-items';
+import {
+  buildDiffSourceVirtualItems,
+  buildLineMetaByKey,
+  hasOverviewFindings,
+} from './diff-source-virtual-items';
 import { useDiffLineSelection } from './use-diff-line-selection';
 import { VirtualDiffSourceList } from './virtual-diff-source-list';
 
@@ -49,6 +53,7 @@ export function DiffAwareSourceSection({
     activeSelectableLine,
     composerSelection,
     composerSourceKey,
+    composerDraft,
     composerError,
     isComposerInFlight,
     canExpandUp,
@@ -60,6 +65,7 @@ export function DiffAwareSourceSection({
     handleRowFocus,
     handleRowKeyDown,
     closeComposer,
+    setComposerDraft,
     submitInlineComment,
     expandRange,
     registerVirtualScroller,
@@ -82,15 +88,19 @@ export function DiffAwareSourceSection({
     () => groupRemoteThreadsByAwareLine(detail.threads.remote),
     [detail.threads.remote],
   );
+  const includeOverviewFindings = useMemo(
+    () => hasOverviewFindings(detail.findings),
+    [detail.findings],
+  );
   const virtualItemsModel = useMemo(
     () =>
       buildDiffSourceVirtualItems({
         lines,
         canExpandUp,
         canExpandDown,
-        includeOverviewFindings: detail.findings.length > 0,
+        includeOverviewFindings,
       }),
-    [canExpandDown, canExpandUp, detail.findings.length, lines],
+    [canExpandDown, canExpandUp, includeOverviewFindings, lines],
   );
   const lineMetaByKey = useMemo(
     () => buildLineMetaByKey({ lines, findingsByLine, remoteByLine }),
@@ -134,6 +144,7 @@ export function DiffAwareSourceSection({
       onRowFocus: handleRowFocus,
       onRowKeyDown: handleRowKeyDown,
       onCloseComposer: closeComposer,
+      onComposerDraftChange: setComposerDraft,
       onSubmitInlineComment: submitInlineComment,
       registerVirtualScroller,
     }),
@@ -143,6 +154,7 @@ export function DiffAwareSourceSection({
       handleRowFocus,
       handleRowKeyDown,
       registerVirtualScroller,
+      setComposerDraft,
       submitInlineComment,
     ],
   );
@@ -172,6 +184,7 @@ export function DiffAwareSourceSection({
               activeSelectableLine={activeSelectableLine}
               composerSelection={composerSelection}
               composerSourceKey={composerSourceKey}
+              composerDraft={composerDraft}
               composerError={composerError}
               isComposerInFlight={isComposerInFlight}
               language={language}

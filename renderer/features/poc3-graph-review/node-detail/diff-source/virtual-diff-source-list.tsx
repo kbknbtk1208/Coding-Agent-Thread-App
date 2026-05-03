@@ -28,6 +28,7 @@ export interface DiffSourceListHandlers {
   onRowFocus(line: DiffAwareSourceLine): void;
   onRowKeyDown(event: React.KeyboardEvent<HTMLDivElement>, line: DiffAwareSourceLine): void;
   onCloseComposer(): void;
+  onComposerDraftChange(body: string): void;
   onSubmitInlineComment(body: string): void;
   registerVirtualScroller(scroller: DiffLineVirtualScroller | null): void;
 }
@@ -41,6 +42,7 @@ export interface VirtualDiffSourceListProps {
   activeSelectableLine: DiffAwareSourceLine | null;
   composerSelection: Poc3DiffLineSelection | null;
   composerSourceKey: string | null;
+  composerDraft: string;
   composerError: string;
   isComposerInFlight: boolean;
   language: string;
@@ -60,6 +62,7 @@ export function VirtualDiffSourceList({
   activeSelectableLine,
   composerSelection,
   composerSourceKey,
+  composerDraft,
   composerError,
   isComposerInFlight,
   language,
@@ -140,6 +143,7 @@ export function VirtualDiffSourceList({
               activeSelectableLine,
               composerSelection,
               composerSourceKey,
+              composerDraft,
               composerError,
               isComposerInFlight,
               language,
@@ -162,6 +166,7 @@ function renderVirtualItem({
   activeSelectableLine,
   composerSelection,
   composerSourceKey,
+  composerDraft,
   composerError,
   isComposerInFlight,
   language,
@@ -223,8 +228,10 @@ function renderVirtualItem({
       composerSourceKey ? (
         <DiffInlineCommentComposer
           selection={composerSelection}
+          body={composerDraft}
           inFlight={isComposerInFlight}
           errorMessage={composerError || null}
+          onBodyChange={handlers.onComposerDraftChange}
           onClose={handlers.onCloseComposer}
           onSubmit={handlers.onSubmitInlineComment}
         />

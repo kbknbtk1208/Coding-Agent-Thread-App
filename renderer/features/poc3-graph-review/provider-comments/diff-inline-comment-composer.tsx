@@ -6,20 +6,23 @@ import type { Poc3DiffLineSelection } from './diff-inline-selection';
 
 interface DiffInlineCommentComposerProps {
   selection: Poc3DiffLineSelection;
+  body: string;
   inFlight: boolean;
   errorMessage: string | null;
+  onBodyChange(body: string): void;
   onSubmit(body: string): void;
   onClose(): void;
 }
 
 export function DiffInlineCommentComposer({
   selection,
+  body,
   inFlight,
   errorMessage,
+  onBodyChange,
   onSubmit,
   onClose,
 }: DiffInlineCommentComposerProps) {
-  const [body, setBody] = useState('');
   const [composing, setComposing] = useState(false);
   const disabled = inFlight || body.trim().length === 0;
   const lineLabel =
@@ -66,13 +69,13 @@ export function DiffInlineCommentComposer({
           disabled={inFlight}
           className="min-h-[46px] flex-1 resize-none rounded-[8px] border border-white/[0.1] bg-black/25 px-3 py-2 text-[12px] leading-5 text-white outline-none transition placeholder:text-white/28 focus:border-[#d8e071]/45 focus:bg-black/35 disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="コメントを入力"
-          onChange={(event) => setBody(event.currentTarget.value)}
+          onChange={(event) => onBodyChange(event.currentTarget.value)}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={(event) => {
             setComposing(false);
-            setBody(event.currentTarget.value);
+            onBodyChange(event.currentTarget.value);
           }}
-          onBlur={(event) => setBody(event.currentTarget.value)}
+          onBlur={(event) => onBodyChange(event.currentTarget.value)}
         />
         <button
           type="submit"
