@@ -1,8 +1,15 @@
 'use client';
 
 import React from 'react';
-import { motion, useMotionValue, animate } from 'motion/react';
+import { motion, useMotionValue, animate, useReducedMotion } from 'motion/react';
 import type { RevisionCommitView } from '../../../../shared/poc3-domain/revision-commit';
+import {
+  POC3_MOTION_DELAY,
+  POC3_MOTION_DURATION,
+  POC3_MOTION_EASE,
+  getMotionStaggerDelay,
+  resolveMotionDuration,
+} from '../components/motion-timing';
 
 const CURVE_RADIUS = 10;
 const CURVE_RATIO = 0.46;
@@ -84,16 +91,22 @@ function buildPath(nodes: TimelineNode[]): string {
   return path;
 }
 
-function DotIndicator({ isActive }: { isActive: boolean }) {
+function DotIndicator({ isActive, reducedMotion }: { isActive: boolean; reducedMotion: boolean }) {
   if (isActive) {
     return (
       <div className="relative flex items-center justify-center z-10 size-2.5">
-        <motion.div
-          className="absolute rounded-full bg-rose-400/60 z-10"
-          initial={{ width: 14, height: 14, opacity: 0.6 }}
-          animate={{ width: 18, height: 18, opacity: 0 }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
-        />
+        {!reducedMotion ? (
+          <motion.div
+            className="absolute rounded-full bg-rose-400/60 z-10"
+            initial={{ width: 14, height: 14, opacity: 0.6 }}
+            animate={{ width: 18, height: 18, opacity: 0 }}
+            transition={{
+              duration: POC3_MOTION_DURATION.pulse,
+              repeat: Infinity,
+              ease: POC3_MOTION_EASE.easeOut,
+            }}
+          />
+        ) : null}
         <motion.div
           className="rounded-full bg-rose-500 ring-2 ring-white/10 size-2.5"
           initial={{ scale: 0.4 }}
@@ -117,14 +130,10 @@ interface CommitTimelineSVGProps {
 }
 
 function CommitTimelineSVG({ nodes, activeIndex, containerHeight }: CommitTimelineSVGProps) {
-  const [pathD, setPathD] = React.useState('');
   const stop1Ref = React.useRef<SVGStopElement>(null);
   const stop2Ref = React.useRef<SVGStopElement>(null);
   const progress = useMotionValue(0);
-
-  React.useEffect(() => {
-    setPathD(buildPath(nodes));
-  }, [nodes]);
+  const pathD = React.useMemo(() => buildPath(nodes), [nodes]);
 
   React.useEffect(() => {
     if (nodes.length < 2) return;
@@ -137,7 +146,10 @@ function CommitTimelineSVG({ nodes, activeIndex, containerHeight }: CommitTimeli
     const span = lastNode.y - firstY;
     if (span === 0) return;
     const ratio = (activeY - firstY) / span;
-    animate(progress, ratio, { duration: 0.2, ease: 'easeOut' });
+    animate(progress, ratio, {
+      duration: POC3_MOTION_DURATION.fast,
+      ease: POC3_MOTION_EASE.easeOut,
+    });
   }, [activeIndex, nodes, progress]);
 
   React.useEffect(
@@ -250,9 +262,17 @@ interface CommitRowProps {
   isActive: boolean;
   onSelectRevision(revisionId: string): void;
   registerDot(index: number, el: HTMLElement | null): void;
+  reducedMotion: boolean;
 }
 
-function CommitRow({ commit, flatIndex, isActive, onSelectRevision, registerDot }: CommitRowProps) {
+function CommitRow({
+  commit,
+  flatIndex,
+  isActive,
+  onSelectRevision,
+  registerDot,
+  reducedMotion,
+}: CommitRowProps) {
   const disabled = !commit.revisionId;
   return (
     <motion.button
@@ -263,7 +283,16 @@ function CommitRow({ commit, flatIndex, isActive, onSelectRevision, registerDot 
       }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.2, delay: flatIndex * 0.02 }}
+      transition={{
+        duration: resolveMotionDuration(POC3_MOTION_DURATION.fast, reducedMotion),
+        delay: getMotionStaggerDelay(
+          flatIndex,
+          POC3_MOTION_DELAY.commitRowStep,
+          0,
+          POC3_MOTION_DELAY.commitItemMax,
+          reducedMotion,
+        ),
+      }}
       className={`group relative flex w-full items-center rounded-md py-2.5 pr-3 text-left transition-colors duration-200 ${
         disabled ? 'cursor-default' : 'cursor-pointer hover:bg-white/[0.04]'
       } ${isActive ? 'bg-white/[0.06]' : ''}`}
@@ -278,7 +307,7 @@ function CommitRow({ commit, flatIndex, isActive, onSelectRevision, registerDot 
           ref={(el) => registerDot(flatIndex, el)}
           style={{ transform: 'translate(-50%, -50%)' }}
         >
-          <DotIndicator isActive={isActive} />
+          <DotIndicator isActive={isActive} reducedMotion={reducedMotion} />
         </div>
       </div>
       <span className="min-w-0 flex-1">
@@ -317,6 +346,7 @@ interface CommitGroupSectionProps {
   itemStartIndex: number;
   onSelectRevision(revisionId: string): void;
   registerDot(index: number, el: HTMLElement | null): void;
+  reducedMotion: boolean;
 }
 
 function CommitGroupSection({
@@ -325,12 +355,22 @@ function CommitGroupSection({
   itemStartIndex,
   onSelectRevision,
   registerDot,
+  reducedMotion,
 }: CommitGroupSectionProps) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.3, delay: groupFlatIndex * 0.03 }}
+      transition={{
+        duration: resolveMotionDuration(POC3_MOTION_DURATION.commitGroup, reducedMotion),
+        delay: getMotionStaggerDelay(
+          groupFlatIndex,
+          POC3_MOTION_DELAY.commitGroupStep,
+          0,
+          POC3_MOTION_DELAY.commitItemMax,
+          reducedMotion,
+        ),
+      }}
       className="mb-1"
     >
       <div className="relative flex items-center py-2">
@@ -339,7 +379,7 @@ function CommitGroupSection({
             className="flex items-center justify-center -translate-x-1/2 -translate-y-1/2"
             ref={(el) => registerDot(groupFlatIndex, el)}
           >
-            <DotIndicator isActive={false} />
+            <DotIndicator isActive={false} reducedMotion={reducedMotion} />
           </div>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-white/38">
@@ -357,6 +397,7 @@ function CommitGroupSection({
               isActive={isActive}
               onSelectRevision={onSelectRevision}
               registerDot={registerDot}
+              reducedMotion={reducedMotion}
             />
           );
         })}
@@ -371,6 +412,8 @@ interface CommitGraphProps {
 }
 
 export function CommitGraph({ commits, onSelectRevision }: CommitGraphProps) {
+  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = shouldReduceMotion === true;
   const [nodes, setNodes] = React.useState<TimelineNode[]>([]);
   const [containerHeight, setContainerHeight] = React.useState(0);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -420,10 +463,10 @@ export function CommitGraph({ commits, onSelectRevision }: CommitGraphProps) {
   }, [groups]);
 
   React.useEffect(() => {
-    const id = setTimeout(measureNodes, 200);
+    const frameId = window.requestAnimationFrame(measureNodes);
     window.addEventListener('resize', measureNodes);
     return () => {
-      clearTimeout(id);
+      window.cancelAnimationFrame(frameId);
       window.removeEventListener('resize', measureNodes);
     };
   }, [measureNodes]);
@@ -469,6 +512,7 @@ export function CommitGraph({ commits, onSelectRevision }: CommitGraphProps) {
               itemStartIndex={iStart}
               onSelectRevision={onSelectRevision}
               registerDot={registerDot}
+              reducedMotion={reducedMotion}
             />
           );
         })}

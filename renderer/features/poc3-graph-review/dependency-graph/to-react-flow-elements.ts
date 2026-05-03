@@ -17,16 +17,31 @@ export interface Poc3FlowEdgeData extends Record<string, unknown> {
 export type Poc3FlowNode = Node<Poc3FlowNodeData>;
 export type Poc3FlowEdge = Edge<Poc3FlowEdgeData>;
 
-export function toReactFlowElements(snapshot: GraphRenderSnapshot): {
+export interface ToReactFlowElementsOptions {
+  selectedNodeId?: string | null;
+  highlightedFilePath?: string | null;
+}
+
+export function toReactFlowElements(
+  snapshot: GraphRenderSnapshot,
+  options: ToReactFlowElementsOptions = {},
+): {
   nodes: Poc3FlowNode[];
   edges: Poc3FlowEdge[];
 } {
+  const selectedNodeId = options.selectedNodeId ?? null;
+  const highlightedFilePath = options.highlightedFilePath ?? null;
+
   return {
     nodes: snapshot.nodes.map((node) => ({
       id: node.nodeId,
       type: 'poc3GraphNode',
       position: node.position,
-      data: { graphNode: node, isFileHighlighted: false },
+      selected: node.nodeId === selectedNodeId,
+      data: {
+        graphNode: node,
+        isFileHighlighted: highlightedFilePath != null && node.filePath === highlightedFilePath,
+      },
       style: {
         width: node.size.width,
         height: node.size.height,

@@ -1,6 +1,6 @@
 'use client';
 
-import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
+import { AnimatePresence, motion, MotionConfig, useReducedMotion } from 'framer-motion';
 import {
   ChevronDown,
   GitPullRequest,
@@ -15,6 +15,14 @@ import type {
   RemoveReviewWorkspaceInput,
   RemoveReviewWorkspaceResult,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import {
+  POC3_LAYOUT_TRANSITION,
+  POC3_MOTION_DELAY,
+  POC3_MOTION_DURATION,
+  POC3_MOTION_EASE,
+  getMotionStaggerDelay,
+  resolveMotionDuration,
+} from '../components/motion-timing';
 import type { ReviewWorkspaceListItem } from './use-review-workspaces';
 
 interface WorkspaceListCardProps {
@@ -52,7 +60,6 @@ function isSelectableWorkspace(workspace: ReviewWorkspaceListItem): boolean {
 }
 
 const COLLAPSED_VISIBLE_COUNT = 3;
-const ACTIVITY_ITEM_EASE = [0.4, 0, 0.2, 1] as const;
 
 export function WorkspaceListCard({
   selectedWorkspace,
@@ -151,7 +158,7 @@ export function WorkspaceListCard({
   };
 
   return (
-    <MotionConfig transition={{ type: 'spring', bounce: 0, duration: 0.5 }}>
+    <MotionConfig transition={POC3_LAYOUT_TRANSITION}>
       <motion.div
         layout
         ref={menuRootRef}
@@ -227,9 +234,12 @@ export function WorkspaceListCard({
               animate={{ opacity: 1, height: 'auto', filter: 'blur(0px)', y: 0, scale: 1 }}
               exit={{ opacity: 0, height: 0, filter: 'blur(18px)', y: -8, scale: 0.99 }}
               transition={{
-                duration: 0.5,
-                ease: ACTIVITY_ITEM_EASE,
-                height: { duration: 0.5, ease: ACTIVITY_ITEM_EASE },
+                duration: POC3_MOTION_DURATION.workspacePanel,
+                ease: POC3_MOTION_EASE.standard,
+                height: {
+                  duration: POC3_MOTION_DURATION.workspacePanel,
+                  ease: POC3_MOTION_EASE.standard,
+                },
               }}
               id={listId}
               className={`origin-top border-t border-white/[0.06] ${
@@ -323,6 +333,8 @@ function WorkspaceListItem({
   onRemoveWorkspace: () => void;
 }) {
   const reviewSummary = useMemo(() => formatReviewSummary(workspace), [workspace]);
+  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = shouldReduceMotion === true;
   const badge = statusBadgeFor(workspace);
   const selectable = isSelectableWorkspace(workspace);
   const selectDisabled = disabled || !selectable;
@@ -335,17 +347,23 @@ function WorkspaceListItem({
         opacity: 1,
         y: 0,
         transition: {
-          delay: index * 0.075,
-          duration: 0.5,
-          ease: ACTIVITY_ITEM_EASE,
+          delay: getMotionStaggerDelay(
+            index,
+            POC3_MOTION_DELAY.workspaceItemStep,
+            0,
+            POC3_MOTION_DELAY.workspaceItemMax,
+            reducedMotion,
+          ),
+          duration: resolveMotionDuration(POC3_MOTION_DURATION.workspacePanel, reducedMotion, 0.08),
+          ease: POC3_MOTION_EASE.standard,
         },
       }}
       exit={{
         opacity: 0,
         y: 16,
         transition: {
-          duration: 0.18,
-          ease: ACTIVITY_ITEM_EASE,
+          duration: POC3_MOTION_DURATION.overlay,
+          ease: POC3_MOTION_EASE.standard,
         },
       }}
       className={`relative flex w-full min-w-0 items-center gap-1 rounded-[5px] transition-colors ${
@@ -431,7 +449,10 @@ function WorkspaceActionMenu({
             initial={{ opacity: 0, x: -4, scale: 0.98 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -4, scale: 0.98 }}
-            transition={{ duration: 0.16, ease: ACTIVITY_ITEM_EASE }}
+            transition={{
+              duration: POC3_MOTION_DURATION.menu,
+              ease: POC3_MOTION_EASE.standard,
+            }}
             className="absolute left-full top-0 z-30 ml-2 w-28 rounded-[6px] border border-white/[0.1] bg-[#191919]/95 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.38)] backdrop-blur-[18px]"
           >
             <button
@@ -473,7 +494,10 @@ export function ForceRemoveDialog({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18, ease: ACTIVITY_ITEM_EASE }}
+          transition={{
+            duration: POC3_MOTION_DURATION.overlay,
+            ease: POC3_MOTION_EASE.standard,
+          }}
         >
           <div className="absolute inset-0 bg-black/32 backdrop-blur-[6px]" />
           <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
@@ -484,7 +508,10 @@ export function ForceRemoveDialog({
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.98 }}
-              transition={{ duration: 0.2, ease: ACTIVITY_ITEM_EASE }}
+              transition={{
+                duration: POC3_MOTION_DURATION.fast,
+                ease: POC3_MOTION_EASE.standard,
+              }}
               className="w-[min(92vw,440px)] rounded-[8px] border border-white/[0.12] bg-[#171717]/92 p-4 text-white shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-[18px]"
             >
               <div className="flex items-start justify-between gap-3">
@@ -559,7 +586,10 @@ export function PurgeDbOnlyDialog({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18, ease: ACTIVITY_ITEM_EASE }}
+          transition={{
+            duration: POC3_MOTION_DURATION.overlay,
+            ease: POC3_MOTION_EASE.standard,
+          }}
         >
           <div className="absolute inset-0 bg-black/32 backdrop-blur-[6px]" />
           <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
@@ -570,7 +600,10 @@ export function PurgeDbOnlyDialog({
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.98 }}
-              transition={{ duration: 0.2, ease: ACTIVITY_ITEM_EASE }}
+              transition={{
+                duration: POC3_MOTION_DURATION.fast,
+                ease: POC3_MOTION_EASE.standard,
+              }}
               className="w-[min(92vw,460px)] rounded-[8px] border border-white/[0.12] bg-[#171717]/92 p-4 text-white shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-[18px]"
             >
               <div className="flex items-start justify-between gap-3">

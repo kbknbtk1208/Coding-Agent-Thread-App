@@ -2,11 +2,11 @@
 
 import { ChevronDown, ExternalLink, MessageSquareText } from 'lucide-react';
 import { useId, useState } from 'react';
-import { Streamdown } from 'streamdown';
 import type { NodeDetailSnapshot } from '../../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-domain/comment-publish';
 import { RemoteThreadReplyComposer } from '../../provider-comments/remote-thread-reply-composer';
 import { formatShortDate } from '../utils/format';
+import { MarkdownBody } from './markdown-body';
 
 export interface RemoteCommentReplyProps {
   detail: NodeDetailSnapshot;
@@ -130,7 +130,7 @@ function RemoteCommentThreadCard({
                     <span>{formatShortDate(comment.createdAt)}</span>
                   </div>
                   <div className="poc3-remote-comment-body text-[11px] leading-5 text-white/70">
-                    <Streamdown>{comment.body}</Streamdown>
+                    <MarkdownBody variant="compact">{comment.body}</MarkdownBody>
                   </div>
                 </div>
               ))}

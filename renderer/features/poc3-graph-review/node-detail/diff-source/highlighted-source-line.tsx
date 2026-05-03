@@ -1,7 +1,8 @@
 'use client';
 
-import { highlighter as diffHighlighter, type SyntaxNode } from '@git-diff-view/lowlight';
+import type { SyntaxNode } from '@git-diff-view/lowlight';
 import { memo, useMemo } from 'react';
+import { getCachedSyntaxLine } from './syntax-line-cache';
 
 export function resolveHighlightLanguage(filePath: string): string {
   const normalized = filePath.toLowerCase();
@@ -95,19 +96,6 @@ export function resolveHighlightLanguage(filePath: string): string {
   return 'plaintext';
 }
 
-function buildSyntaxLine(text: string, filePath: string, language: string) {
-  if (text.length === 0) {
-    return null;
-  }
-
-  try {
-    const ast = diffHighlighter.getAST(text, filePath, language, 'dark');
-    return diffHighlighter.processAST(ast).syntaxFileObject[1] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function renderSyntaxEntry(node: SyntaxNode, key: string, wrapper?: SyntaxNode) {
   const content = renderSyntaxNode(node, `${key}:node`);
   if (!wrapper) {
@@ -155,7 +143,7 @@ export const HighlightedSourceLine = memo(function HighlightedSourceLine({
   language: string;
 }) {
   const syntaxLine = useMemo(
-    () => buildSyntaxLine(text, filePath, language),
+    () => getCachedSyntaxLine({ text, filePath, language }),
     [filePath, language, text],
   );
 

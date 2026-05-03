@@ -1,6 +1,6 @@
 'use client';
 
-import { AnimatePresence, motion, type Variants } from 'framer-motion';
+import { AnimatePresence, motion, type Variants, useReducedMotion } from 'framer-motion';
 import { ChevronDown, FolderOpen, Pencil, Plus, Save, TestTube2, X } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
@@ -10,25 +10,46 @@ import type {
   RepositoryProviderKind,
   ResolveRepositoryProviderResult,
 } from '../../../../shared/poc3-domain/repository';
+import {
+  POC3_MOTION_DELAY,
+  POC3_MOTION_DURATION,
+  POC3_MOTION_EASE,
+  POC3_MOTION_TIMEOUT_MS,
+  getMotionStaggerDelay,
+  resolveMotionDuration,
+} from '../components/motion-timing';
 import { ProviderKindPicker } from './provider-kind-picker';
 
 const SETTINGS_LAYOUT_ID = 'poc3-repository-settings-surface';
-const DIALOG_BLUR_EXIT_MS = 360;
 const FEY_GLASS_CARD_CLASS =
   'rounded-2xl border border-white/[0.08] bg-[#131313]/85 shadow-[0_0_44px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.14),inset_0_-26px_46px_rgba(0,0,0,0.34)] backdrop-blur-[6px]';
-const LIST_ITEM_EASE = [0.4, 0, 0.2, 1] as const;
-const LIST_ITEM_ENTRY_DELAY = 0.33;
 const LIST_ITEM_MOTION_VARIANTS: Variants = {
   hidden: { opacity: 0, x: -18 },
-  visible: (index: unknown) => ({
-    opacity: 1,
-    x: 0,
-    transition: {
-      duration: 0.28,
-      ease: LIST_ITEM_EASE,
-      delay: LIST_ITEM_ENTRY_DELAY + (typeof index === 'number' ? index : 0) * 0.04,
-    },
-  }),
+  visible: (custom: unknown) => {
+    const index =
+      typeof custom === 'object' && custom != null && 'index' in custom
+        ? (custom.index as unknown)
+        : custom;
+    const reducedMotion =
+      typeof custom === 'object' && custom != null && 'reducedMotion' in custom
+        ? custom.reducedMotion === true
+        : false;
+    return {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: resolveMotionDuration(POC3_MOTION_DURATION.listItem, reducedMotion, 0.08),
+        ease: POC3_MOTION_EASE.standard,
+        delay: getMotionStaggerDelay(
+          index,
+          POC3_MOTION_DELAY.repositoryListStep,
+          POC3_MOTION_DELAY.repositoryListBase,
+          POC3_MOTION_DELAY.repositoryListMax,
+          reducedMotion,
+        ),
+      },
+    };
+  },
 };
 
 interface RepositorySettingsDialogProps {
@@ -289,7 +310,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
     const timerId = window.setTimeout(() => {
       setRendered(false);
       setClosing(false);
-    }, DIALOG_BLUR_EXIT_MS);
+    }, POC3_MOTION_TIMEOUT_MS.dialogBlurExit);
     return () => window.clearTimeout(timerId);
   }, [open, rendered]);
 
@@ -559,7 +580,10 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
           className="fixed inset-0 z-[60]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+          transition={{
+            duration: POC3_MOTION_DURATION.fast,
+            ease: POC3_MOTION_EASE.standard,
+          }}
         >
           <motion.div
             className="absolute inset-0 bg-black/24 backdrop-blur-[6px]"
@@ -569,7 +593,10 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                 ? { opacity: 0, backdropFilter: 'blur(10px)' }
                 : { opacity: 1, backdropFilter: 'blur(6px)' }
             }
-            transition={{ duration: 0.34, ease: [0.4, 0, 0.2, 1] }}
+            transition={{
+              duration: POC3_MOTION_DURATION.settingsSurface,
+              ease: POC3_MOTION_EASE.standard,
+            }}
           />
           <motion.div
             key="poc3-settings-shell"
@@ -589,7 +616,10 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                   ? { opacity: 0, scale: 0.985, filter: 'blur(64px)' }
                   : { opacity: 1, scale: 1, filter: 'blur(0px)' }
               }
-              transition={{ duration: 0.34, ease: [0.4, 0, 0.2, 1] }}
+              transition={{
+                duration: POC3_MOTION_DURATION.settingsSurface,
+                ease: POC3_MOTION_EASE.standard,
+              }}
             >
               <section
                 role="dialog"
@@ -677,6 +707,8 @@ interface ProviderSectionProps {
 }
 
 function ProviderSection({ drafts, onAdd, onChange, onSave, onTest }: ProviderSectionProps) {
+  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = shouldReduceMotion === true;
   const hasUnsavedDraft = drafts.some((draft) => !draft.repositoryProviderId);
   const addLayoutId = providerAddLayoutId(drafts.length);
 
@@ -691,7 +723,7 @@ function ProviderSection({ drafts, onAdd, onChange, onSave, onTest }: ProviderSe
             layoutId={draft.layoutId}
             {...(draft.repositoryProviderId
               ? {
-                  custom: index,
+                  custom: { index, reducedMotion },
                   variants: LIST_ITEM_MOTION_VARIANTS,
                   initial: 'hidden',
                   animate: 'visible',
@@ -801,7 +833,10 @@ function ProviderAddButton({ layoutId, onClick }: { layoutId: string; onClick: (
         layoutId={layoutId}
         onClick={onClick}
         className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.12] px-4 text-sm font-medium text-white transition hover:border-[#d8e071]/35"
-        transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+        transition={{
+          duration: POC3_MOTION_DURATION.listItem,
+          ease: POC3_MOTION_EASE.standard,
+        }}
       >
         <Plus className="h-4 w-4" aria-hidden="true" />
         Provider
@@ -883,6 +918,8 @@ function RepositoryDraftRow({
   onValidate,
   onSave,
 }: RepositoryDraftRowProps) {
+  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = shouldReduceMotion === true;
   const selectedProvider = providerById.get(draft.repositoryProviderId);
   const canSave =
     !draft.busy &&
@@ -895,7 +932,10 @@ function RepositoryDraftRow({
     if (!draft.isEditing || !draft.originUrl.trim()) {
       return;
     }
-    const timerId = window.setTimeout(() => onResolve(draft), 650);
+    const timerId = window.setTimeout(
+      () => onResolve(draft),
+      POC3_MOTION_TIMEOUT_MS.repositoryProviderResolve,
+    );
     return () => window.clearTimeout(timerId);
   }, [draft.originUrl, draft.isEditing]);
 
@@ -905,7 +945,7 @@ function RepositoryDraftRow({
       layoutId={draft.layoutId}
       {...(draft.repositoryProfileId
         ? {
-            custom: index,
+            custom: { index, reducedMotion },
             variants: LIST_ITEM_MOTION_VARIANTS,
             initial: 'hidden',
             animate: 'visible',
@@ -990,7 +1030,10 @@ function RepositoryDraftRow({
             >
               <motion.span
                 animate={{ rotate: draft.showSetupScript ? 180 : 0 }}
-                transition={{ duration: 0.18, ease: 'easeInOut' }}
+                transition={{
+                  duration: POC3_MOTION_DURATION.overlay,
+                  ease: POC3_MOTION_EASE.easeInOut,
+                }}
               >
                 <ChevronDown className="h-4 w-4" aria-hidden="true" />
               </motion.span>
@@ -1070,7 +1113,10 @@ function RepositoryAddButton({ layoutId, onClick }: { layoutId: string; onClick:
         layoutId={layoutId}
         onClick={onClick}
         className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.12] px-4 text-sm font-medium text-white transition hover:border-[#d8e071]/35"
-        transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+        transition={{
+          duration: POC3_MOTION_DURATION.listItem,
+          ease: POC3_MOTION_EASE.standard,
+        }}
       >
         <Plus className="h-4 w-4" aria-hidden="true" />
         Repository
