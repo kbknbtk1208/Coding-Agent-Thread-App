@@ -91,6 +91,7 @@ export function NodeDetailPanel({
               if (event.key === 'Escape') {
                 const target = event.target as HTMLElement;
                 if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') return;
+                if (target.closest('[data-diff-composer]')) return;
                 onClose();
               }
             }}

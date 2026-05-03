@@ -11,8 +11,10 @@ export function DiffAwareSourceRow({
   isHighlighted,
   isSelected,
   isSelectable,
+  isActive,
   findingCount,
   remoteThreadCount,
+  onFocus,
   onKeyDown,
 }: {
   line: DiffAwareSourceLine;
@@ -20,8 +22,10 @@ export function DiffAwareSourceRow({
   isHighlighted: boolean;
   isSelected: boolean;
   isSelectable: boolean;
+  isActive: boolean;
   findingCount: number;
   remoteThreadCount: number;
+  onFocus?: () => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 }) {
   const toneClass = isSelected
@@ -49,13 +53,14 @@ export function DiffAwareSourceRow({
   return (
     <div
       className={`grid min-w-full grid-cols-[34px_34px_12px_auto] gap-x-1.5 rounded-[4px] px-1 ${toneClass} ${isSelectable ? 'focus:outline-none focus-visible:ring-1 focus-visible:ring-[#d8e071]/60' : ''}`}
-      tabIndex={isSelectable ? 0 : undefined}
+      tabIndex={isSelectable ? (isActive ? 0 : -1) : undefined}
       data-poc3-source-line="true"
       data-file-path={line.filePath}
       data-side={line.side ?? undefined}
       data-line={providerLineNumber ?? undefined}
       data-provider-selectable={line.selectableForProviderComment}
       data-agent-selectable={line.selectableForAgentMention}
+      onFocus={onFocus}
       onKeyDown={onKeyDown}
       style={
         isSelected

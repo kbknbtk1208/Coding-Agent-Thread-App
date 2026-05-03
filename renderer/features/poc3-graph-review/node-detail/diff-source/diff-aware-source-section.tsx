@@ -55,6 +55,7 @@ export function DiffAwareSourceSection({
     effectiveFilePath,
     selectionState,
     activeSelection,
+    activeSelectableLine,
     composerSelection,
     composerSourceKey,
     composerError,
@@ -65,6 +66,7 @@ export function DiffAwareSourceSection({
     handlePointerMove,
     handlePointerUp,
     handlePointerCancel,
+    handleRowFocus,
     handleRowKeyDown,
     closeComposer,
     submitInlineComment,
@@ -168,8 +170,12 @@ export function DiffAwareSourceSection({
                       }
                       isSelected={isSelected}
                       isSelectable={line.selectableForProviderComment}
+                      isActive={line === activeSelectableLine}
                       findingCount={lineFindings.length}
                       remoteThreadCount={lineThreads.length}
+                      onFocus={
+                        line.selectableForProviderComment ? () => handleRowFocus(line) : undefined
+                      }
                       onKeyDown={
                         line.selectableForProviderComment
                           ? (e) => handleRowKeyDown(e, line)
