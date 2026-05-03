@@ -1141,7 +1141,6 @@ function AgentFindingThreadCard({
           className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
         >
           <div className="overflow-hidden">
-            <FindingHeaderBadges finding={finding} />
             {published ? (
               <div className="mt-2 flex items-center gap-1.5">
                 <span className="flex items-center gap-1.5 rounded-full border border-[#4EBE96]/25 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d7f5e8]">
@@ -1261,32 +1260,6 @@ function FindingThreadAccordionHeader({
   );
 }
 
-function FindingHeaderBadges({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
-      <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
-        Agent Review
-      </span>
-      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
-        {finding.category}
-      </span>
-      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d0d5db]">
-        {finding.confidence}
-      </span>
-      {finding.status === 'resolved' ? (
-        <span className="rounded-full border border-[#4EBE96]/20 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#d7f5e8]">
-          resolved
-        </span>
-      ) : null}
-      {!finding.hasReplyableSession ? (
-        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#8b949e]">
-          read only
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 function FindingSeverityBadge({ finding }: { finding: NodeDetailSnapshot['findings'][number] }) {
   const severityClass =
     finding.severity === 'high'
@@ -1327,10 +1300,6 @@ function FindingMessagesList({
 
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <div className="flex items-center gap-1.5">
-        <MessageSquareText className="size-3.5 shrink-0 text-fuchsia-200/60" aria-hidden="true" />
-        <p className="text-[11px] text-white/45">{formatFindingLocation(finding)}</p>
-      </div>
       {visibleMessages.map((message) => (
         <ThreadMessageBubble key={message.localMessageId} message={message} />
       ))}
@@ -1485,16 +1454,6 @@ function MarkdownBody({ children }: { children: string }) {
       <Streamdown>{children}</Streamdown>
     </div>
   );
-}
-
-function formatFindingLocation(finding: NodeDetailSnapshot['findings'][number]): string {
-  if (finding.line === null) {
-    return 'Overview finding';
-  }
-  if (finding.endLine !== null && finding.endLine !== finding.line) {
-    return `${finding.side ?? 'new'} L${finding.line}-L${finding.endLine}`;
-  }
-  return `${finding.side ?? 'new'} L${finding.line}`;
 }
 
 function groupFindingsByAwareLine(findings: NodeDetailSnapshot['findings']) {
