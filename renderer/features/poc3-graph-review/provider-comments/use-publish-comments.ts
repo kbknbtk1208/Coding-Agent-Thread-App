@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type {
   Poc3InlineCommentAnchor,
   Poc3PublishCommentSource,
@@ -225,19 +225,34 @@ export function usePublishComments(
     [publishInlineComment],
   );
 
-  return {
-    inFlightKey: state.inFlightKey,
-    errorByKey: state.errorByKey,
-    publishedBySourceKey: state.publishedBySourceKey,
-    commentUrlBySourceKey: state.commentUrlBySourceKey,
-    draftReplyByThread: state.draftReplyByThread,
-    publishInlineComment,
-    replyRemoteComment,
-    replyRemoteThread,
-    setDraftReplyByThread,
-    publishFinding,
-    clearError,
-  };
+  return useMemo(
+    () => ({
+      inFlightKey: state.inFlightKey,
+      errorByKey: state.errorByKey,
+      publishedBySourceKey: state.publishedBySourceKey,
+      commentUrlBySourceKey: state.commentUrlBySourceKey,
+      draftReplyByThread: state.draftReplyByThread,
+      publishInlineComment,
+      replyRemoteComment,
+      replyRemoteThread,
+      setDraftReplyByThread,
+      publishFinding,
+      clearError,
+    }),
+    [
+      state.inFlightKey,
+      state.errorByKey,
+      state.publishedBySourceKey,
+      state.commentUrlBySourceKey,
+      state.draftReplyByThread,
+      publishInlineComment,
+      replyRemoteComment,
+      replyRemoteThread,
+      setDraftReplyByThread,
+      publishFinding,
+      clearError,
+    ],
+  );
 }
 
 function resolveReplyErrorMessage(reason: string, fallbackMessage: string): string {

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -54,6 +55,7 @@ export interface UseDiffLineSelectionReturn {
   activeSelectableLine: DiffAwareSourceLine | null;
   composerSelection: Poc3DiffLineSelection | null;
   composerSourceKey: string | null;
+  composerDraft: string;
   composerError: string;
   isComposerInFlight: boolean;
   canExpandUp: boolean;
@@ -65,9 +67,19 @@ export interface UseDiffLineSelectionReturn {
   handleRowFocus(line: DiffAwareSourceLine): void;
   handleRowKeyDown(event: ReactKeyboardEvent<HTMLDivElement>, line: DiffAwareSourceLine): void;
   closeComposer(): void;
+  setComposerDraft(body: string): void;
   submitInlineComment(body: string): void;
   expandRange(direction: 'up' | 'down'): void;
+  registerVirtualScroller(scroller: DiffLineVirtualScroller | null): void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}
+
+export interface DiffLineVirtualScroller {
+  scrollToNewLine(
+    lineNumber: number,
+    options?: { align?: 'start' | 'center' | 'end' | 'auto'; offset?: number },
+  ): boolean;
+  focusLine(line: DiffAwareSourceLine): void;
 }
 
 export function useDiffLineSelection({
@@ -80,6 +92,7 @@ export function useDiffLineSelection({
   canExpandWithinFile,
 }: UseDiffLineSelectionProps): UseDiffLineSelectionReturn {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const virtualScrollerRef = useRef<DiffLineVirtualScroller | null>(null);
   const [expandedRange, setExpandedRange] = useState<{
     startLine: number;
     endLine: number;
@@ -90,6 +103,9 @@ export function useDiffLineSelection({
   const [selectionKeySeed, setSelectionKeySeed] = useState(0);
   const [submittedSourceKey, setSubmittedSourceKey] = useState<string | null>(null);
   const [activeSelectableIndex, setActiveSelectableIndex] = useState(0);
+  const [composerDraftBySourceKey, setComposerDraftBySourceKey] = useState<Record<string, string>>(
+    {},
+  );
   const dragAnchorRef = useRef<{ side: 'LEFT' | 'RIGHT'; line: number } | null>(null);
   const keyboardSelectionAnchorRef = useRef<{
     side: 'LEFT' | 'RIGHT';
@@ -156,6 +172,9 @@ export function useDiffLineSelection({
   const composerSourceKey = composerSelection
     ? buildManualSelectionSourceKey(composerSelection, detail, selectionKeySeed)
     : null;
+  const composerDraft = composerSourceKey
+    ? (composerDraftBySourceKey[composerSourceKey] ?? '')
+    : '';
   const composerError =
     composerSourceKey && publishComments
       ? (publishComments.errorByKey[composerSourceKey] ?? '')
@@ -172,12 +191,16 @@ export function useDiffLineSelection({
     setSelectionState({ status: 'idle' });
     setSubmittedSourceKey(null);
     setActiveSelectableIndex(0);
+    setComposerDraftBySourceKey({});
     dragAnchorRef.current = null;
     keyboardSelectionAnchorRef.current = null;
   }, [detail.nodeId, viewMode]);
 
   useEffect(() => {
     if (!functionCode?.startLine || !scrollContainerRef.current || viewMode === 'function') return;
+    if (virtualScrollerRef.current?.scrollToNewLine(functionCode.startLine, { offset: 48 })) {
+      return;
+    }
     const container = scrollContainerRef.current;
     const lineEl = container.querySelector(`[data-line="${functionCode.startLine}"]`);
     if (lineEl instanceof HTMLElement) {
@@ -198,170 +221,195 @@ export function useDiffLineSelection({
     );
   };
 
-  const handleRowFocus = (line: DiffAwareSourceLine) => {
+  const focusLine = (line: DiffAwareSourceLine) => {
+    if (virtualScrollerRef.current) {
+      virtualScrollerRef.current.focusLine(line);
+      return;
+    }
+    getRowElement(line)?.focus();
+  };
+
+  const handleRowFocus = useEventCallback((line: DiffAwareSourceLine) => {
     const index = selectableLines.indexOf(line);
     if (index !== -1) {
       setActiveSelectableIndex(index);
     }
-  };
+  });
 
-  const handleRowKeyDown = (
-    event: ReactKeyboardEvent<HTMLDivElement>,
-    line: DiffAwareSourceLine,
-  ) => {
-    if (!line.selectableForProviderComment) return;
-    const side = line.side;
-    if (side === null) return;
-    const providerLine = side === 'LEFT' ? line.oldLineNumber : line.newLineNumber;
-    if (providerLine === null) return;
+  const handleRowKeyDown = useEventCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>, line: DiffAwareSourceLine) => {
+      if (!line.selectableForProviderComment) return;
+      const side = line.side;
+      if (side === null) return;
+      const providerLine = side === 'LEFT' ? line.oldLineNumber : line.newLineNumber;
+      if (providerLine === null) return;
 
-    // roving tabindex: ArrowDown/Up（Shift なし）でアクティブ行を移動
-    if (event.key === 'ArrowDown' && !event.shiftKey) {
-      event.preventDefault();
-      const currentSelectableIndex = selectableLines.indexOf(line);
-      const nextIndex = Math.min(currentSelectableIndex + 1, selectableLines.length - 1);
-      if (nextIndex === currentSelectableIndex) return;
-      const nextLine = selectableLines[nextIndex];
-      setActiveSelectableIndex(nextIndex);
-      getRowElement(nextLine)?.focus();
-      return;
-    }
+      // roving tabindex: ArrowDown/Up（Shift なし）でアクティブ行を移動
+      if (event.key === 'ArrowDown' && !event.shiftKey) {
+        event.preventDefault();
+        const currentSelectableIndex = selectableLines.indexOf(line);
+        const nextIndex = Math.min(currentSelectableIndex + 1, selectableLines.length - 1);
+        if (nextIndex === currentSelectableIndex) return;
+        const nextLine = selectableLines[nextIndex];
+        setActiveSelectableIndex(nextIndex);
+        focusLine(nextLine);
+        return;
+      }
 
-    if (event.key === 'ArrowUp' && !event.shiftKey) {
-      event.preventDefault();
-      const currentSelectableIndex = selectableLines.indexOf(line);
-      const prevIndex = Math.max(currentSelectableIndex - 1, 0);
-      if (prevIndex === currentSelectableIndex) return;
-      const prevLine = selectableLines[prevIndex];
-      setActiveSelectableIndex(prevIndex);
-      getRowElement(prevLine)?.focus();
-      return;
-    }
+      if (event.key === 'ArrowUp' && !event.shiftKey) {
+        event.preventDefault();
+        const currentSelectableIndex = selectableLines.indexOf(line);
+        const prevIndex = Math.max(currentSelectableIndex - 1, 0);
+        if (prevIndex === currentSelectableIndex) return;
+        const prevLine = selectableLines[prevIndex];
+        setActiveSelectableIndex(prevIndex);
+        focusLine(prevLine);
+        return;
+      }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      if (selectionState.status === 'idle') {
-        if (composerSourceKey && composerError && publishComments) {
-          publishComments.clearError(composerSourceKey);
-        }
-        setSelectionKeySeed((c) => c + 1);
-        setSubmittedSourceKey(null);
-        keyboardSelectionAnchorRef.current = { side, line: providerLine, filePath: line.filePath };
-        setSelectionState({
-          status: 'selecting',
-          selection: {
-            filePath: line.filePath,
-            oldPath: null,
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        if (selectionState.status === 'idle') {
+          if (composerSourceKey && composerError && publishComments) {
+            publishComments.clearError(composerSourceKey);
+          }
+          setSelectionKeySeed((c) => c + 1);
+          setSubmittedSourceKey(null);
+          keyboardSelectionAnchorRef.current = {
             side,
-            startLine: providerLine,
+            line: providerLine,
+            filePath: line.filePath,
+          };
+          setSelectionState({
+            status: 'selecting',
+            selection: {
+              filePath: line.filePath,
+              oldPath: null,
+              side,
+              startLine: providerLine,
+              endLine: providerLine,
+            },
+          });
+        } else if (selectionState.status === 'selecting') {
+          const anchor = keyboardSelectionAnchorRef.current;
+          const selection = normalizeDiffLineSelection({
+            filePath: anchor?.filePath ?? line.filePath,
+            oldPath: null,
+            side: anchor?.side ?? side,
+            startLine: anchor?.line ?? providerLine,
             endLine: providerLine,
-          },
-        });
-      } else if (selectionState.status === 'selecting') {
-        const anchor = keyboardSelectionAnchorRef.current;
-        const selection = normalizeDiffLineSelection({
+          });
+          if (isContiguousProviderSelection(lines, selection)) {
+            setSelectionState({ status: 'composing', selection, actionKind: 'publish-comment' });
+            keyboardSelectionAnchorRef.current = null;
+          }
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowDown' && event.shiftKey) {
+        event.preventDefault();
+        const currentLineIndex = lines.indexOf(line);
+        const nextLine = lines
+          .slice(currentLineIndex + 1)
+          .find((l) => l.selectableForProviderComment && l.side === side);
+        if (!nextLine) return;
+        const nextProviderLine =
+          nextLine.side === 'LEFT' ? nextLine.oldLineNumber : nextLine.newLineNumber;
+        if (nextProviderLine === null) return;
+
+        const anchor = selectionState.status === 'idle' ? null : keyboardSelectionAnchorRef.current;
+        const anchorLine = anchor?.line ?? providerLine;
+        const candidateSelection = normalizeDiffLineSelection({
           filePath: anchor?.filePath ?? line.filePath,
           oldPath: null,
           side: anchor?.side ?? side,
-          startLine: anchor?.line ?? providerLine,
-          endLine: providerLine,
+          startLine: anchorLine,
+          endLine: nextProviderLine,
         });
-        if (isContiguousProviderSelection(lines, selection)) {
-          setSelectionState({ status: 'composing', selection, actionKind: 'publish-comment' });
-          keyboardSelectionAnchorRef.current = null;
+        if (!isContiguousProviderSelection(lines, candidateSelection)) return;
+
+        if (selectionState.status === 'idle') {
+          if (composerSourceKey && composerError && publishComments) {
+            publishComments.clearError(composerSourceKey);
+          }
+          setSelectionKeySeed((c) => c + 1);
+          setSubmittedSourceKey(null);
+          keyboardSelectionAnchorRef.current = {
+            side,
+            line: providerLine,
+            filePath: line.filePath,
+          };
+          setSelectionState({ status: 'selecting', selection: candidateSelection });
+        } else if (selectionState.status === 'selecting') {
+          setSelectionState({ status: 'selecting', selection: candidateSelection });
         }
+        const nextSelectableIndex = selectableLines.indexOf(nextLine);
+        if (nextSelectableIndex !== -1) setActiveSelectableIndex(nextSelectableIndex);
+        focusLine(nextLine);
+        return;
       }
-      return;
-    }
 
-    if (event.key === 'ArrowDown' && event.shiftKey) {
-      event.preventDefault();
-      const currentLineIndex = lines.indexOf(line);
-      const nextLine = lines
-        .slice(currentLineIndex + 1)
-        .find((l) => l.selectableForProviderComment && l.side === side);
-      if (!nextLine) return;
-      const nextProviderLine =
-        nextLine.side === 'LEFT' ? nextLine.oldLineNumber : nextLine.newLineNumber;
-      if (nextProviderLine === null) return;
+      if (event.key === 'ArrowUp' && event.shiftKey) {
+        event.preventDefault();
+        const currentLineIndex = lines.indexOf(line);
+        const prevLine = lines
+          .slice(0, currentLineIndex)
+          .reverse()
+          .find((l) => l.selectableForProviderComment && l.side === side);
+        if (!prevLine) return;
+        const prevProviderLine =
+          prevLine.side === 'LEFT' ? prevLine.oldLineNumber : prevLine.newLineNumber;
+        if (prevProviderLine === null) return;
 
-      const anchor = selectionState.status === 'idle' ? null : keyboardSelectionAnchorRef.current;
-      const anchorLine = anchor?.line ?? providerLine;
-      const candidateSelection = normalizeDiffLineSelection({
-        filePath: anchor?.filePath ?? line.filePath,
-        oldPath: null,
-        side: anchor?.side ?? side,
-        startLine: anchorLine,
-        endLine: nextProviderLine,
-      });
-      if (!isContiguousProviderSelection(lines, candidateSelection)) return;
+        const anchor = selectionState.status === 'idle' ? null : keyboardSelectionAnchorRef.current;
+        const anchorLine = anchor?.line ?? providerLine;
+        const candidateSelection = normalizeDiffLineSelection({
+          filePath: anchor?.filePath ?? line.filePath,
+          oldPath: null,
+          side: anchor?.side ?? side,
+          startLine: prevProviderLine,
+          endLine: anchorLine,
+        });
+        if (!isContiguousProviderSelection(lines, candidateSelection)) return;
 
-      if (selectionState.status === 'idle') {
-        if (composerSourceKey && composerError && publishComments) {
-          publishComments.clearError(composerSourceKey);
+        if (selectionState.status === 'idle') {
+          if (composerSourceKey && composerError && publishComments) {
+            publishComments.clearError(composerSourceKey);
+          }
+          setSelectionKeySeed((c) => c + 1);
+          setSubmittedSourceKey(null);
+          keyboardSelectionAnchorRef.current = {
+            side,
+            line: providerLine,
+            filePath: line.filePath,
+          };
+          setSelectionState({ status: 'selecting', selection: candidateSelection });
+        } else if (selectionState.status === 'selecting') {
+          setSelectionState({ status: 'selecting', selection: candidateSelection });
         }
-        setSelectionKeySeed((c) => c + 1);
-        setSubmittedSourceKey(null);
-        keyboardSelectionAnchorRef.current = { side, line: providerLine, filePath: line.filePath };
-        setSelectionState({ status: 'selecting', selection: candidateSelection });
-      } else if (selectionState.status === 'selecting') {
-        setSelectionState({ status: 'selecting', selection: candidateSelection });
+        const prevSelectableIndex = selectableLines.indexOf(prevLine);
+        if (prevSelectableIndex !== -1) setActiveSelectableIndex(prevSelectableIndex);
+        focusLine(prevLine);
+        return;
       }
-      const nextSelectableIndex = selectableLines.indexOf(nextLine);
-      if (nextSelectableIndex !== -1) setActiveSelectableIndex(nextSelectableIndex);
-      getRowElement(nextLine)?.focus();
-      return;
-    }
 
-    if (event.key === 'ArrowUp' && event.shiftKey) {
-      event.preventDefault();
-      const currentLineIndex = lines.indexOf(line);
-      const prevLine = lines
-        .slice(0, currentLineIndex)
-        .reverse()
-        .find((l) => l.selectableForProviderComment && l.side === side);
-      if (!prevLine) return;
-      const prevProviderLine =
-        prevLine.side === 'LEFT' ? prevLine.oldLineNumber : prevLine.newLineNumber;
-      if (prevProviderLine === null) return;
-
-      const anchor = selectionState.status === 'idle' ? null : keyboardSelectionAnchorRef.current;
-      const anchorLine = anchor?.line ?? providerLine;
-      const candidateSelection = normalizeDiffLineSelection({
-        filePath: anchor?.filePath ?? line.filePath,
-        oldPath: null,
-        side: anchor?.side ?? side,
-        startLine: prevProviderLine,
-        endLine: anchorLine,
-      });
-      if (!isContiguousProviderSelection(lines, candidateSelection)) return;
-
-      if (selectionState.status === 'idle') {
-        if (composerSourceKey && composerError && publishComments) {
-          publishComments.clearError(composerSourceKey);
-        }
-        setSelectionKeySeed((c) => c + 1);
-        setSubmittedSourceKey(null);
-        keyboardSelectionAnchorRef.current = { side, line: providerLine, filePath: line.filePath };
-        setSelectionState({ status: 'selecting', selection: candidateSelection });
-      } else if (selectionState.status === 'selecting') {
-        setSelectionState({ status: 'selecting', selection: candidateSelection });
+      if (event.key === 'Escape' && selectionState.status === 'selecting') {
+        event.stopPropagation();
+        keyboardSelectionAnchorRef.current = null;
+        setSelectionState({ status: 'idle' });
       }
-      const prevSelectableIndex = selectableLines.indexOf(prevLine);
-      if (prevSelectableIndex !== -1) setActiveSelectableIndex(prevSelectableIndex);
-      getRowElement(prevLine)?.focus();
-      return;
-    }
-
-    if (event.key === 'Escape' && selectionState.status === 'selecting') {
-      event.stopPropagation();
-      keyboardSelectionAnchorRef.current = null;
-      setSelectionState({ status: 'idle' });
-    }
-  };
+    },
+  );
 
   useEffect(() => {
     if (!publishedManualSelection || submittedSourceKey !== composerSourceKey) return;
+    setComposerDraftBySourceKey((current) => {
+      if (!composerSourceKey) return current;
+      const next = { ...current };
+      delete next[composerSourceKey];
+      return next;
+    });
     setSelectionState({ status: 'idle' });
     setSubmittedSourceKey(null);
   }, [composerSourceKey, publishedManualSelection, submittedSourceKey]);
@@ -381,7 +429,7 @@ export function useDiffLineSelection({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [composerError, composerSourceKey, publishComments, selectionState.status]);
 
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = useEventCallback((event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const info = extractPoc3SourceLineInfoFromPoint(event.clientX, event.clientY);
     if (!info || !isSelectableDiffAwareLine(lines, info)) return;
@@ -403,9 +451,9 @@ export function useDiffLineSelection({
         endLine: info.line,
       },
     });
-  };
+  });
 
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = useEventCallback((event: PointerEvent<HTMLDivElement>) => {
     const anchor = dragAnchorRef.current;
     if (!anchor) return;
     const info = extractPoc3SourceLineInfoFromPoint(event.clientX, event.clientY);
@@ -423,9 +471,9 @@ export function useDiffLineSelection({
       }
       return { status: 'selecting', selection: next };
     });
-  };
+  });
 
-  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+  const handlePointerUp = useEventCallback((event: PointerEvent<HTMLDivElement>) => {
     const anchor = dragAnchorRef.current;
     if (!anchor) return;
     dragAnchorRef.current = null;
@@ -449,22 +497,34 @@ export function useDiffLineSelection({
       }
       return { status: 'composing', selection, actionKind: 'publish-comment' };
     });
-  };
+  });
 
-  const handlePointerCancel = () => {
+  const handlePointerCancel = useEventCallback(() => {
     dragAnchorRef.current = null;
     setSelectionState({ status: 'idle' });
-  };
+  });
 
-  const closeComposer = () => {
+  const closeComposer = useEventCallback(() => {
     if (composerSourceKey && composerError && publishComments) {
       publishComments.clearError(composerSourceKey);
     }
+    if (composerSourceKey) {
+      setComposerDraftBySourceKey((current) => {
+        const next = { ...current };
+        delete next[composerSourceKey];
+        return next;
+      });
+    }
     setSubmittedSourceKey(null);
     setSelectionState({ status: 'idle' });
-  };
+  });
 
-  const submitInlineComment = (body: string) => {
+  const setComposerDraft = useEventCallback((body: string) => {
+    if (!composerSourceKey) return;
+    setComposerDraftBySourceKey((current) => ({ ...current, [composerSourceKey]: body }));
+  });
+
+  const submitInlineComment = useEventCallback((body: string) => {
     if (!composerSelection || !composerSourceKey || !publishComments) return;
     setSubmittedSourceKey(composerSourceKey);
     void publishComments.publishInlineComment({
@@ -475,7 +535,7 @@ export function useDiffLineSelection({
       source: { kind: 'manual-selection' },
       sourceKey: composerSourceKey,
     });
-  };
+  });
 
   const canExpandUp =
     canExpandWithinFile &&
@@ -490,7 +550,7 @@ export function useDiffLineSelection({
     fileContext !== null &&
     effectiveRange.endLine < fileContext.endLine;
 
-  const expandRange = (direction: 'up' | 'down') => {
+  const expandRange = useEventCallback((direction: 'up' | 'down') => {
     if (!functionCode || !fileContext || !effectiveRange) return;
     const next =
       direction === 'up'
@@ -504,7 +564,11 @@ export function useDiffLineSelection({
           };
     setExpandedRange(next);
     onViewModeChange('function');
-  };
+  });
+
+  const registerVirtualScroller = useEventCallback((scroller: DiffLineVirtualScroller | null) => {
+    virtualScrollerRef.current = scroller;
+  });
 
   return {
     lines,
@@ -516,6 +580,7 @@ export function useDiffLineSelection({
     activeSelectableLine,
     composerSelection,
     composerSourceKey,
+    composerDraft,
     composerError,
     isComposerInFlight,
     canExpandUp,
@@ -527,8 +592,18 @@ export function useDiffLineSelection({
     handleRowFocus,
     handleRowKeyDown,
     closeComposer,
+    setComposerDraft,
     submitInlineComment,
     expandRange,
+    registerVirtualScroller,
     scrollContainerRef,
   };
+}
+
+function useEventCallback<Args extends unknown[], Return>(
+  callback: (...args: Args) => Return,
+): (...args: Args) => Return {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
 }

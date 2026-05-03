@@ -1,11 +1,12 @@
 'use client';
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { memo } from 'react';
 import type { DiffAwareSourceLine } from '../diff-aware-source-model';
 import { providerLineNumberForAwareLine } from '../utils/aware-line-lookup';
 import { HighlightedSourceLine } from './highlighted-source-line';
 
-export function DiffAwareSourceRow({
+export const DiffAwareSourceRow = memo(function DiffAwareSourceRow({
   line,
   language,
   isHighlighted,
@@ -14,8 +15,8 @@ export function DiffAwareSourceRow({
   isActive,
   findingCount,
   remoteThreadCount,
-  onFocus,
-  onKeyDown,
+  onFocusLine,
+  onKeyDownLine,
 }: {
   line: DiffAwareSourceLine;
   language: string;
@@ -25,8 +26,8 @@ export function DiffAwareSourceRow({
   isActive: boolean;
   findingCount: number;
   remoteThreadCount: number;
-  onFocus?: () => void;
-  onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onFocusLine?: (line: DiffAwareSourceLine) => void;
+  onKeyDownLine?: (event: React.KeyboardEvent<HTMLDivElement>, line: DiffAwareSourceLine) => void;
 }) {
   const toneClass = isSelected
     ? line.kind === 'added'
@@ -60,8 +61,10 @@ export function DiffAwareSourceRow({
       data-line={providerLineNumber ?? undefined}
       data-provider-selectable={line.selectableForProviderComment}
       data-agent-selectable={line.selectableForAgentMention}
-      onFocus={onFocus}
-      onKeyDown={onKeyDown}
+      onFocus={line.selectableForProviderComment ? () => onFocusLine?.(line) : undefined}
+      onKeyDown={
+        line.selectableForProviderComment ? (event) => onKeyDownLine?.(event, line) : undefined
+      }
       style={
         isSelected
           ? {
@@ -89,7 +92,7 @@ export function DiffAwareSourceRow({
       </span>
     </div>
   );
-}
+});
 
 export function ExpandSourceButton({
   direction,
