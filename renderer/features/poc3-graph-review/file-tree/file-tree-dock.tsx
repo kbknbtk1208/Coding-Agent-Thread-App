@@ -121,7 +121,7 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
 
       {/* header — drag handle, always rendered */}
       <div
-        className="relative z-10 flex h-10 shrink-0 cursor-grab items-center gap-2 px-2.5 active:cursor-grabbing"
+        className={`relative z-10 flex h-10 shrink-0 items-center gap-2 px-2.5 ${isCollapsed ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
         onPointerDown={(e) => dragControls.start(e)}
         onClick={() => {
           if (isCollapsed && !isDraggingRef.current) handleExpand();
@@ -161,7 +161,7 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
                   handleCollapse();
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="flex size-5 items-center justify-center rounded text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                className="flex size-5 cursor-pointer items-center justify-center rounded text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/80"
                 aria-label="File Tree を閉じる"
               >
                 <X size={12} />
