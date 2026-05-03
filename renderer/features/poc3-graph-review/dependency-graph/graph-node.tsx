@@ -3,10 +3,16 @@
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
 import { FileCode2, FunctionSquare, Package } from 'lucide-react';
-import { motion } from 'motion/react';
+import { memo } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { POC3_MOTION_DURATION, POC3_MOTION_EASE } from '../components/motion-timing';
 import type { Poc3FlowNode } from './to-react-flow-elements';
 
-export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
+export const Poc3GraphNode = memo(function Poc3GraphNode({
+  data,
+  selected,
+}: NodeProps<Poc3FlowNode>) {
+  const shouldReduceMotion = useReducedMotion();
   const graphNode = data.graphNode;
   const isFileHighlighted = data.isFileHighlighted;
   const Icon =
@@ -43,7 +49,7 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
           ) : null}
         </span>
       ) : null}
-      {selected ? (
+      {selected && !shouldReduceMotion ? (
         <motion.span
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 rounded-[8px]"
@@ -57,7 +63,11 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
             backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
             opacity: [0.45, 0.92, 0.45],
           }}
-          transition={{ duration: 2.4, ease: 'linear', repeat: Number.POSITIVE_INFINITY }}
+          transition={{
+            duration: POC3_MOTION_DURATION.selectedNodeSweep,
+            ease: POC3_MOTION_EASE.linear,
+            repeat: Number.POSITIVE_INFINITY,
+          }}
         />
       ) : null}
       <div
@@ -90,4 +100,4 @@ export function Poc3GraphNode({ data, selected }: NodeProps<Poc3FlowNode>) {
       </div>
     </div>
   );
-}
+});

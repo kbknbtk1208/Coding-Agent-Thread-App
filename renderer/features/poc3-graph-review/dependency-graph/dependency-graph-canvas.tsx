@@ -7,8 +7,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   type ReactFlowInstance,
-  useEdgesState,
-  useNodesState,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphRenderNode, GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
@@ -17,8 +15,8 @@ import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-w
 import { NodeDetailPanel } from '../node-detail/node-detail-panel';
 import { useNodeDetail } from '../node-detail/use-node-detail';
 import { Poc3GraphNode } from './graph-node';
-import { toReactFlowElements } from './to-react-flow-elements';
 import type { Poc3FlowEdge, Poc3FlowNode } from './to-react-flow-elements';
+import { useStableReactFlowElements } from './use-stable-react-flow-elements';
 
 const nodeTypes = {
   poc3GraphNode: Poc3GraphNode,
@@ -47,15 +45,20 @@ function DependencyGraphCanvasInner({
   providerKind,
   highlightedFilePath,
 }: DependencyGraphCanvasProps) {
-  const elements = useMemo(() => toReactFlowElements(graph), [graph]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<Poc3FlowNode>(elements.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Poc3FlowEdge>(elements.edges);
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
   const appliedViewportSnapshotRef = useRef<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [detailViewMode, setDetailViewMode] = useState<NodeDetailViewMode>('function');
   const [reactFlowReady, setReactFlowReady] = useState(false);
   const [nodeDetailRefreshKey, setNodeDetailRefreshKey] = useState(0);
+  const viewState = useMemo(
+    () => ({
+      selectedNodeId,
+      highlightedFilePath: highlightedFilePath ?? null,
+    }),
+    [highlightedFilePath, selectedNodeId],
+  );
+  const elements = useStableReactFlowElements(graph, viewState);
 
   const nodeById = useMemo(() => {
     const map = new Map<string, GraphRenderNode>();
@@ -75,11 +78,6 @@ function DependencyGraphCanvasInner({
   });
 
   useEffect(() => {
-    setNodes(elements.nodes);
-    setEdges(elements.edges);
-  }, [elements.edges, elements.nodes, setEdges, setNodes]);
-
-  useEffect(() => {
     appliedViewportSnapshotRef.current = null;
   }, [graph.graphSnapshotId]);
 
@@ -88,31 +86,6 @@ function DependencyGraphCanvasInner({
     setDetailViewMode('function');
     resetNodeDetail();
   }, [resetNodeDetail, reviewWorkspaceId]);
-
-  useEffect(() => {
-    setNodes((current) =>
-      current.map((node) => {
-        const isSelected = node.id === selectedNodeId;
-        if (node.selected === isSelected) {
-          return node;
-        }
-        return { ...node, selected: isSelected };
-      }),
-    );
-  }, [selectedNodeId, setNodes]);
-
-  useEffect(() => {
-    setNodes((current) =>
-      current.map((node) => {
-        const highlighted =
-          highlightedFilePath != null
-            ? node.data.graphNode.filePath === highlightedFilePath
-            : false;
-        if (node.data.isFileHighlighted === highlighted) return node;
-        return { ...node, data: { ...node.data, isFileHighlighted: highlighted } };
-      }),
-    );
-  }, [highlightedFilePath, setNodes]);
 
   useEffect(() => {
     if (!reactFlowReady || !reactFlowRef.current) {
@@ -151,16 +124,15 @@ function DependencyGraphCanvasInner({
     <div className="relative h-[calc(100vh-32px)] min-h-[640px] w-full overflow-hidden rounded-[8px] border border-white/[0.1] bg-[#070707]/92">
       <div className="h-full w-full">
         <ReactFlow<Poc3FlowNode, Poc3FlowEdge>
-          nodes={nodes}
-          edges={edges}
+          nodes={elements.nodes}
+          edges={elements.edges}
           nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
           onNodeClick={handleNodeClick}
           onInit={(instance) => {
             reactFlowRef.current = instance;
             setReactFlowReady(true);
           }}
+          nodesDraggable={false}
           minZoom={0.2}
           maxZoom={1.8}
           proOptions={{ hideAttribution: true }}

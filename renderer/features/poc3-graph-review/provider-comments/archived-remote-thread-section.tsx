@@ -2,8 +2,8 @@
 
 import { ChevronDown, History, MessageSquareText } from 'lucide-react';
 import { useState } from 'react';
-import { Streamdown } from 'streamdown';
 import type { Poc3ArchivedRemoteThread } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import { MarkdownBody } from '../node-detail/thread/markdown-body';
 
 export function ArchivedRemoteThreadSection({ threads }: { threads: Poc3ArchivedRemoteThread[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -71,7 +71,7 @@ export function ArchivedRemoteThreadSection({ threads }: { threads: Poc3Archived
                           <span>{formatShortDate(comment.createdAt)}</span>
                         </div>
                         <div className="text-[11px] leading-5 text-white/58">
-                          <Streamdown>{comment.body}</Streamdown>
+                          <MarkdownBody variant="compact">{comment.body}</MarkdownBody>
                         </div>
                       </div>
                     ))}
