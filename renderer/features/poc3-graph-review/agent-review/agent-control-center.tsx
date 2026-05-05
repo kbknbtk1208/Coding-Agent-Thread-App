@@ -2,16 +2,15 @@
 
 import { Bot, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { ArchivedRemoteThreadSection } from '../provider-comments/archived-remote-thread-section';
 import { useArchivedRemoteThreads } from '../provider-comments/use-archived-remote-threads';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
-import {
-  DOCK_GLASS_STYLE,
-  DOCK_SHEEN_STYLE,
-  useDockAnimationStage,
-} from '../components/use-dock-animation-stage';
+import { getDockAnimatedSize } from '../components/dock-animation-state';
+import { DOCK_GLASS_STYLE, DOCK_SHEEN_STYLE } from '../components/use-dock-animation-stage';
+import { useDockAnimationState } from '../components/use-dock-animation-state';
+import { useOutsidePointerDown } from '../components/use-outside-pointer-down';
 import { isAgentReviewRunActive } from './agent-review-state';
 import { AgentReviewHistoryList } from './agent-review-history-list';
 import { AgentReviewNewRunPanel } from './agent-review-new-run-panel';
@@ -58,16 +57,20 @@ export function AgentControlCenter({
   const review = useAgentReview(selectedWorkspace.reviewWorkspaceId);
   const outdatedThreads = useOutdatedAgentThreads(selectedWorkspace.reviewWorkspaceId);
   const archivedRemoteThreads = useArchivedRemoteThreads(selectedWorkspace.reviewWorkspaceId);
-  const { stage, isCollapsed, isExpanded, expand, collapse } = useDockAnimationStage();
+  const { phase, flags, open, close, handleSizeAnimationComplete } = useDockAnimationState();
+  const animatedSize = getDockAnimatedSize(phase, {
+    triggerWidth: TRIGGER_WIDTH,
+    triggerHeight: TRIGGER_HEIGHT,
+    dockWidth: DOCK_WIDTH,
+    dockHeight: DOCK_HEIGHT,
+  });
   const [pendingCompletedNotice, setPendingCompletedNotice] = useState(false);
   const [view, setView] = useState<AgentReviewDockView>({ kind: 'history' });
   const [slideDirection, setSlideDirection] = useState<SlideDirection>('forward');
   const dockRef = useRef<HTMLDivElement | null>(null);
   const notifiedCompletedRunRef = useRef<string | null>(null);
-  const isCollapsedRef = useRef(false);
-  isCollapsedRef.current = isCollapsed;
-  const isExpandedRef = useRef(false);
-  isExpandedRef.current = isExpanded;
+  const triggerId = useId();
+  const panelId = useId();
 
   const isRunning = review.activeRun !== null;
 
@@ -76,10 +79,19 @@ export function AgentControlCenter({
     setView(nextView);
   }, []);
 
-  const handleExpand = () => {
-    expand();
+  const openDock = useCallback(() => {
+    open();
     setPendingCompletedNotice(false);
-  };
+  }, [open]);
+
+  const runById = useMemo(() => new Map(review.runs.map((run) => [run.runId, run])), [review.runs]);
+
+  const activeRunForDetail = view.kind === 'run-detail' ? (runById.get(view.runId) ?? null) : null;
+
+  const effectiveView =
+    view.kind === 'run-detail' && activeRunForDetail === null
+      ? ({ kind: 'history' } as const)
+      : view;
 
   useEffect(() => {
     setView({ kind: 'history' });
@@ -87,51 +99,23 @@ export function AgentControlCenter({
   }, [selectedWorkspace.reviewWorkspaceId]);
 
   useEffect(() => {
-    if (view.kind === 'run-detail') {
-      const exists = review.runs.some((r) => r.runId === view.runId);
-      if (!exists) {
-        navigate({ kind: 'history' }, 'back');
-      }
-    }
-  }, [navigate, review.runs, view]);
-
-  useEffect(() => {
     const latest = review.latestRun;
     if (!latest || latest.runId === notifiedCompletedRunRef.current) return;
-    if (latest.status === 'completed' || latest.status === 'fallback_rich_text') {
-      notifiedCompletedRunRef.current = latest.runId;
-      onCompleted?.();
-      if (isCollapsedRef.current) {
-        setPendingCompletedNotice(true);
-      }
+    if (latest.status !== 'completed' && latest.status !== 'fallback_rich_text') return;
+
+    notifiedCompletedRunRef.current = latest.runId;
+    onCompleted?.();
+
+    if (flags.isCollapsed) {
+      setPendingCompletedNotice(true);
     }
-  }, [onCompleted, review.latestRun]);
+  }, [flags.isCollapsed, onCompleted, review.latestRun]);
 
-  useEffect(() => {
-    if (isCollapsed) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!isExpandedRef.current) return;
-
-      const target = event.target;
-      if (!(target instanceof Node) || dockRef.current?.contains(target)) return;
-
-      collapse();
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown, true);
-    return () => document.removeEventListener('pointerdown', handlePointerDown, true);
-  }, [isCollapsed, collapse]);
-
-  const widthValue =
-    stage === 'collapsed' || stage === 'widthCollapsing' ? TRIGGER_WIDTH : DOCK_WIDTH;
-  const heightValue =
-    stage === 'collapsed' || stage === 'widthExpanding' || stage === 'widthCollapsing'
-      ? TRIGGER_HEIGHT
-      : DOCK_HEIGHT;
-
-  const activeRunForDetail =
-    view.kind === 'run-detail' ? (review.runs.find((r) => r.runId === view.runId) ?? null) : null;
+  useOutsidePointerDown({
+    enabled: flags.isExpanded,
+    refs: [dockRef],
+    onOutside: close,
+  });
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-8 z-40 flex justify-center px-4">
@@ -139,7 +123,8 @@ export function AgentControlCenter({
         ref={dockRef}
         className="pointer-events-auto relative flex flex-col-reverse overflow-hidden"
         initial={{ width: TRIGGER_WIDTH, height: TRIGGER_HEIGHT }}
-        animate={{ width: widthValue, height: heightValue }}
+        animate={{ width: animatedSize.width, height: animatedSize.height }}
+        onAnimationComplete={handleSizeAnimationComplete}
         transition={{
           width: { duration: 0.45, ease: [0.4, 0, 0.2, 1] },
           height: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
@@ -152,62 +137,56 @@ export function AgentControlCenter({
           style={DOCK_SHEEN_STYLE}
         />
 
-        <div
-          role={isCollapsed ? 'button' : undefined}
-          tabIndex={isCollapsed ? 0 : undefined}
-          aria-expanded={isExpanded}
-          aria-label={isCollapsed ? 'Agent Review を開く' : undefined}
-          onClick={() => {
-            if (isCollapsed) handleExpand();
-          }}
-          onKeyDown={(e) => {
-            if (isCollapsed && (e.key === 'Enter' || e.key === ' ')) {
-              e.preventDefault();
-              handleExpand();
-            }
-          }}
-          className={`relative z-10 flex h-12 w-full shrink-0 items-center gap-3 border-t border-white/[0.06] px-4 outline-none transition ${
-            isCollapsed
-              ? 'cursor-pointer hover:bg-white/[0.06] focus-visible:bg-white/[0.08]'
-              : 'cursor-default'
-          }`}
-        >
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-[6px] border border-[#58d7ff]/20 bg-[#58d7ff]/[0.08]">
-            <Bot className="size-3.5 text-[#dff7ff]" aria-hidden="true" />
-          </span>
+        <div className="relative z-10 flex h-12 w-full shrink-0 items-center border-t border-white/[0.06]">
+          <button
+            id={triggerId}
+            type="button"
+            aria-expanded={flags.isExpanded}
+            aria-controls={panelId}
+            tabIndex={flags.canOpen ? 0 : -1}
+            onClick={() => {
+              if (flags.canOpen) openDock();
+            }}
+            className={`flex flex-1 items-center gap-3 px-4 h-full appearance-none border-0 bg-transparent text-left outline-none transition ${
+              flags.canOpen
+                ? 'cursor-pointer hover:bg-white/[0.06] focus-visible:bg-white/[0.08]'
+                : 'cursor-default'
+            }`}
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-[6px] border border-[#58d7ff]/20 bg-[#58d7ff]/[0.08]">
+              <Bot className="size-3.5 text-[#dff7ff]" aria-hidden="true" />
+            </span>
 
-          <div className="min-w-0 flex-1">
-            {isCollapsed && isRunning ? (
-              <span className="text-shimmer block truncate text-[12px] font-medium">
-                Agent Review中です
-              </span>
-            ) : isCollapsed && pendingCompletedNotice ? (
-              <span className="block truncate text-[12px] font-medium text-emerald-300/80">
-                Agent Reviewが完了しました
-              </span>
-            ) : (
-              <span className="block truncate text-[12px] font-medium text-white/55">
-                Agent Review
-              </span>
-            )}
-          </div>
+            <div className="min-w-0 flex-1">
+              {flags.isCollapsed && isRunning ? (
+                <span className="text-shimmer block truncate text-[12px] font-medium">
+                  Agent Review中です
+                </span>
+              ) : flags.isCollapsed && pendingCompletedNotice ? (
+                <span className="block truncate text-[12px] font-medium text-emerald-300/80">
+                  Agent Reviewが完了しました
+                </span>
+              ) : (
+                <span className="block truncate text-[12px] font-medium text-white/55">
+                  Agent Review
+                </span>
+              )}
+            </div>
+          </button>
 
-          {!isCollapsed && review.activeRun ? <StatusPill run={review.activeRun} /> : null}
+          {!flags.isCollapsed && review.activeRun ? <StatusPill run={review.activeRun} /> : null}
 
           <AnimatePresence>
-            {!isCollapsed && (
+            {!flags.isCollapsed && (
               <motion.button
                 key="close"
                 type="button"
                 initial={{ opacity: 0 }}
-                animate={{ opacity: isExpanded ? 1 : 0 }}
+                animate={{ opacity: flags.isExpanded ? 1 : 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  collapse();
-                }}
-                className="flex size-5 shrink-0 items-center justify-center rounded text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                onClick={() => close()}
+                className="mr-4 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/80"
                 aria-label="Agent Review を閉じる"
               >
                 <X size={12} />
@@ -216,13 +195,17 @@ export function AgentControlCenter({
           </AnimatePresence>
         </div>
 
-        <motion.div
-          className="relative z-10 min-h-0 flex-1 overflow-hidden"
-          animate={{ opacity: isExpanded ? 1 : 0 }}
-          transition={{ duration: 0.3 }}
+        <motion.section
+          id={panelId}
+          role="region"
+          aria-labelledby={triggerId}
+          aria-hidden={!flags.contentInteractive}
+          className={`relative z-10 min-h-0 flex-1 overflow-hidden ${flags.contentInteractive ? '' : 'pointer-events-none'}`}
+          animate={{ opacity: flags.contentOpacity }}
+          transition={{ duration: 0.25 }}
         >
           <AnimatePresence initial={false} custom={slideDirection} mode="wait">
-            {view.kind === 'history' ? (
+            {effectiveView.kind === 'history' ? (
               <motion.div
                 key="history"
                 custom={slideDirection}
@@ -236,7 +219,7 @@ export function AgentControlCenter({
                 <AgentReviewHistoryList
                   runs={review.runs}
                   activeRun={review.activeRun}
-                  isVisible={isExpanded}
+                  isVisible={flags.isExpanded}
                   onNew={() => navigate({ kind: 'new-review' }, 'forward')}
                   onSelectRun={(runId) => navigate({ kind: 'run-detail', runId }, 'forward')}
                 />
@@ -245,7 +228,7 @@ export function AgentControlCenter({
                   <ArchivedRemoteThreadSection threads={archivedRemoteThreads.threads} />
                 </div>
               </motion.div>
-            ) : view.kind === 'new-review' ? (
+            ) : effectiveView.kind === 'new-review' ? (
               <motion.div
                 key="new-review"
                 custom={slideDirection}
@@ -266,7 +249,7 @@ export function AgentControlCenter({
               </motion.div>
             ) : activeRunForDetail ? (
               <motion.div
-                key={`run-detail-${view.runId}`}
+                key={`run-detail-${effectiveView.runId}`}
                 custom={slideDirection}
                 variants={slideVariants}
                 initial="enter"
@@ -277,9 +260,9 @@ export function AgentControlCenter({
               >
                 <AgentReviewRunDetailPanel
                   run={activeRunForDetail}
-                  detail={review.runDetailsById[view.runId] ?? null}
-                  loading={review.detailLoadingRunId === view.runId}
-                  errorMessage={review.detailErrorByRunId[view.runId] ?? null}
+                  detail={review.runDetailsById[effectiveView.runId] ?? null}
+                  loading={review.detailLoadingRunId === effectiveView.runId}
+                  errorMessage={review.detailErrorByRunId[effectiveView.runId] ?? null}
                   submittingPermissionKey={review.submittingPermissionKey}
                   onBack={() => navigate({ kind: 'history' }, 'back')}
                   onLoadDetail={review.loadRunDetail}
@@ -288,7 +271,7 @@ export function AgentControlCenter({
               </motion.div>
             ) : null}
           </AnimatePresence>
-        </motion.div>
+        </motion.section>
       </motion.div>
     </div>
   );
@@ -312,7 +295,7 @@ function StatusPill({ run }: { run: AgentReviewRun }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase ${tone}`}
+      className={`mr-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase ${tone}`}
     >
       {label}
     </span>
