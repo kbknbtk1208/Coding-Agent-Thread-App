@@ -3,8 +3,10 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CodeGraphSnapshot } from '../../../shared/poc3-domain/graph';
+import type { Poc3AgentReviewThread } from '../../../shared/poc3-domain/agent-review';
 import type { RevisionContext } from '../../../shared/poc3-domain/revision';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
+import type { Poc3OutdatedAgentThread } from '../../../shared/poc3-domain/thread-retention';
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
 import { resolveNodeDetail } from './node-detail-resolver';
@@ -228,6 +230,97 @@ function createSourceSnapshot(): ReviewSourceSnapshot {
   };
 }
 
+function createRemoteThread({
+  providerThreadId,
+  line,
+  anchorStatus = 'current',
+  isOutdated = null,
+}: {
+  providerThreadId: string;
+  line: number;
+  anchorStatus?: ReviewSourceSnapshot['remoteThreads'][number]['anchorStatus'];
+  isOutdated?: boolean | null;
+}): ReviewSourceSnapshot['remoteThreads'][number] {
+  return {
+    providerThreadId,
+    location: {
+      kind: 'diff',
+      filePath: 'src/example.ts',
+      oldPath: null,
+      startLine: null,
+      endLine: line,
+      side: 'RIGHT',
+    },
+    anchorStatus,
+    isResolved: false,
+    isOutdated,
+    comments: [
+      {
+        providerCommentId: `${providerThreadId}:comment`,
+        author: { login: 'alice', displayName: null, avatarUrl: null },
+        body: 'remote body',
+        url: 'https://example.test/comment',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: null,
+      },
+    ],
+    providerContext: {
+      remoteDiscussionId: providerThreadId,
+      remoteCommentIds: [`${providerThreadId}:comment`],
+      anchorRefs: {},
+    },
+  };
+}
+
+function createAgentThread(overrides: Partial<Poc3AgentReviewThread> = {}): Poc3AgentReviewThread {
+  return {
+    localThreadId: 'thread-1',
+    runId: 'run-1',
+    reviewWorkspaceId: 'workspace-1',
+    revisionId: 'revision-old',
+    findingId: 'finding-1',
+    nodeId: 'old-node',
+    severity: 'medium',
+    category: 'correctness',
+    confidence: 'medium',
+    title: 'Outdated finding',
+    draftBody: 'agent finding body',
+    location: {
+      kind: 'diff',
+      filePath: 'src/example.ts',
+      startLine: 12,
+      endLine: 12,
+      side: 'new',
+    },
+    status: 'open',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function createOutdatedAgentThread(thread: Poc3AgentReviewThread): Poc3OutdatedAgentThread {
+  const sourceRevision = { ...createRevision(), revisionId: thread.revisionId, isActive: false };
+  const checkedRevision = createRevision();
+  return {
+    thread,
+    tracking: {
+      localThreadId: thread.localThreadId,
+      reviewWorkspaceId: thread.reviewWorkspaceId,
+      sourceRevisionId: thread.revisionId,
+      checkedRevisionId: checkedRevision.revisionId,
+      status: 'outdated',
+      reason: 'rangeChanged',
+      originalNodeId: thread.nodeId,
+      trackedNodeId: null,
+      originalLocation: thread.location,
+      checkedAt: '2026-01-02T00:00:00.000Z',
+    },
+    sourceRevision,
+    checkedRevision,
+  };
+}
+
 function createRecord(worktreePath: string): WorkspaceGraphRecord {
   return {
     workspace: createWorkspace(worktreePath),
@@ -316,6 +409,73 @@ describe('resolveNodeDetail', () => {
             author: { login: 'alice', displayName: null, avatarUrl: null },
           }),
         ],
+      }),
+    ]);
+  });
+
+  it('file-scope node では同一 file の outdated remote thread も返す', () => {
+    const worktreePath = createTempWorkspace();
+    const sourceSnapshot = createSourceSnapshot();
+    sourceSnapshot.remoteThreads = [
+      createRemoteThread({
+        providerThreadId: 'remote-outdated',
+        line: 12,
+        anchorStatus: 'outdated',
+        isOutdated: false,
+      }),
+      createRemoteThread({
+        providerThreadId: 'remote-unanchored',
+        line: 12,
+        anchorStatus: 'unanchored',
+      }),
+    ];
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-file-scope-1',
+      record: createRecord(worktreePath),
+      sourceSnapshot,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.threads.remote).toEqual([
+      expect.objectContaining({
+        providerThreadId: 'remote-outdated',
+        anchorStatus: 'outdated',
+        isOutdated: true,
+      }),
+    ]);
+  });
+
+  it('file-scope node では同一 file の outdated agent finding も返す', () => {
+    const worktreePath = createTempWorkspace();
+    const outdatedThread = createAgentThread();
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-file-scope-1',
+      record: createRecord(worktreePath),
+      sourceSnapshot: createSourceSnapshot(),
+      outdatedAgentThreads: [createOutdatedAgentThread(outdatedThread)],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.findings).toEqual([
+      expect.objectContaining({
+        localThreadId: outdatedThread.localThreadId,
+        title: 'Outdated finding',
+        isOutdated: true,
+        line: 12,
+      }),
+    ]);
+    expect(result.detail?.threads.agent).toEqual([
+      expect.objectContaining({
+        threadId: outdatedThread.localThreadId,
+        line: 12,
       }),
     ]);
   });

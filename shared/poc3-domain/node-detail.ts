@@ -157,6 +157,7 @@ export interface NodeFindingSummary {
   side: 'old' | 'new' | null;
   status: 'open' | 'resolved';
   hasReplyableSession: boolean;
+  isOutdated?: boolean;
 }
 
 export interface NodeDetailDiagnostic {

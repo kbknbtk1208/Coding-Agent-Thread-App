@@ -36,6 +36,7 @@ import type {
   Poc3AgentReviewRun,
   Poc3AgentReviewThread,
 } from '../../../shared/poc3-domain/agent-review';
+import type { Poc3OutdatedAgentThread } from '../../../shared/poc3-domain/thread-retention';
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
@@ -50,6 +51,7 @@ export interface ResolveNodeDetailContext {
   renderSnapshot?: GraphRenderSnapshot;
   sourceSnapshot: ReviewSourceSnapshot | null;
   agentThreads?: Poc3AgentReviewThread[];
+  outdatedAgentThreads?: Poc3OutdatedAgentThread[];
   runById?: Map<string, Poc3AgentReviewRun>;
 }
 
@@ -102,10 +104,20 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
   const fileContext = resolveFileContext(renderNode, workspace, diagnostics, viewMode);
   const codeExcerpt = toLegacyCodeExcerpt(functionCode, fileContext);
   const relations = resolveRelations(renderNode, renderSnapshot);
-  const threads = resolveThreads(renderNode, sourceSnapshot, context.agentThreads ?? []);
+  const agentThreads = context.agentThreads ?? [];
+  const outdatedAgentThreads = resolveOutdatedAgentThreadsForNode(
+    renderNode,
+    context.outdatedAgentThreads ?? [],
+    agentThreads,
+  );
+  const allAgentThreads = [...agentThreads, ...outdatedAgentThreads.map((item) => item.thread)];
   const summary = buildSummary(renderNode);
   const primaryView = pickPrimaryView(renderNode, functionCode, fileContext, codeExcerpt);
   const status = pickStatus(renderNode, functionCode, fileContext, codeExcerpt);
+  const outdatedLocalThreadIds = new Set(
+    outdatedAgentThreads.map((item) => item.thread.localThreadId),
+  );
+  const threads = resolveThreads(renderNode, sourceSnapshot, allAgentThreads);
 
   const detail: NodeDetailSnapshot = {
     reviewWorkspaceId: workspace.reviewWorkspaceId,
@@ -123,21 +135,12 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     diffExcerpt,
     relations,
     threads,
-    findings: (context.agentThreads ?? []).map((thread) => ({
-      findingId: thread.findingId,
-      localThreadId: thread.localThreadId,
-      severity: thread.severity,
-      category: thread.category,
-      confidence: thread.confidence,
-      title: thread.title,
-      body: thread.draftBody,
-      suggestion: thread.suggestion,
-      line: thread.location.kind === 'diff' ? thread.location.startLine : null,
-      endLine: thread.location.kind === 'diff' ? thread.location.endLine : null,
-      side: thread.location.kind === 'diff' ? thread.location.side : null,
-      status: thread.status === 'dismissed' ? 'resolved' : 'open',
-      hasReplyableSession: context.runById?.get(thread.runId)?.resultSource !== 'richText',
-    })),
+    findings: allAgentThreads.map((thread) =>
+      toNodeFindingSummary(thread, {
+        isOutdated: outdatedLocalThreadIds.has(thread.localThreadId),
+        hasReplyableSession: context.runById?.get(thread.runId)?.resultSource !== 'richText',
+      }),
+    ),
     diagnostics,
   };
 
@@ -596,7 +599,7 @@ function resolveThreads(
     };
   }
   const filtered = sourceSnapshot.remoteThreads
-    .filter((t) => t.anchorStatus === 'current' && t.location.kind === 'diff')
+    .filter((t) => isNodeDetailRemoteThread(t) && t.location.kind === 'diff')
     .filter((t) => matchesRemoteThread(t, node))
     .map(
       (t): NodeRemoteThreadSummary => ({
@@ -604,7 +607,7 @@ function resolveThreads(
         location: t.location,
         anchorStatus: t.anchorStatus,
         isResolved: t.isResolved,
-        isOutdated: t.isOutdated,
+        isOutdated: t.isOutdated || t.anchorStatus === 'outdated',
         comments: t.comments,
       }),
     );
@@ -612,6 +615,66 @@ function resolveThreads(
     remote: filtered,
     local: [],
     agent: agentThreads.map((thread) => toAgentThreadSummary(thread)),
+  };
+}
+
+function isNodeDetailRemoteThread(thread: ReviewRemoteThread): boolean {
+  return thread.anchorStatus === 'current' || thread.anchorStatus === 'outdated';
+}
+
+function resolveOutdatedAgentThreadsForNode(
+  node: GraphRenderNode,
+  outdatedThreads: Poc3OutdatedAgentThread[],
+  currentThreads: Poc3AgentReviewThread[],
+): Poc3OutdatedAgentThread[] {
+  const currentLocalThreadIds = new Set(currentThreads.map((thread) => thread.localThreadId));
+  return outdatedThreads
+    .filter((item) => !currentLocalThreadIds.has(item.thread.localThreadId))
+    .filter((item) => matchesAgentThread(item.thread, node));
+}
+
+function matchesAgentThread(thread: Poc3AgentReviewThread, node: GraphRenderNode): boolean {
+  const location = thread.location;
+  if (location.kind === 'overview') {
+    return node.kind === 'module' || node.kind === 'file-scope';
+  }
+  const filePath = location.filePath;
+  if (!filePath || !node.filePath || filePath !== node.filePath) {
+    return false;
+  }
+  if (node.kind === 'module' || node.kind === 'file-scope') {
+    return true;
+  }
+  const range = node.declarationRange;
+  if (!range) {
+    return true;
+  }
+  const line = location.endLine ?? location.startLine;
+  return line !== null && line >= range.startLine && line <= range.endLine;
+}
+
+function toNodeFindingSummary(
+  thread: Poc3AgentReviewThread,
+  options: {
+    isOutdated: boolean;
+    hasReplyableSession: boolean;
+  },
+): NodeDetailSnapshot['findings'][number] {
+  return {
+    findingId: thread.findingId,
+    localThreadId: thread.localThreadId,
+    severity: thread.severity,
+    category: thread.category,
+    confidence: thread.confidence,
+    title: thread.title,
+    body: thread.draftBody,
+    suggestion: thread.suggestion,
+    line: thread.location.kind === 'diff' ? thread.location.startLine : null,
+    endLine: thread.location.kind === 'diff' ? thread.location.endLine : null,
+    side: thread.location.kind === 'diff' ? thread.location.side : null,
+    status: thread.status === 'dismissed' ? 'resolved' : 'open',
+    hasReplyableSession: options.hasReplyableSession,
+    isOutdated: options.isOutdated,
   };
 }
 

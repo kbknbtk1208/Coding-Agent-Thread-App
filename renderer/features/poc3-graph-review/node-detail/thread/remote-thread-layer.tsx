@@ -94,7 +94,7 @@ function RemoteCommentThreadCard({
               {thread.isResolved ? 'resolved' : 'open'}
             </span>
           ) : null}
-          {thread.isOutdated ? (
+          {thread.isOutdated || thread.anchorStatus === 'outdated' ? (
             <span className="shrink-0 rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
               outdated
             </span>

@@ -33,6 +33,11 @@ export function FindingThreadAccordionHeader({
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
         {finding.title}
       </span>
+      {finding.isOutdated ? (
+        <span className="shrink-0 rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
+          outdated
+        </span>
+      ) : null}
       <FindingSeverityBadge finding={finding} />
     </button>
   );

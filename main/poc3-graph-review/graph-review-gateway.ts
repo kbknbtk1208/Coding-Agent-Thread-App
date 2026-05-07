@@ -53,7 +53,9 @@ import { INITIAL_GRAPH_SCOPE_KEY } from '../../shared/poc3-domain/graph';
 import type {
   Poc3AgentReviewEvent,
   Poc3AgentReviewRun,
+  Poc3AgentReviewThread,
 } from '../../shared/poc3-domain/agent-review';
+import type { Poc3OutdatedAgentThread } from '../../shared/poc3-domain/thread-retention';
 import type {
   PublicRepositoryProvider,
   RepositoryProfile,
@@ -561,6 +563,7 @@ export class GraphReviewGateway {
       revisionId: record.activeRevision.revisionId,
       nodeId,
     });
+    const outdatedAgentThreads = this.threadRetentionService.listOutdated(reviewWorkspaceId);
     const resolved = resolveNodeDetail({
       workspace: record.workspace,
       revisionId: record.activeRevision.revisionId,
@@ -571,6 +574,7 @@ export class GraphReviewGateway {
       renderSnapshot,
       sourceSnapshot,
       agentThreads,
+      outdatedAgentThreads,
       runById: new Map(
         this.agentReviewStore.listRuns(reviewWorkspaceId).map((run) => [run.runId, run] as const),
       ),
@@ -1260,7 +1264,13 @@ export class GraphReviewGateway {
     const sourceSnapshot = record.activeRevision
       ? this.graphStore.getSourceSnapshotByRevision(record.activeRevision.revisionId)
       : null;
-    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}`;
+    const outdatedAgentThreads = record.activeRevision
+      ? this.threadRetentionService.listOutdated(reviewWorkspaceId)
+      : [];
+    const outdatedAgentThreadsKey = outdatedAgentThreads
+      .map((item) => `${item.thread.localThreadId}:${item.tracking.checkedAt}`)
+      .join('|');
+    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}::${outdatedAgentThreadsKey}`;
     const cached = this.renderSnapshotCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -1274,16 +1284,26 @@ export class GraphReviewGateway {
     }
 
     const agentFindingCounts = new Map<string, number>();
+    let currentAgentThreads: Poc3AgentReviewThread[] = [];
     if (record.activeRevision) {
-      for (const thread of this.agentReviewStore.listThreadsForWorkspace({
+      currentAgentThreads = this.agentReviewStore.listThreadsForWorkspace({
         reviewWorkspaceId,
         revisionId: record.activeRevision.revisionId,
-      })) {
+      });
+      for (const thread of currentAgentThreads) {
         if (thread.nodeId) {
           agentFindingCounts.set(thread.nodeId, (agentFindingCounts.get(thread.nodeId) ?? 0) + 1);
         }
       }
     }
+    const outdatedAgentFindingCounts = buildOutdatedAgentFindingCountByNode(
+      record.graph.nodes,
+      outdatedAgentThreads,
+      currentAgentThreads,
+    );
+    outdatedAgentFindingCounts.forEach((count, nodeId) => {
+      agentFindingCounts.set(nodeId, (agentFindingCounts.get(nodeId) ?? 0) + count);
+    });
 
     const remoteThreadCounts = sourceSnapshot
       ? buildRemoteThreadCountByNode(record.graph.nodes, sourceSnapshot.remoteThreads)
@@ -1311,9 +1331,7 @@ export class GraphReviewGateway {
     if (!sourceSnapshot) {
       return { threads: [] };
     }
-    const archived = sourceSnapshot.remoteThreads.filter(
-      (t) => t.anchorStatus === 'outdated' || t.anchorStatus === 'unanchored',
-    );
+    const archived = sourceSnapshot.remoteThreads.filter((t) => t.anchorStatus === 'unanchored');
     return {
       threads: archived.map((thread) => ({
         reviewWorkspaceId,
@@ -1438,7 +1456,8 @@ export function buildRemoteThreadCountByNode(
 ): Map<string, number> {
   const counts = new Map<string, number>();
   const currentThreads = remoteThreads.filter(
-    (t) => t.anchorStatus === 'current' && t.location.kind === 'diff',
+    (t) =>
+      (t.anchorStatus === 'current' || t.anchorStatus === 'outdated') && t.location.kind === 'diff',
   );
   for (const node of nodes) {
     if (!node.filePath) {
@@ -1471,4 +1490,51 @@ export function buildRemoteThreadCountByNode(
     }
   }
   return counts;
+}
+
+export function buildOutdatedAgentFindingCountByNode(
+  nodes: CodeGraphSnapshot['nodes'],
+  outdatedThreads: Poc3OutdatedAgentThread[],
+  currentThreads: Poc3AgentReviewThread[] = [],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const currentLocalThreadIds = new Set(currentThreads.map((thread) => thread.localThreadId));
+  for (const node of nodes) {
+    let count = 0;
+    for (const item of outdatedThreads) {
+      if (currentLocalThreadIds.has(item.thread.localThreadId)) {
+        continue;
+      }
+      if (matchesAgentThreadToGraphNode(item.thread, node)) {
+        count += 1;
+      }
+    }
+    if (count > 0) {
+      counts.set(node.nodeId, count);
+    }
+  }
+  return counts;
+}
+
+function matchesAgentThreadToGraphNode(
+  thread: Poc3AgentReviewThread,
+  node: CodeGraphSnapshot['nodes'][number],
+): boolean {
+  const location = thread.location;
+  if (location.kind === 'overview') {
+    return node.kind === 'module' || node.kind === 'file-scope';
+  }
+  const filePath = location.filePath;
+  if (!filePath || !node.filePath || filePath !== node.filePath) {
+    return false;
+  }
+  if (node.kind === 'module' || node.kind === 'file-scope') {
+    return true;
+  }
+  const range = node.declarationRange;
+  if (!range) {
+    return true;
+  }
+  const line = location.endLine ?? location.startLine;
+  return line !== null && line >= range.startLine && line <= range.endLine;
 }

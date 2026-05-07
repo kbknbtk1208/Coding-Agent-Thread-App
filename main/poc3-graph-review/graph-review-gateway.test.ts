@@ -2,9 +2,17 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Poc3AgentReviewThread } from '../../shared/poc3-domain/agent-review';
+import type { CodeGraphNode } from '../../shared/poc3-domain/graph';
+import type { RevisionContext } from '../../shared/poc3-domain/revision';
 import type { RepositoryProfile } from '../../shared/poc3-domain/repository';
 import type { ReviewWorkspace } from '../../shared/poc3-domain/review-workspace';
-import { buildRemoteThreadCountByNode, GraphReviewGateway } from './graph-review-gateway';
+import type { Poc3OutdatedAgentThread } from '../../shared/poc3-domain/thread-retention';
+import {
+  buildOutdatedAgentFindingCountByNode,
+  buildRemoteThreadCountByNode,
+  GraphReviewGateway,
+} from './graph-review-gateway';
 
 const { removeWorktreeMock } = vi.hoisted(() => ({
   removeWorktreeMock: vi.fn(),
@@ -514,7 +522,7 @@ describe('GraphReviewGateway.removeReviewWorkspace', () => {
 });
 
 describe('buildRemoteThreadCountByNode', () => {
-  it('counts all current file comments for file-scope nodes and range comments for symbol nodes', () => {
+  it('counts current and outdated file comments for file-scope nodes and range comments for symbol nodes', () => {
     const nodes = [
       {
         nodeId: 'file-scope',
@@ -562,6 +570,36 @@ describe('buildRemoteThreadCountByNode', () => {
       createRemoteThread('outdated', 24, 'outdated'),
     ]);
 
+    expect(counts.get('file-scope')).toBe(3);
+    expect(counts.get('symbol')).toBe(2);
+  });
+});
+
+describe('buildOutdatedAgentFindingCountByNode', () => {
+  it('counts outdated findings by the node where they will be shown', () => {
+    const nodes = [
+      createGraphNode({
+        nodeId: 'file-scope',
+        kind: 'file-scope',
+        declarationRange: { startLine: 10, endLine: 10 },
+      }),
+      createGraphNode({
+        nodeId: 'symbol',
+        kind: 'function',
+        declarationRange: { startLine: 20, endLine: 30 },
+      }),
+    ];
+    const currentThread = createAgentThread({ localThreadId: 'current-thread' });
+    const counts = buildOutdatedAgentFindingCountByNode(
+      nodes,
+      [
+        createOutdatedAgentThread(createAgentThread({ localThreadId: 'file-thread', line: 12 })),
+        createOutdatedAgentThread(createAgentThread({ localThreadId: 'symbol-thread', line: 24 })),
+        createOutdatedAgentThread(currentThread),
+      ],
+      [currentThread],
+    );
+
     expect(counts.get('file-scope')).toBe(2);
     expect(counts.get('symbol')).toBe(1);
   });
@@ -600,6 +638,112 @@ function createRemoteThread(
       remoteCommentIds: [`${providerThreadId}:comment`],
       anchorRefs: {},
     },
+  };
+}
+
+function createGraphNode({
+  nodeId,
+  kind,
+  declarationRange,
+}: {
+  nodeId: string;
+  kind: 'file-scope' | 'function';
+  declarationRange: { startLine: number; endLine: number };
+}): CodeGraphNode {
+  return {
+    nodeId,
+    stableSymbolId: nodeId,
+    parentNodeId: kind === 'function' ? 'file-scope' : null,
+    kind,
+    label: nodeId,
+    filePath: 'src/example.ts',
+    declarationRange: {
+      filePath: 'src/example.ts',
+      startLine: declarationRange.startLine,
+      startColumn: 1,
+      endLine: declarationRange.endLine,
+      endColumn: 1,
+    },
+    diffStatus: kind === 'function' ? 'changed' : 'file-scope',
+    isDiffNode: true,
+    changedLineNumbers: [],
+    badges: { changedLines: 0, remoteThreadCount: 0, findingCount: 0 },
+  };
+}
+
+function createAgentThread({
+  localThreadId,
+  line = 24,
+}: {
+  localThreadId: string;
+  line?: number;
+}): Poc3AgentReviewThread {
+  return {
+    localThreadId,
+    runId: 'run-old',
+    reviewWorkspaceId: 'workspace-1',
+    revisionId: 'revision-old',
+    findingId: `${localThreadId}:finding`,
+    nodeId: 'old-node',
+    severity: 'medium',
+    category: 'correctness',
+    confidence: 'medium',
+    title: 'Outdated finding',
+    draftBody: 'body',
+    location: {
+      kind: 'diff',
+      filePath: 'src/example.ts',
+      startLine: line,
+      endLine: line,
+      side: 'new',
+    },
+    status: 'open',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function createOutdatedAgentThread(thread: Poc3AgentReviewThread): Poc3OutdatedAgentThread {
+  return {
+    thread,
+    tracking: {
+      localThreadId: thread.localThreadId,
+      reviewWorkspaceId: thread.reviewWorkspaceId,
+      sourceRevisionId: thread.revisionId,
+      checkedRevisionId: 'revision-1',
+      status: 'outdated',
+      reason: 'rangeChanged',
+      originalNodeId: thread.nodeId,
+      trackedNodeId: null,
+      originalLocation: thread.location,
+      checkedAt: '2026-01-02T00:00:00.000Z',
+    },
+    sourceRevision: createRevisionContext({ revisionId: thread.revisionId, isActive: false }),
+    checkedRevision: createRevisionContext({ revisionId: 'revision-1', isActive: true }),
+  };
+}
+
+function createRevisionContext({
+  revisionId,
+  isActive,
+}: {
+  revisionId: string;
+  isActive: boolean;
+}): RevisionContext {
+  return {
+    revisionId,
+    reviewWorkspaceId: 'workspace-1',
+    provider: 'github',
+    reviewId: '1',
+    baseSha: 'a'.repeat(40),
+    headSha: 'b'.repeat(40),
+    startSha: null,
+    sourceBranchName: 'feature/test',
+    diffVersion: null,
+    isActive,
+    status: isActive ? 'active' : 'orphaned',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
   };
 }
 
