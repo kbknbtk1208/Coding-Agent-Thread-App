@@ -2,7 +2,7 @@
 
 import { Files, X } from 'lucide-react';
 import { AnimatePresence, motion, useDragControls, useMotionValue } from 'motion/react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import {
   DOCK_GLASS_STYLE,
@@ -20,6 +20,8 @@ const DOCK_WIDTH = 272;
 const DOCK_HEIGHT = 'min(72vh, 480px)';
 const TRIGGER_WIDTH = 120;
 const TRIGGER_HEIGHT = 40;
+const MIN_EXPANDED_WIDTH = 240;
+const MAX_EXPANDED_WIDTH = 640;
 
 interface FileTreeDockProps {
   graph: GraphRenderSnapshot;
@@ -32,6 +34,8 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const isDraggingRef = useRef(false);
+  const [expandedWidth, setExpandedWidth] = useState(DOCK_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
 
   const treeItems = buildDiffFileTree(graph.nodes);
   if (treeItems.length === 0) return null;
@@ -48,8 +52,36 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
     [treeItems, onFileSelect],
   );
 
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = expandedWidth;
+      setIsResizing(true);
+
+      const handleMove = (moveEvent: PointerEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const next = Math.max(MIN_EXPANDED_WIDTH, Math.min(MAX_EXPANDED_WIDTH, startWidth + delta));
+        setExpandedWidth(next);
+      };
+
+      const handleUp = () => {
+        setIsResizing(false);
+        window.removeEventListener('pointermove', handleMove);
+        window.removeEventListener('pointerup', handleUp);
+        window.removeEventListener('pointercancel', handleUp);
+      };
+
+      window.addEventListener('pointermove', handleMove);
+      window.addEventListener('pointerup', handleUp);
+      window.addEventListener('pointercancel', handleUp);
+    },
+    [expandedWidth],
+  );
+
   const widthValue =
-    stage === 'collapsed' || stage === 'widthCollapsing' ? TRIGGER_WIDTH : DOCK_WIDTH;
+    stage === 'collapsed' || stage === 'widthCollapsing' ? TRIGGER_WIDTH : expandedWidth;
 
   const heightValue =
     stage === 'collapsed' || stage === 'widthExpanding' || stage === 'widthCollapsing'
@@ -74,7 +106,7 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
       initial={{ width: TRIGGER_WIDTH, height: TRIGGER_HEIGHT }}
       animate={{ width: widthValue, height: heightValue }}
       transition={{
-        width: { duration: 0.45, ease: [0.4, 0, 0.2, 1] },
+        width: isResizing ? { duration: 0 } : { duration: 0.45, ease: [0.4, 0, 0.2, 1] },
         height: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
       }}
       style={{ ...DOCK_GLASS_STYLE, x, y }}
@@ -170,6 +202,21 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
           </Poc3FolderTree.Root>
         </div>
       </motion.div>
+
+      {/* resize handle — only when fully expanded */}
+      {isExpanded && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="File Tree の横幅を調整"
+          onPointerDown={handleResizePointerDown}
+          className="group absolute right-0 top-0 z-20 flex h-full w-1.5 cursor-ew-resize items-center justify-center"
+        >
+          <div
+            className={`h-10 w-px transition-colors ${isResizing ? 'bg-white/40' : 'bg-transparent group-hover:bg-white/25'}`}
+          />
+        </div>
+      )}
     </motion.div>
   );
 }
