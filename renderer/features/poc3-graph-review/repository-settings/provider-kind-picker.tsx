@@ -71,7 +71,7 @@ export function ProviderKindPicker({ value, onChange }: ProviderKindPickerProps)
                       onChange(option.id);
                       setIsOpen(false);
                     }}
-                    className={`relative flex h-12 min-w-[124px] items-center justify-center gap-2 px-5 text-sm font-semibold transition ${
+                    className={`relative flex h-12 min-w-[124px] cursor-pointer items-center justify-center gap-2 px-5 text-sm font-semibold transition ${
                       isActive ? 'text-white' : 'text-[#aeb6bd] hover:text-white'
                     }`}
                   >
@@ -94,7 +94,7 @@ export function ProviderKindPicker({ value, onChange }: ProviderKindPickerProps)
         <button
           type="button"
           onClick={() => setIsOpen((current) => !current)}
-          className="relative flex h-10 w-full min-w-[150px] items-center justify-center gap-3 overflow-hidden rounded-lg border border-white/[0.22] bg-[#101010]/90 px-4 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-22px_44px_rgba(0,0,0,0.38)] backdrop-blur-[48px] transition hover:bg-[#1b1b1b]/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#479FFA] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+          className="relative flex h-10 w-full min-w-[150px] cursor-pointer items-center justify-center gap-3 overflow-hidden rounded-lg border border-white/[0.22] bg-[#101010]/90 px-4 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-22px_44px_rgba(0,0,0,0.38)] backdrop-blur-[48px] transition hover:bg-[#1b1b1b]/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#479FFA] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           aria-label={`Provider: ${selected.label}`}
           aria-expanded={isOpen}
           aria-haspopup="listbox"
