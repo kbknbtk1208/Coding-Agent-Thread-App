@@ -26,7 +26,7 @@ export function AgentReviewRunStream({
   const { pendingPermissions, turns } = session;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" aria-live="off" aria-busy={isActive}>
       {pendingPermissions.map((permission) => (
         <AgentReviewPermissionActionRow
           key={permission.requestId}

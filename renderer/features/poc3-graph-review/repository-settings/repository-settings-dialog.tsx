@@ -11,6 +11,7 @@ import { SETTINGS_LAYOUT_ID } from './repository-draft-helpers';
 import { useDialogExitTransition } from './use-dialog-exit-transition';
 import { useRepositorySettings } from './use-repository-settings';
 import { POC3_MOTION_DURATION, POC3_MOTION_EASE } from '../components/motion-timing';
+import { useDialogA11y } from '../components/use-dialog-a11y';
 
 interface RepositorySettingsDialogProps {
   open: boolean;
@@ -23,7 +24,6 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   const { rendered, closing } = useDialogExitTransition(open);
   const settings = useRepositorySettings();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const overlayMouseDownTargetRef = useRef<EventTarget | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -38,27 +38,13 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
     onClose();
   };
 
-  useEffect(() => {
-    if (!rendered || closing) {
-      return;
-    }
-    closeButtonRef.current?.focus();
-  }, [rendered, closing]);
-
-  useEffect(() => {
-    if (!rendered || closing || settings.confirmMismatch) {
-      return;
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        closeDialog();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rendered, closing, settings.confirmMismatch]);
+  const { backdropProps } = useDialogA11y({
+    rendered,
+    closing,
+    onClose: closeDialog,
+    initialFocusRef: closeButtonRef,
+    disableEscape: Boolean(settings.confirmMismatch),
+  });
 
   return (
     <AnimatePresence>
@@ -89,20 +75,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
           <motion.div
             key="poc3-settings-shell"
             className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8"
-            onMouseDown={(event) => {
-              overlayMouseDownTargetRef.current =
-                event.target === event.currentTarget ? event.currentTarget : null;
-            }}
-            onMouseUp={(event) => {
-              const downTarget = overlayMouseDownTargetRef.current;
-              overlayMouseDownTargetRef.current = null;
-              if (closing) {
-                return;
-              }
-              if (downTarget === event.currentTarget && event.target === event.currentTarget) {
-                closeDialog();
-              }
-            }}
+            {...backdropProps}
           >
             <motion.div
               layoutId={SETTINGS_LAYOUT_ID}

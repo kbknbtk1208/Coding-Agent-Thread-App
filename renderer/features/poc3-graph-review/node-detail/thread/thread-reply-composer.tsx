@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2, SendHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 export function ThreadErrorBanner({ message }: { message: string }) {
   return (
@@ -23,6 +23,7 @@ export function ThreadReplyComposer({
   onSubmit(): void;
 }) {
   const [composing, setComposing] = useState(false);
+  const textareaId = useId();
   const disabled = replyStatus === 'replying' || body.trim().length === 0;
   return (
     <form
@@ -34,7 +35,11 @@ export function ThreadReplyComposer({
         }
       }}
     >
+      <label htmlFor={textareaId} className="sr-only">
+        Finding スレッドへの返信
+      </label>
       <textarea
+        id={textareaId}
         value={body}
         rows={2}
         className="min-h-[46px] flex-1 resize-none rounded-[8px] border border-white/[0.1] bg-black/25 px-3 py-2 text-[12px] leading-5 text-white outline-none transition placeholder:text-white/28 focus:border-[#479FFA]/45 focus:bg-black/35"

@@ -23,6 +23,7 @@ import {
   getMotionStaggerDelay,
   resolveMotionDuration,
 } from '../components/motion-timing';
+import { useDialogA11y } from '../components/use-dialog-a11y';
 import type { ReviewWorkspaceListItem } from './use-review-workspaces';
 
 interface WorkspaceListCardProps {
@@ -485,6 +486,13 @@ export function ForceRemoveDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const { backdropProps } = useDialogA11y({
+    rendered: Boolean(target),
+    closing: false,
+    onClose: onCancel,
+    initialFocusRef: cancelButtonRef,
+  });
   return (
     <AnimatePresence>
       {target ? (
@@ -500,7 +508,10 @@ export function ForceRemoveDialog({
           }}
         >
           <div className="absolute inset-0 bg-black/32 backdrop-blur-[6px]" />
-          <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center p-4"
+            {...backdropProps}
+          >
             <motion.section
               role="dialog"
               aria-modal="true"
@@ -541,6 +552,7 @@ export function ForceRemoveDialog({
               </p>
               <div className="mt-4 flex justify-end gap-2">
                 <button
+                  ref={cancelButtonRef}
                   type="button"
                   onClick={onCancel}
                   disabled={removing}
@@ -577,6 +589,13 @@ export function PurgeDbOnlyDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const { backdropProps } = useDialogA11y({
+    rendered: Boolean(target),
+    closing: false,
+    onClose: onCancel,
+    initialFocusRef: cancelButtonRef,
+  });
   return (
     <AnimatePresence>
       {target ? (
@@ -592,7 +611,10 @@ export function PurgeDbOnlyDialog({
           }}
         >
           <div className="absolute inset-0 bg-black/32 backdrop-blur-[6px]" />
-          <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center p-4"
+            {...backdropProps}
+          >
             <motion.section
               role="dialog"
               aria-modal="true"
@@ -635,6 +657,7 @@ export function PurgeDbOnlyDialog({
               </p>
               <div className="mt-4 flex justify-end gap-2">
                 <button
+                  ref={cancelButtonRef}
                   type="button"
                   onClick={onCancel}
                   disabled={removing}

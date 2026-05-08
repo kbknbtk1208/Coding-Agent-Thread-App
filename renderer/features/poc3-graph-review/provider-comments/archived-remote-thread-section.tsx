@@ -27,7 +27,7 @@ export function ArchivedRemoteThreadSection({ threads }: { threads: Poc3Archived
           >
             <button
               type="button"
-              className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left"
+              className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
               onClick={() =>
                 setExpandedId((current) =>
                   current === item.thread.providerThreadId ? null : item.thread.providerThreadId,

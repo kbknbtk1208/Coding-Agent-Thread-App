@@ -2,13 +2,13 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { GitPullRequest, Play, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ResolveReviewWorkspaceTargetResult } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { ReviewWorkspaceCreationJobSnapshot } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import { useDialogExitTransition } from '../repository-settings/use-dialog-exit-transition';
+import { useDialogA11y } from '../components/use-dialog-a11y';
 
 export const CREATE_WORKSPACE_LAYOUT_ID = 'poc3-create-workspace-surface';
-
-const DIALOG_BLUR_EXIT_MS = 360;
 
 interface CreateWorkspaceDialogProps {
   open: boolean;
@@ -17,36 +17,31 @@ interface CreateWorkspaceDialogProps {
 }
 
 export function CreateWorkspaceDialog({ open, onClose, onStarted }: CreateWorkspaceDialogProps) {
-  const [rendered, setRendered] = useState(open);
-  const [closing, setClosing] = useState(false);
+  const { rendered, closing } = useDialogExitTransition(open);
   const [reviewUrl, setReviewUrl] = useState('');
   const [resolving, setResolving] = useState(false);
   const [resolution, setResolution] = useState<ResolveReviewWorkspaceTargetResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const shouldRender = open || rendered;
+  const urlInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setRendered(true);
-      setClosing(false);
+    if (rendered || closing) {
       return;
     }
-    if (!rendered) {
-      return;
-    }
-    setClosing(true);
-    const timerId = window.setTimeout(() => {
-      setRendered(false);
-      setClosing(false);
-      setReviewUrl('');
-      setResolution(null);
-      setResolving(false);
-      setSubmitting(false);
-      setError(null);
-    }, DIALOG_BLUR_EXIT_MS);
-    return () => window.clearTimeout(timerId);
-  }, [open, rendered]);
+    setReviewUrl('');
+    setResolution(null);
+    setResolving(false);
+    setSubmitting(false);
+    setError(null);
+  }, [rendered, closing]);
+
+  const { backdropProps } = useDialogA11y({
+    rendered,
+    closing,
+    onClose,
+    initialFocusRef: urlInputRef,
+  });
 
   useEffect(() => {
     if (!open) {
@@ -113,7 +108,7 @@ export function CreateWorkspaceDialog({ open, onClose, onStarted }: CreateWorksp
 
   return (
     <AnimatePresence>
-      {shouldRender ? (
+      {rendered ? (
         <motion.div
           key="poc3-create-workspace-layer"
           className="fixed inset-0 z-[60]"
@@ -134,11 +129,7 @@ export function CreateWorkspaceDialog({ open, onClose, onStarted }: CreateWorksp
           <motion.div
             key="poc3-create-workspace-shell"
             className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8"
-            onClick={(event) => {
-              if (!closing && event.target === event.currentTarget) {
-                onClose();
-              }
-            }}
+            {...backdropProps}
           >
             <motion.div
               layoutId={CREATE_WORKSPACE_LAYOUT_ID}
@@ -189,6 +180,7 @@ export function CreateWorkspaceDialog({ open, onClose, onStarted }: CreateWorksp
                     <div className="mt-1 flex items-center gap-2 rounded-lg border border-white/[0.12] bg-black/30 px-3 focus-within:border-[#d8e071]/45">
                       <GitPullRequest className="h-4 w-4 text-[#a8b0b8]" aria-hidden="true" />
                       <input
+                        ref={urlInputRef}
                         id="poc3-create-workspace-url"
                         value={reviewUrl}
                         onChange={(event) => setReviewUrl(event.target.value)}

@@ -13,7 +13,12 @@ export function GraphAnalysisState({
 }) {
   const failed = status !== 'loading';
   return (
-    <section className="flex h-full min-h-[420px] items-center justify-center">
+    <section
+      role={failed ? 'alert' : 'status'}
+      aria-live={failed ? 'assertive' : 'polite'}
+      aria-atomic="true"
+      className="flex h-full min-h-[420px] items-center justify-center"
+    >
       <div className="flex items-center gap-3 rounded-[8px] border border-white/[0.12] bg-white/[0.04] px-4 py-3 text-sm text-white/78">
         {failed ? (
           <AlertTriangle className="size-5 text-[#ffbf6b]" aria-hidden="true" />
