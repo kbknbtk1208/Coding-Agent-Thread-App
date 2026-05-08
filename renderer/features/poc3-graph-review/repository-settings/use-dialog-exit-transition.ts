@@ -5,25 +5,25 @@ export function useDialogExitTransition(open: boolean): {
   rendered: boolean;
   closing: boolean;
 } {
-  const [rendered, setRendered] = useState(open);
+  const [hasOpened, setHasOpened] = useState(open);
   const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setRendered(true);
+      setHasOpened(true);
       setClosing(false);
       return;
     }
-    if (!rendered) {
+    if (!hasOpened) {
       return;
     }
     setClosing(true);
     const timerId = window.setTimeout(() => {
-      setRendered(false);
+      setHasOpened(false);
       setClosing(false);
     }, POC3_MOTION_TIMEOUT_MS.dialogBlurExit);
     return () => window.clearTimeout(timerId);
-  }, [open, rendered]);
+  }, [open, hasOpened]);
 
-  return { rendered, closing };
+  return { rendered: open || hasOpened, closing };
 }
