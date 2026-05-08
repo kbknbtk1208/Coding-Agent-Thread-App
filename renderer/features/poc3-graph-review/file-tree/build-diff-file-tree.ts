@@ -5,34 +5,43 @@ export interface DiffFileTreeItem {
   name: string;
   path: string;
   kind: 'dir' | 'file';
+  findingCount: number;
+  remoteCount: number;
   children: DiffFileTreeItem[];
 }
 
 /**
  * グラフノードからファイルツリーを構築する。
  * diffOnly=true の場合は isDiffNode のファイルのみ対象（false にすると全ノードが対象）。
+ * 各ファイル/ディレクトリには Agent finding と Remote thread の件数が集計される
+ * （ディレクトリは配下ファイルの合計）。
  */
 export function buildDiffFileTree(nodes: GraphRenderNode[], diffOnly = true): DiffFileTreeItem[] {
   const targetNodes = diffOnly ? nodes.filter((n) => n.isDiffNode) : nodes;
 
-  const filePaths = new Set<string>();
+  const fileCounts = new Map<string, { findingCount: number; remoteCount: number }>();
   for (const node of targetNodes) {
-    if (node.filePath) {
-      filePaths.add(node.filePath);
-    }
+    if (!node.filePath) continue;
+    const current = fileCounts.get(node.filePath) ?? { findingCount: 0, remoteCount: 0 };
+    current.findingCount += node.badges.findingCount;
+    current.remoteCount += node.badges.remoteThreadCount;
+    fileCounts.set(node.filePath, current);
   }
 
-  if (filePaths.size === 0) return [];
+  if (fileCounts.size === 0) return [];
 
   const root: DiffFileTreeItem = {
     id: '__root__',
     name: '',
     path: '',
     kind: 'dir',
+    findingCount: 0,
+    remoteCount: 0,
     children: [],
   };
 
-  for (const filePath of Array.from(filePaths).sort()) {
+  for (const filePath of Array.from(fileCounts.keys()).sort()) {
+    const counts = fileCounts.get(filePath)!;
     const normalized = filePath.replace(/\\/g, '/');
     const parts = normalized.split('/').filter(Boolean);
     let current = root;
@@ -49,6 +58,8 @@ export function buildDiffFileTree(nodes: GraphRenderNode[], diffOnly = true): Di
           name: part,
           path: partPath,
           kind: isLast ? 'file' : 'dir',
+          findingCount: isLast ? counts.findingCount : 0,
+          remoteCount: isLast ? counts.remoteCount : 0,
           children: [],
         };
         current.children.push(child);
@@ -57,7 +68,25 @@ export function buildDiffFileTree(nodes: GraphRenderNode[], diffOnly = true): Di
     }
   }
 
+  bubbleUpCounts(root);
+
   return root.children;
+}
+
+function bubbleUpCounts(item: DiffFileTreeItem): { findingCount: number; remoteCount: number } {
+  if (item.kind === 'file') {
+    return { findingCount: item.findingCount, remoteCount: item.remoteCount };
+  }
+  let findingCount = 0;
+  let remoteCount = 0;
+  for (const child of item.children) {
+    const sub = bubbleUpCounts(child);
+    findingCount += sub.findingCount;
+    remoteCount += sub.remoteCount;
+  }
+  item.findingCount = findingCount;
+  item.remoteCount = remoteCount;
+  return { findingCount, remoteCount };
 }
 
 export function collectDefaultExpanded(items: DiffFileTreeItem[]): string[] {

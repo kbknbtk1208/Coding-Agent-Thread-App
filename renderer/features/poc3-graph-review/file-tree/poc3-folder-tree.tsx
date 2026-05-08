@@ -101,6 +101,7 @@ interface ItemProps {
   label: string;
   icon?: LucideIcon;
   className?: string;
+  accessory?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -312,7 +313,7 @@ const ItemContext = createContext<{
   toggleExpanded: () => void;
 } | null>(null);
 
-const Item: React.FC<ItemProps> = ({ id, label, icon, className = '', children }) => {
+const Item: React.FC<ItemProps> = ({ id, label, icon, className = '', accessory, children }) => {
   const expansionContext = useExpansion();
   const selectionContext = useSelection();
   const treeContext = useTree();
@@ -402,6 +403,7 @@ const Item: React.FC<ItemProps> = ({ id, label, icon, className = '', children }
               )}
               aria-hidden="true"
             />
+            {accessory ? <span className="flex shrink-0 items-center">{accessory}</span> : null}
             <span className="flex-1 truncate">{label}</span>
           </motion.div>
           {children}

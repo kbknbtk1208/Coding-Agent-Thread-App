@@ -234,15 +234,51 @@ function findItem(items: DiffFileTreeItem[], id: string): DiffFileTreeItem | nul
 
 function renderItems(items: DiffFileTreeItem[]) {
   return items.map((item) => {
+    const accessory = <CountBadges finding={item.findingCount} remote={item.remoteCount} />;
     if (item.kind === 'file') {
-      return <Poc3FolderTree.Item key={item.id} id={item.id} label={item.name} />;
+      return (
+        <Poc3FolderTree.Item key={item.id} id={item.id} label={item.name} accessory={accessory} />
+      );
     }
     return (
-      <Poc3FolderTree.Item key={item.id} id={item.id} label={item.name}>
+      <Poc3FolderTree.Item key={item.id} id={item.id} label={item.name} accessory={accessory}>
         {item.children.length > 0 && (
           <Poc3FolderTree.Content>{renderItems(item.children)}</Poc3FolderTree.Content>
         )}
       </Poc3FolderTree.Item>
     );
   });
+}
+
+function CountBadges({ finding, remote }: { finding: number; remote: number }) {
+  if (finding === 0 && remote === 0) return null;
+  return (
+    <span className="mr-1 flex items-center gap-1" aria-hidden="false">
+      {finding > 0 && (
+        <CountChip value={finding} label={`Agent inline thread ${finding} 件`} color="#d8e071" />
+      )}
+      {remote > 0 && (
+        <CountChip value={remote} label={`Remote comment ${remote} 件`} color="#7dd3fc" />
+      )}
+    </span>
+  );
+}
+
+function CountChip({ value, label, color }: { value: number; label: string; color: string }) {
+  const display = value > 99 ? '99+' : String(value);
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className="inline-flex h-[14px] min-w-[16px] items-center justify-center rounded-[3px] px-1 text-[9px] font-medium leading-none tabular-nums"
+      style={{
+        color,
+        backgroundColor: `${color}1f`,
+        boxShadow: `inset 0 0 0 1px ${color}33`,
+      }}
+    >
+      {display}
+    </span>
+  );
 }
