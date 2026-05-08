@@ -17,7 +17,11 @@ import {
   providerAddLayoutId,
   type ProviderDraft,
 } from './repository-draft-helpers';
-import { POC3_MOTION_DURATION, POC3_MOTION_EASE } from '../components/motion-timing';
+import {
+  POC3_MOTION_DELAY,
+  POC3_MOTION_DURATION,
+  POC3_MOTION_EASE,
+} from '../components/motion-timing';
 
 export function ProviderSection(props: {
   drafts: ProviderDraft[];
@@ -43,7 +47,7 @@ export function ProviderSection(props: {
             layoutId={draft.layoutId}
             {...(draft.repositoryProviderId
               ? {
-                  custom: { index, reducedMotion },
+                  custom: { index, reducedMotion, extraDelay: POC3_MOTION_DELAY.settingsItemDelay },
                   variants: LIST_ITEM_MOTION_VARIANTS,
                   initial: 'hidden',
                   animate: 'visible',
@@ -139,8 +143,23 @@ export function ProviderSection(props: {
 }
 
 function ProviderAddButton({ layoutId, onClick }: { layoutId: string; onClick: () => void }) {
+  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = shouldReduceMotion === true;
+  const delay = reducedMotion
+    ? 0
+    : POC3_MOTION_DELAY.repositoryListBase + POC3_MOTION_DELAY.settingsItemDelay;
+
   return (
-    <div className="flex min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-white/[0.12] bg-black/[0.08]">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{
+        duration: reducedMotion ? 0.08 : POC3_MOTION_DURATION.listItem,
+        ease: POC3_MOTION_EASE.standard,
+        delay,
+      }}
+      className="flex min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-white/[0.12] bg-black/[0.08]"
+    >
       <motion.button
         type="button"
         layout
@@ -155,6 +174,6 @@ function ProviderAddButton({ layoutId, onClick }: { layoutId: string; onClick: (
         <Plus className="h-4 w-4" aria-hidden="true" />
         Provider
       </motion.button>
-    </div>
+    </motion.div>
   );
 }

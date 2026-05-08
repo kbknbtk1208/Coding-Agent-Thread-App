@@ -26,6 +26,7 @@ export const POC3_MOTION_DELAY = {
   repositoryListMax: 0.4,
   workspaceItemMax: 0.3,
   commitItemMax: 0.4,
+  settingsItemDelay: 0.2,
 } as const;
 
 export const POC3_MOTION_TIMEOUT_MS = {

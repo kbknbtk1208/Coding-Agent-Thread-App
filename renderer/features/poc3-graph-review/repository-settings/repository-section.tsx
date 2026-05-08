@@ -12,7 +12,11 @@ import {
 import { RepositoryRowEditForm } from './repository-row-edit-form';
 import { RepositoryRowView } from './repository-row-view';
 import type { ResolveProviderRequest } from './use-debounced-resolve-provider';
-import { POC3_MOTION_DURATION, POC3_MOTION_EASE } from '../components/motion-timing';
+import {
+  POC3_MOTION_DELAY,
+  POC3_MOTION_DURATION,
+  POC3_MOTION_EASE,
+} from '../components/motion-timing';
 
 export function RepositorySection(props: {
   drafts: ProfileDraft[];
@@ -85,7 +89,7 @@ function RepositoryDraftRow(props: {
       layoutId={draft.layoutId}
       {...(draft.repositoryProfileId
         ? {
-            custom: { index, reducedMotion },
+            custom: { index, reducedMotion, extraDelay: POC3_MOTION_DELAY.settingsItemDelay },
             variants: LIST_ITEM_MOTION_VARIANTS,
             initial: 'hidden',
             animate: 'visible',
@@ -111,8 +115,23 @@ function RepositoryDraftRow(props: {
 }
 
 function RepositoryAddButton({ layoutId, onClick }: { layoutId: string; onClick: () => void }) {
+  const shouldReduceMotion = useReducedMotion();
+  const reducedMotion = shouldReduceMotion === true;
+  const delay = reducedMotion
+    ? 0
+    : POC3_MOTION_DELAY.repositoryListBase + POC3_MOTION_DELAY.settingsItemDelay;
+
   return (
-    <div className="flex min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-white/[0.12] bg-black/[0.08]">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{
+        duration: reducedMotion ? 0.08 : POC3_MOTION_DURATION.listItem,
+        ease: POC3_MOTION_EASE.standard,
+        delay,
+      }}
+      className="flex min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-white/[0.12] bg-black/[0.08]"
+    >
       <motion.button
         type="button"
         layout
@@ -127,6 +146,6 @@ function RepositoryAddButton({ layoutId, onClick }: { layoutId: string; onClick:
         <Plus className="h-4 w-4" aria-hidden="true" />
         Repository
       </motion.button>
-    </div>
+    </motion.div>
   );
 }

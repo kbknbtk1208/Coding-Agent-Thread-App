@@ -29,6 +29,13 @@ export const LIST_ITEM_MOTION_VARIANTS: Variants = {
       typeof custom === 'object' && custom != null && 'reducedMotion' in custom
         ? custom.reducedMotion === true
         : false;
+    const extraDelay =
+      typeof custom === 'object' &&
+      custom != null &&
+      'extraDelay' in custom &&
+      typeof (custom as { extraDelay: unknown }).extraDelay === 'number'
+        ? (custom as { extraDelay: number }).extraDelay
+        : 0;
     return {
       opacity: 1,
       x: 0,
@@ -38,7 +45,7 @@ export const LIST_ITEM_MOTION_VARIANTS: Variants = {
         delay: getMotionStaggerDelay(
           index,
           POC3_MOTION_DELAY.repositoryListStep,
-          POC3_MOTION_DELAY.repositoryListBase,
+          POC3_MOTION_DELAY.repositoryListBase + extraDelay,
           POC3_MOTION_DELAY.repositoryListMax,
           reducedMotion,
         ),
