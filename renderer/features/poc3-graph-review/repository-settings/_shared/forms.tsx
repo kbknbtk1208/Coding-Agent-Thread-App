@@ -1,8 +1,13 @@
 import { FolderOpen } from 'lucide-react';
+import { useId } from 'react';
 import type React from 'react';
 
-export function Label({ children }: { children: React.ReactNode }) {
-  return <label className="text-xs font-medium text-[#8e98a4]">{children}</label>;
+export function Label({ htmlFor, children }: { htmlFor?: string; children: React.ReactNode }) {
+  return (
+    <label htmlFor={htmlFor} className="text-xs font-medium text-[#8e98a4]">
+      {children}
+    </label>
+  );
 }
 
 export function TextInput({
@@ -10,11 +15,13 @@ export function TextInput({
   placeholder,
   onChange,
   type = 'text',
+  ariaLabel,
 }: {
   value: string;
   placeholder: string;
   onChange: (value: string) => void;
   type?: string;
+  ariaLabel: string;
 }) {
   return (
     <input
@@ -23,6 +30,7 @@ export function TextInput({
       onChange={(event) => onChange(event.target.value)}
       className="h-10 rounded-lg border border-white/[0.12] bg-black/30 px-3 text-sm text-white outline-none transition placeholder:text-[#68717b] focus:border-[#d8e071]/45"
       placeholder={placeholder}
+      aria-label={ariaLabel}
     />
   );
 }
@@ -40,10 +48,12 @@ export function LabeledInput({
   onChange: (value: string) => void;
   onBlur?: () => void;
 }) {
+  const inputId = useId();
   return (
     <div>
-      <Label>{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <input
+        id={inputId}
         value={value}
         onBlur={onBlur}
         onChange={(event) => onChange(event.target.value)}
@@ -63,11 +73,13 @@ interface PathInputProps {
 }
 
 export function PathInput({ label, value, placeholder, onChange, onBrowse }: PathInputProps) {
+  const inputId = useId();
   return (
     <div>
-      <Label>{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <div className="mt-1 flex gap-2">
         <input
+          id={inputId}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.12] bg-black/30 px-3 text-sm text-white outline-none transition placeholder:text-[#68717b] focus:border-[#d8e071]/45"
@@ -76,6 +88,7 @@ export function PathInput({ label, value, placeholder, onChange, onBrowse }: Pat
         <button
           type="button"
           onClick={onBrowse}
+          aria-label={`${label} を参照`}
           className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-white/[0.12] px-3 text-sm text-white transition hover:border-[#d8e071]/35"
         >
           <FolderOpen className="h-4 w-4" aria-hidden="true" />
@@ -167,13 +180,14 @@ export function PrimaryButton({
 }
 
 export function RowMessage({ error, message }: { error: string | null; message: string | null }) {
-  if (!error && !message) {
-    return null;
-  }
   return (
-    <p className={`mt-3 text-sm ${error ? 'text-[#ffb4b4]' : 'text-[#cfd78a]'}`}>
-      {error ?? message}
-    </p>
+    <div role="status" aria-live={error ? 'assertive' : 'polite'} aria-atomic="true">
+      {error || message ? (
+        <p className={`mt-3 text-sm ${error ? 'text-[#ffb4b4]' : 'text-[#cfd78a]'}`}>
+          {error ?? message}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

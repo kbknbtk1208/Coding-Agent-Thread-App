@@ -67,12 +67,14 @@ export function ProviderSection(props: {
                     value={draft.baseUrl}
                     placeholder={defaultBaseUrl(draft.kind)}
                     onChange={(value) => onChange(draft.draftId, { baseUrl: value })}
+                    ariaLabel="Provider base URL"
                   />
                   <TextInput
                     value={draft.token}
                     type="password"
                     placeholder={draft.hasToken ? '保存済み。変更時のみ入力' : 'Access token'}
                     onChange={(value) => onChange(draft.draftId, { token: value })}
+                    ariaLabel="Provider access token"
                   />
                   <div className="flex gap-2">
                     <IconButton

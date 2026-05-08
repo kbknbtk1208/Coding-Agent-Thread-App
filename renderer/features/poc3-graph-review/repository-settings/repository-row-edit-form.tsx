@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useId } from 'react';
 import type React from 'react';
 import type { PublicRepositoryProvider } from '../../../../shared/poc3-domain/repository';
 import {
@@ -34,6 +34,9 @@ export function RepositoryRowEditForm(props: {
 }): React.ReactElement {
   const { draft, providerById, onChange, onResolve, onBrowse, onValidate, onSave } = props;
   const selectedProvider = providerById.get(draft.repositoryProviderId);
+  const setupScriptPanelId = useId();
+  const setupScriptToggleId = useId();
+  const resolvedProviderId = useId();
   const canSave =
     !draft.busy &&
     !draft.isResolvingProvider &&
@@ -72,8 +75,13 @@ export function RepositoryRowEditForm(props: {
           }
         />
         <div className="min-w-0">
-          <Label>resolved provider</Label>
-          <p className="mt-1 flex h-10 items-center truncate text-sm text-white">
+          <Label htmlFor={resolvedProviderId}>resolved provider</Label>
+          <p
+            id={resolvedProviderId}
+            role="status"
+            aria-live="polite"
+            className="mt-1 flex h-10 items-center truncate text-sm text-white"
+          >
             {draft.isResolvingProvider
               ? '解決中...'
               : selectedProvider
@@ -82,7 +90,7 @@ export function RepositoryRowEditForm(props: {
           </p>
         </div>
       </div>
-      <p className="mt-2 min-h-4 text-xs text-[#a8b0b8]">
+      <p className="mt-2 min-h-4 text-xs text-[#a8b0b8]" aria-live="polite">
         {draft.isResolvingProvider
           ? 'Provider を解決中...'
           : selectedProvider
@@ -119,7 +127,10 @@ export function RepositoryRowEditForm(props: {
       </div>
       <div className="mt-4">
         <button
+          id={setupScriptToggleId}
           type="button"
+          aria-expanded={draft.showSetupScript}
+          aria-controls={setupScriptPanelId}
           onClick={() =>
             onChange(draft.draftId, {
               showSetupScript: !draft.showSetupScript,
@@ -141,6 +152,9 @@ export function RepositoryRowEditForm(props: {
         <AnimatePresence initial={false}>
           {draft.showSetupScript ? (
             <motion.div
+              id={setupScriptPanelId}
+              role="region"
+              aria-labelledby={setupScriptToggleId}
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
@@ -148,6 +162,7 @@ export function RepositoryRowEditForm(props: {
             >
               <textarea
                 value={draft.setupScriptText}
+                aria-labelledby={setupScriptToggleId}
                 onChange={(event) =>
                   onChange(draft.draftId, {
                     setupScriptText: event.target.value,

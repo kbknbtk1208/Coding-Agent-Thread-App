@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { Message } from './_shared/forms';
 import { ConfirmOriginMismatchDialog } from './confirm-origin-mismatch-dialog';
 import { ProviderSection } from './provider-section';
@@ -22,6 +22,8 @@ export { SETTINGS_LAYOUT_ID };
 export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDialogProps) {
   const { rendered, closing } = useDialogExitTransition(open);
   const settings = useRepositorySettings();
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const overlayMouseDownTargetRef = useRef<EventTarget | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -35,6 +37,28 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
     }
     onClose();
   };
+
+  useEffect(() => {
+    if (!rendered || closing) {
+      return;
+    }
+    closeButtonRef.current?.focus();
+  }, [rendered, closing]);
+
+  useEffect(() => {
+    if (!rendered || closing || settings.confirmMismatch) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        closeDialog();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rendered, closing, settings.confirmMismatch]);
 
   return (
     <AnimatePresence>
@@ -65,8 +89,17 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
           <motion.div
             key="poc3-settings-shell"
             className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8"
-            onClick={(event) => {
-              if (!closing && event.target === event.currentTarget) {
+            onMouseDown={(event) => {
+              overlayMouseDownTargetRef.current =
+                event.target === event.currentTarget ? event.currentTarget : null;
+            }}
+            onMouseUp={(event) => {
+              const downTarget = overlayMouseDownTargetRef.current;
+              overlayMouseDownTargetRef.current = null;
+              if (closing) {
+                return;
+              }
+              if (downTarget === event.currentTarget && event.target === event.currentTarget) {
                 closeDialog();
               }
             }}
@@ -91,7 +124,7 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                 aria-labelledby="poc3-repository-settings-title"
                 className="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-[#131313]/35 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-34px_70px_rgba(0,0,0,0.2)] backdrop-blur-[16px]"
               >
-                <DialogHeader onClose={closeDialog} />
+                <DialogHeader onClose={closeDialog} closeButtonRef={closeButtonRef} />
                 <div className="space-y-6 p-5">
                   {settings.loadError ? <Message tone="error">{settings.loadError}</Message> : null}
                   <ProviderSection
@@ -129,7 +162,13 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
   );
 }
 
-function DialogHeader({ onClose }: { onClose: () => void }) {
+function DialogHeader({
+  onClose,
+  closeButtonRef,
+}: {
+  onClose: () => void;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
+}) {
   return (
     <div className="sticky top-0 z-10 flex items-start justify-between gap-4 px-5 py-4">
       <div>
@@ -138,6 +177,7 @@ function DialogHeader({ onClose }: { onClose: () => void }) {
         </h2>
       </div>
       <button
+        ref={closeButtonRef}
         type="button"
         onClick={onClose}
         className="cursor-pointer rounded-lg border border-white/[0.12] bg-white/[0.06] p-2 text-white transition hover:bg-white/[0.1]"
