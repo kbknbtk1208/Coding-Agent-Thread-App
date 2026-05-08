@@ -61,6 +61,7 @@ import {
   ThoughtChainTrigger,
 } from '../components/odysseyui/thought-chain';
 import { AnimatedCurvedTimeline } from '../components/ui/animated-curved-timeline';
+import { LiquidMetal, type LiquidMetalColor } from '../components/ui/liquid-metal';
 
 type OverlayDemo = 'none' | 'flex' | 'dock' | 'magic' | 'island';
 
@@ -138,6 +139,7 @@ export default function UiComponentPage() {
   );
   const [overlay, setOverlay] = React.useState<OverlayDemo>('none');
   const [morphingIndex, setMorphingIndex] = React.useState(0);
+  const [liquidColor, setLiquidColor] = React.useState<LiquidMetalColor>('chrome');
 
   React.useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -611,6 +613,58 @@ export default function UiComponentPage() {
             <Card title="Animated Curved Timeline">
               <div className="h-[560px]">
                 <AnimatedCurvedTimeline />
+              </div>
+            </Card>
+          </section>
+
+          <section className="mt-6">
+            <Card title="Liquid Metal">
+              <div className="space-y-6">
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    ['chrome', 'gold', 'bronze', 'red', 'blue', 'emerald'] as LiquidMetalColor[]
+                  ).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setLiquidColor(c)}
+                      className={`rounded px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] transition ${liquidColor === c ? 'bg-[#FFA16C] text-black' : 'border border-white/[0.08] bg-white/[0.055] text-[#868F97] hover:bg-white/[0.08] cursor-pointer'}`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-start gap-8">
+                  <LiquidMetal color={liquidColor} borderRadius={50}>
+                    <div className="bg-[linear-gradient(176.83deg,#1a1a1a_24.95%,#0c0c0c_88.5%)] px-8 py-4">
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#FFA16C]">agent</p>
+                      <p className="mt-1 text-xl font-semibold text-white">Review Gate</p>
+                    </div>
+                  </LiquidMetal>
+
+                  <LiquidMetal color={liquidColor} borderRadius={16}>
+                    <div className="w-[240px] bg-[linear-gradient(176.83deg,#141414_24.95%,#080808_88.5%)] p-5">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#868F97]">
+                        status
+                      </p>
+                      <p className="mt-2 text-3xl font-semibold text-white">09</p>
+                      <p className="mt-1 text-sm text-[#868F97]">accepted threads</p>
+                    </div>
+                  </LiquidMetal>
+
+                  <LiquidMetal color={liquidColor} borderRadius="50%">
+                    <div className="flex h-[100px] w-[100px] flex-col items-center justify-center bg-[linear-gradient(176.83deg,#1a1a1a_24.95%,#080808_88.5%)]">
+                      <p className="text-[10px] uppercase text-[#868F97]">PR</p>
+                      <p className="text-2xl font-bold text-white">#128</p>
+                    </div>
+                  </LiquidMetal>
+                </div>
+
+                <p className="text-sm leading-7 text-[#868F97]">
+                  WebGL シェーダーで生成したリキッドメタルの枠線。children の形状と border-radius
+                  に合わせて縁取りが追随します。
+                </p>
               </div>
             </Card>
           </section>
