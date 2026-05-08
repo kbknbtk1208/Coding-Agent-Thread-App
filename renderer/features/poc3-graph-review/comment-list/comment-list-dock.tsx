@@ -24,7 +24,7 @@ interface CommentListDockProps {
   items: CommentListItem[];
   resultsByKey: ReadonlyMap<string, ResolveJudgementViewModel>;
   runState: ResolveJudgementRunState;
-  onSelectNode: (nodeId: string) => void;
+  onSelectComment: (item: CommentListItem) => void;
   onStartResolveJudgement: () => void;
   toResolveKey: (item: CommentListItem) => string;
 }
@@ -33,7 +33,7 @@ export function CommentListDock({
   items,
   resultsByKey,
   runState,
-  onSelectNode,
+  onSelectComment,
   onStartResolveJudgement,
   toResolveKey,
 }: CommentListDockProps) {
@@ -117,7 +117,7 @@ export function CommentListDock({
                     <button
                       key={item.key}
                       type="button"
-                      onClick={() => onSelectNode(item.nodeId)}
+                      onClick={() => onSelectComment(item)}
                       className="flex w-full cursor-pointer items-start gap-2 rounded-[5px] px-3 py-2 text-left transition-colors hover:bg-white/[0.045]"
                     >
                       {judgement ? <CommentRowDecisionDot decision={judgement.decision} /> : null}

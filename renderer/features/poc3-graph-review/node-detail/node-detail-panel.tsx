@@ -11,6 +11,10 @@ import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-w
 import { usePublishComments } from '../provider-comments/use-publish-comments';
 import type { UsePublishCommentsReturn } from '../provider-comments/use-publish-comments';
 import type { NodeDetailState } from './use-node-detail';
+import {
+  NodeDetailScrollTargetProvider,
+  type NodeDetailScrollTarget,
+} from './node-detail-scroll-target-context';
 import type { DiffAwareSourceBase } from './diff-aware-source-model';
 import { PanelHeader } from './panel-shell/panel-header';
 import { LoadingState, ErrorState, InlineNotice } from './panel-shell/panel-status';
@@ -31,6 +35,7 @@ export interface NodeDetailPanelProps {
   onClose(): void;
   onNodeDetailRefresh?: () => void;
   providerKind?: ReviewProviderKind;
+  scrollTarget?: NodeDetailScrollTarget | null;
 }
 
 export function NodeDetailPanel({
@@ -42,6 +47,7 @@ export function NodeDetailPanel({
   onClose,
   onNodeDetailRefresh,
   providerKind,
+  scrollTarget = null,
 }: NodeDetailPanelProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLElement | null>(null);
@@ -105,15 +111,17 @@ export function NodeDetailPanel({
                 closeButtonRef={closeButtonRef}
               />
               <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-                <PanelBody
-                  state={state}
-                  selectedNode={selectedNode}
-                  viewMode={viewMode}
-                  onViewModeChange={onViewModeChange}
-                  onSelectNode={onSelectNode}
-                  onNodeDetailRefresh={onNodeDetailRefresh}
-                  providerKind={providerKind}
-                />
+                <NodeDetailScrollTargetProvider target={scrollTarget}>
+                  <PanelBody
+                    state={state}
+                    selectedNode={selectedNode}
+                    viewMode={viewMode}
+                    onViewModeChange={onViewModeChange}
+                    onSelectNode={onSelectNode}
+                    onNodeDetailRefresh={onNodeDetailRefresh}
+                    providerKind={providerKind}
+                  />
+                </NodeDetailScrollTargetProvider>
               </div>
             </div>
           </motion.aside>

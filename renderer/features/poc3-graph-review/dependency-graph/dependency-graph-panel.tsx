@@ -8,6 +8,7 @@ import { CommentListDock } from '../comment-list/comment-list-dock';
 import type { CommentListItem } from '../comment-list/use-comment-list';
 import { useCommentList } from '../comment-list/use-comment-list';
 import { FileTreeDock } from '../file-tree/file-tree-dock';
+import type { NodeDetailScrollTarget } from '../node-detail/node-detail-scroll-target-context';
 import {
   ResolveJudgementContext,
   buildResolveJudgementMapKey,
@@ -29,13 +30,34 @@ export function DependencyGraphPanel({
   const { state, reload, retry } = useWorkspaceGraph(selectedWorkspace, reloadNonce);
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<NodeDetailScrollTarget | null>(null);
   const handleSelectNode = useCallback((id: string | null) => {
     setSelectedNodeId(id);
+    setScrollTarget(null);
+  }, []);
+  const handleSelectComment = useCallback((item: CommentListItem) => {
+    setSelectedNodeId(item.nodeId);
+    setScrollTarget((current) => {
+      const nextNonce = (current?.nonce ?? 0) + 1;
+      if (item.type === 'agent') {
+        return {
+          kind: 'agent-thread',
+          localThreadId: item.commentKey.commentId,
+          nonce: nextNonce,
+        };
+      }
+      return {
+        kind: 'remote-thread',
+        providerThreadId: item.commentKey.commentId,
+        nonce: nextNonce,
+      };
+    });
   }, []);
   const handleCompleted = useCallback(() => void reload(), [reload]);
 
   useEffect(() => {
     setHighlightedFilePath(null);
+    setScrollTarget(null);
   }, [selectedWorkspace?.reviewWorkspaceId]);
 
   if (!selectedWorkspace) {
@@ -64,7 +86,9 @@ export function DependencyGraphPanel({
           selectedWorkspace={selectedWorkspace}
           highlightedFilePath={highlightedFilePath}
           selectedNodeId={selectedNodeId}
+          scrollTarget={scrollTarget}
           onSelectNode={handleSelectNode}
+          onSelectComment={handleSelectComment}
           onFileSelect={setHighlightedFilePath}
           onCompleted={handleCompleted}
         />
@@ -78,7 +102,9 @@ function ReadyGraphContent({
   selectedWorkspace,
   highlightedFilePath,
   selectedNodeId,
+  scrollTarget,
   onSelectNode,
+  onSelectComment,
   onFileSelect,
   onCompleted,
 }: {
@@ -86,7 +112,9 @@ function ReadyGraphContent({
   selectedWorkspace: ReviewWorkspaceListItem;
   highlightedFilePath: string | null;
   selectedNodeId: string | null;
+  scrollTarget: NodeDetailScrollTarget | null;
   onSelectNode: (id: string | null) => void;
+  onSelectComment: (item: CommentListItem) => void;
   onFileSelect: (filePath: string | null) => void;
   onCompleted: () => void;
 }) {
@@ -111,9 +139,7 @@ function ReadyGraphContent({
         resultsByKey={judgements.resultsByKey}
         runState={judgements.runState}
         toResolveKey={toResolveKey}
-        onSelectNode={(nodeId) => {
-          onSelectNode(nodeId);
-        }}
+        onSelectComment={onSelectComment}
         onStartResolveJudgement={() => {
           void judgements.start();
         }}
@@ -124,6 +150,7 @@ function ReadyGraphContent({
         providerKind={selectedWorkspace.provider}
         highlightedFilePath={highlightedFilePath}
         selectedNodeId={selectedNodeId}
+        scrollTarget={scrollTarget}
         onSelectNode={onSelectNode}
       />
       <AgentControlCenter

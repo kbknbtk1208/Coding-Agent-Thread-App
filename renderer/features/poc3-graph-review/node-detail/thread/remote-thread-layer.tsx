@@ -1,9 +1,13 @@
 'use client';
 
 import { ChevronDown, ExternalLink, MessageSquareText } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { NodeDetailSnapshot } from '../../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-domain/comment-publish';
+import {
+  isRemoteThreadScrollTarget,
+  useNodeDetailScrollTarget,
+} from '../node-detail-scroll-target-context';
 import { RemoteThreadReplyComposer } from '../../provider-comments/remote-thread-reply-composer';
 import {
   ResolveJudgementPill,
@@ -85,14 +89,32 @@ function RemoteCommentThreadCard({
     commentType: 'remote-thread',
     commentId: thread.providerThreadId,
   });
+  const scrollTarget = useNodeDetailScrollTarget();
+  const articleRef = useRef<HTMLElement | null>(null);
+  const handledScrollNonceRef = useRef<number | null>(null);
   const headerId = useId();
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
   const commentCount = thread.comments.length;
   const firstUrl = thread.comments[0]?.url ?? null;
 
+  useEffect(() => {
+    if (!isRemoteThreadScrollTarget(scrollTarget, thread.providerThreadId)) return;
+    if (handledScrollNonceRef.current === scrollTarget.nonce) return;
+    handledScrollNonceRef.current = scrollTarget.nonce;
+    setIsExpanded(true);
+    const frameId = window.requestAnimationFrame(() => {
+      articleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [scrollTarget, thread.providerThreadId]);
+
   return (
-    <article className="relative overflow-hidden rounded-[8px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(88,215,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(88,215,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]">
+    <article
+      ref={articleRef}
+      data-thread-id={`remote:${thread.providerThreadId}`}
+      className="relative overflow-hidden rounded-[8px] bg-[linear-gradient(182.51deg,rgba(255,255,255,0.02)_27.09%,rgba(90,90,90,0.02)_58.59%,rgba(0,0,0,0.02)_92.75%)] px-[9px] py-[7.5px] pl-5 shadow-[0_30.0444px_16.2444px_rgba(0,0,0,0.12),0_15.6px_8.2875px_rgba(0,0,0,0.07),0_6.35556px_4.15556px_rgba(0,0,0,0.04)] backdrop-blur-[10px] [--gradientBorder-gradient:linear-gradient(178.8deg,rgba(88,215,255,0.2464)_10.85%,rgba(20,20,20,0.46)_24.36%,rgba(50,50,50,0.46)_73.67%,rgba(88,215,255,0.46)_90.68%)] [--gradientBorder-size:1px] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-[var(--gradientBorder-size)] before:content-[''] before:[background:var(--gradientBorder-gradient)] before:[user-select:none] before:[-webkit-mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)] before:[mask:linear-gradient(black,black)_content-box_exclude,linear-gradient(black,black)]"
+    >
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(88,215,255,0.045)_0%,rgba(88,215,255,0.02)_48%,rgba(255,255,255,0.01)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"

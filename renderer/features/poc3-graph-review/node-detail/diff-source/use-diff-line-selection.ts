@@ -23,6 +23,7 @@ import {
   type DiffAwareSourceBase,
   type DiffAwareSourceLine,
 } from '../diff-aware-source-model';
+import { useNodeDetailScrollTarget } from '../node-detail-scroll-target-context';
 import {
   isSelectableDiffAwareLine,
   isContiguousProviderSelection,
@@ -79,6 +80,12 @@ export interface DiffLineVirtualScroller {
     lineNumber: number,
     options?: { align?: 'start' | 'center' | 'end' | 'auto'; offset?: number },
   ): boolean;
+  scrollToProviderLocation(
+    side: 'LEFT' | 'RIGHT',
+    providerLine: number,
+    options?: { align?: 'start' | 'center' | 'end' | 'auto' },
+  ): boolean;
+  scrollToOverviewFindings(): boolean;
   focusLine(line: DiffAwareSourceLine): void;
 }
 
@@ -93,6 +100,9 @@ export function useDiffLineSelection({
 }: UseDiffLineSelectionProps): UseDiffLineSelectionReturn {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const virtualScrollerRef = useRef<DiffLineVirtualScroller | null>(null);
+  const [scrollerReady, setScrollerReady] = useState(false);
+  const scrollTarget = useNodeDetailScrollTarget();
+  const handledScrollNonceRef = useRef<number | null>(null);
   const [expandedRange, setExpandedRange] = useState<{
     startLine: number;
     endLine: number;
@@ -568,7 +578,49 @@ export function useDiffLineSelection({
 
   const registerVirtualScroller = useEventCallback((scroller: DiffLineVirtualScroller | null) => {
     virtualScrollerRef.current = scroller;
+    setScrollerReady(scroller !== null);
   });
+
+  useEffect(() => {
+    if (!scrollerReady || !scrollTarget) return;
+    if (handledScrollNonceRef.current === scrollTarget.nonce) return;
+
+    let providerLine: number | null = null;
+    let providerSide: 'LEFT' | 'RIGHT' | null = null;
+    let isOverview = false;
+
+    if (scrollTarget.kind === 'agent-thread') {
+      const finding = detail.findings.find(
+        (entry) => entry.localThreadId === scrollTarget.localThreadId,
+      );
+      if (!finding) return;
+      if (finding.line === null) {
+        isOverview = true;
+      } else {
+        providerLine = finding.endLine ?? finding.line;
+        providerSide = finding.side === 'old' ? 'LEFT' : 'RIGHT';
+      }
+    } else {
+      const thread = detail.threads.remote.find(
+        (entry) => entry.providerThreadId === scrollTarget.providerThreadId,
+      );
+      if (!thread || thread.location.kind !== 'diff') return;
+      providerLine = thread.location.endLine ?? thread.location.startLine;
+      providerSide = thread.location.side;
+    }
+
+    handledScrollNonceRef.current = scrollTarget.nonce;
+    const scroller = virtualScrollerRef.current;
+    if (!scroller) return;
+
+    if (isOverview) {
+      scroller.scrollToOverviewFindings();
+      return;
+    }
+    if (providerSide !== null && providerLine !== null) {
+      scroller.scrollToProviderLocation(providerSide, providerLine);
+    }
+  }, [detail.findings, detail.threads.remote, scrollTarget, scrollerReady]);
 
   return {
     lines,

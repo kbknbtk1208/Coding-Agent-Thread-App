@@ -110,12 +110,26 @@ export function VirtualDiffSourceList({
         }
         return true;
       },
+      scrollToProviderLocation(side, providerLine, options) {
+        const index = virtualItemsModel.sourceItemIndexByProviderLocation.get(
+          `${side}:${String(providerLine)}`,
+        );
+        if (index === undefined) return false;
+        virtualizer.scrollToIndex(index, { align: options?.align ?? 'center' });
+        return true;
+      },
+      scrollToOverviewFindings() {
+        const index = items.findIndex((item) => item.kind === 'overview-findings');
+        if (index === -1) return false;
+        virtualizer.scrollToIndex(index, { align: 'start' });
+        return true;
+      },
       focusLine(line) {
         focusLineAfterScroll(line);
       },
     });
     return () => handlers.registerVirtualScroller(null);
-  }, [handlers, scrollContainerRef, virtualItemsModel, virtualizer]);
+  }, [handlers, items, scrollContainerRef, virtualItemsModel, virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
 

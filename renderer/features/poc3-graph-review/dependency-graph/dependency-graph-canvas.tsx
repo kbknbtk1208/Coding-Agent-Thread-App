@@ -13,6 +13,7 @@ import type { GraphRenderNode, GraphRenderSnapshot } from '../../../../shared/po
 import type { NodeDetailViewMode } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-workspace';
 import { NodeDetailPanel } from '../node-detail/node-detail-panel';
+import type { NodeDetailScrollTarget } from '../node-detail/node-detail-scroll-target-context';
 import { useNodeDetail } from '../node-detail/use-node-detail';
 import { Poc3GraphNode } from './graph-node';
 import type { Poc3FlowEdge, Poc3FlowNode } from './to-react-flow-elements';
@@ -30,6 +31,7 @@ export interface DependencyGraphCanvasProps {
   providerKind: ReviewProviderKind;
   highlightedFilePath?: string | null;
   selectedNodeId: string | null;
+  scrollTarget?: NodeDetailScrollTarget | null;
   onSelectNode: (nodeId: string | null) => void;
 }
 
@@ -47,6 +49,7 @@ function DependencyGraphCanvasInner({
   providerKind,
   highlightedFilePath,
   selectedNodeId,
+  scrollTarget,
   onSelectNode,
 }: DependencyGraphCanvasProps) {
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
@@ -171,6 +174,7 @@ function DependencyGraphCanvasInner({
           onClose={() => onSelectNode(null)}
           onNodeDetailRefresh={() => setNodeDetailRefreshKey((k) => k + 1)}
           providerKind={providerKind}
+          scrollTarget={scrollTarget ?? null}
         />
       ) : null}
     </div>
