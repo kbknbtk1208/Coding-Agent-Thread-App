@@ -2,9 +2,17 @@
 
 import { Network } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { AgentControlCenter } from '../agent-review/agent-control-center';
 import { CommentListDock } from '../comment-list/comment-list-dock';
+import type { CommentListItem } from '../comment-list/use-comment-list';
+import { useCommentList } from '../comment-list/use-comment-list';
 import { FileTreeDock } from '../file-tree/file-tree-dock';
+import {
+  ResolveJudgementContext,
+  buildResolveJudgementMapKey,
+} from '../resolve-judgement/resolve-judgement-context';
+import { useResolveJudgements } from '../resolve-judgement/use-resolve-judgements';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
 import { DependencyGraphCanvas } from './dependency-graph-canvas';
 import { GraphAnalysisState } from './graph-analysis-state';
@@ -51,31 +59,79 @@ export function DependencyGraphPanel({
         <GraphEmptyState />
       ) : null}
       {state.status === 'ready' && state.result.graph && state.result.graph.nodes.length > 0 ? (
-        <>
-          <FileTreeDock graph={state.result.graph} onFileSelect={setHighlightedFilePath} />
-          <CommentListDock
-            graph={state.result.graph}
-            reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
-            onSelectNode={(nodeId) => {
-              handleSelectNode(nodeId);
-            }}
-          />
-          <DependencyGraphCanvas
-            graph={state.result.graph}
-            reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
-            providerKind={selectedWorkspace.provider}
-            highlightedFilePath={highlightedFilePath}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={handleSelectNode}
-          />
-          <AgentControlCenter
-            graph={state.result.graph}
-            selectedWorkspace={selectedWorkspace}
-            onCompleted={handleCompleted}
-          />
-        </>
+        <ReadyGraphContent
+          graph={state.result.graph}
+          selectedWorkspace={selectedWorkspace}
+          highlightedFilePath={highlightedFilePath}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={handleSelectNode}
+          onFileSelect={setHighlightedFilePath}
+          onCompleted={handleCompleted}
+        />
       ) : null}
     </section>
+  );
+}
+
+function ReadyGraphContent({
+  graph,
+  selectedWorkspace,
+  highlightedFilePath,
+  selectedNodeId,
+  onSelectNode,
+  onFileSelect,
+  onCompleted,
+}: {
+  graph: GraphRenderSnapshot;
+  selectedWorkspace: ReviewWorkspaceListItem;
+  highlightedFilePath: string | null;
+  selectedNodeId: string | null;
+  onSelectNode: (id: string | null) => void;
+  onFileSelect: (filePath: string | null) => void;
+  onCompleted: () => void;
+}) {
+  const { items, revisionId } = useCommentList(graph, selectedWorkspace.reviewWorkspaceId);
+  const judgements = useResolveJudgements({
+    reviewWorkspaceId: selectedWorkspace.reviewWorkspaceId,
+    revisionId,
+    scopeKey: graph.scopeKey,
+    agent: 'codex',
+  });
+
+  const toResolveKey = useCallback(
+    (item: CommentListItem) => buildResolveJudgementMapKey(item.commentKey),
+    [],
+  );
+
+  return (
+    <ResolveJudgementContext.Provider value={judgements}>
+      <FileTreeDock graph={graph} onFileSelect={onFileSelect} />
+      <CommentListDock
+        items={items}
+        resultsByKey={judgements.resultsByKey}
+        runState={judgements.runState}
+        toResolveKey={toResolveKey}
+        onSelectNode={(nodeId) => {
+          onSelectNode(nodeId);
+        }}
+        onStartResolveJudgement={() => {
+          void judgements.start();
+        }}
+      />
+      <DependencyGraphCanvas
+        graph={graph}
+        reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
+        providerKind={selectedWorkspace.provider}
+        highlightedFilePath={highlightedFilePath}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={onSelectNode}
+      />
+      <AgentControlCenter
+        graph={graph}
+        selectedWorkspace={selectedWorkspace}
+        onCompleted={onCompleted}
+      />
+    </ResolveJudgementContext.Provider>
   );
 }
 

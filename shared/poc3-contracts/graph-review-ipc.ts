@@ -42,6 +42,11 @@ import type {
   Poc3PublishCommentSource,
   Poc3PublishedCommentRecord,
 } from '../poc3-domain/comment-publish';
+import type {
+  ResolveJudgementEvent,
+  ResolveJudgementResult,
+  ResolveJudgementRun,
+} from '../poc3-domain/resolve-judgement';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
 export type {
@@ -106,6 +111,15 @@ export type {
   Poc3PublishCommentSource,
   Poc3PublishedCommentRecord,
 } from '../poc3-domain/comment-publish';
+export type {
+  ResolveJudgementCommentKey,
+  ResolveJudgementCommentType,
+  ResolveJudgementDecision,
+  ResolveJudgementEvent,
+  ResolveJudgementResult,
+  ResolveJudgementRun,
+  ResolveJudgementRunStatus,
+} from '../poc3-domain/resolve-judgement';
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
@@ -189,6 +203,10 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   awaitAgentReviewThreadReplyResult: 'poc3:agent-review:thread-reply:await',
   loadAgentThreadConversation: 'poc3:agent-review:thread-conversation:load',
   listAgentThreadConversations: 'poc3:agent-review:thread-conversation:list',
+  startResolveJudgement: 'poc3:resolve-judgement:start',
+  awaitResolveJudgementResult: 'poc3:resolve-judgement:await',
+  listResolveJudgementResults: 'poc3:resolve-judgement:results:list',
+  resolveJudgementEvent: 'poc3:resolve-judgement:event',
 } as const;
 
 export interface ListRepositoryProvidersResult {
@@ -584,6 +602,55 @@ export interface ListAgentThreadConversationsResult {
   conversations: Poc3AgentThreadConversation[];
 }
 
+export interface StartResolveJudgementInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  agent: AgentKind;
+  codexModel?: string;
+  codexReasoningEffort?: string;
+}
+
+export type StartResolveJudgementResult =
+  | {
+      ok: true;
+      run: ResolveJudgementRun;
+      reusedRunningRun: boolean;
+    }
+  | {
+      ok: false;
+      reason: 'agentUnavailable' | 'workspaceNotFound' | 'revisionNotFound' | 'graphNotReady';
+      message: string;
+      run: null;
+    };
+
+export interface AwaitResolveJudgementInput {
+  runId: string;
+}
+
+export type AwaitResolveJudgementResult =
+  | {
+      ok: true;
+      run: ResolveJudgementRun;
+      results: ResolveJudgementResult[];
+    }
+  | {
+      ok: false;
+      reason: 'runNotFound' | 'agentFailed' | 'schemaValidationFailed';
+      message: string;
+      run: ResolveJudgementRun | null;
+      results: ResolveJudgementResult[];
+    };
+
+export interface ListResolveJudgementResultsInput {
+  reviewWorkspaceId: string;
+  revisionId: string;
+}
+
+export interface ListResolveJudgementResultsResult {
+  results: ResolveJudgementResult[];
+  runningRun: ResolveJudgementRun | null;
+}
+
 export interface Poc3GraphReviewApi {
   listRepositoryProviders(): Promise<ListRepositoryProvidersResult>;
   saveRepositoryProvider(input: SaveRepositoryProviderInput): Promise<SaveRepositoryProviderResult>;
@@ -641,8 +708,16 @@ export interface Poc3GraphReviewApi {
   listAgentThreadConversations(
     input: ListAgentThreadConversationsInput,
   ): Promise<ListAgentThreadConversationsResult>;
+  startResolveJudgement(input: StartResolveJudgementInput): Promise<StartResolveJudgementResult>;
+  awaitResolveJudgementResult(
+    input: AwaitResolveJudgementInput,
+  ): Promise<AwaitResolveJudgementResult>;
+  listResolveJudgementResults(
+    input: ListResolveJudgementResultsInput,
+  ): Promise<ListResolveJudgementResultsResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
   onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
   onRevisionRefreshEvent(callback: (event: RevisionRefreshEvent) => void): () => void;
   onAgentReviewEvent(callback: (event: Poc3AgentReviewEvent) => void): () => void;
+  onResolveJudgementEvent(callback: (event: ResolveJudgementEvent) => void): () => void;
 }

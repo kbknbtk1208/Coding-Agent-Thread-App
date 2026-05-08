@@ -57,6 +57,15 @@ import type {
 } from '../../shared/poc3-domain/agent-review';
 import type { Poc3OutdatedAgentThread } from '../../shared/poc3-domain/thread-retention';
 import type {
+  AwaitResolveJudgementInput,
+  AwaitResolveJudgementResult,
+  ListResolveJudgementResultsInput,
+  ListResolveJudgementResultsResult,
+  StartResolveJudgementInput,
+  StartResolveJudgementResult,
+} from '../../shared/poc3-contracts/graph-review-ipc';
+import type { ResolveJudgementEvent } from '../../shared/poc3-domain/resolve-judgement';
+import type {
   PublicRepositoryProvider,
   RepositoryProfile,
   RepositoryProfileInput,
@@ -104,6 +113,8 @@ import {
   publishInlineComment as coordinatePublishInlineComment,
   replyRemoteComment as coordinateReplyRemoteComment,
 } from './source/review-comment-publish-coordinator';
+import { ResolveJudgementCoordinator } from './resolve-judgement/coordinator';
+import { ResolveJudgementStore } from './resolve-judgement/store';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -126,6 +137,8 @@ export class GraphReviewGateway {
   private readonly profileStore: RepositoryProfileStore;
   private readonly graphStore: GraphReviewStore;
   private readonly agentReviewStore: Poc3AgentReviewStore;
+  private readonly resolveJudgementStore: ResolveJudgementStore;
+  private readonly resolveJudgementCoordinator: ResolveJudgementCoordinator | null;
   private readonly agentReviewCoordinator: Poc3AgentReviewCoordinator | null;
   private readonly threadReplyCoordinator: Poc3AgentReviewThreadReplyCoordinator | null;
   private readonly analysisCoordinator: AnalysisCoordinator;
@@ -154,11 +167,14 @@ export class GraphReviewGateway {
       | 'forkSession'
       | 'sendFollowUp'
     >,
+    private readonly emitResolveJudgementEvent: (event: ResolveJudgementEvent) => void = () =>
+      undefined,
   ) {
     this.providerStore = new RepositoryProviderStore(userDataPath);
     this.profileStore = new RepositoryProfileStore(userDataPath);
     this.graphStore = new GraphReviewStore(userDataPath);
     this.agentReviewStore = new Poc3AgentReviewStore(userDataPath);
+    this.resolveJudgementStore = new ResolveJudgementStore(userDataPath);
     this.agentReviewCoordinator = this.agentGateway
       ? new Poc3AgentReviewCoordinator({
           agentGateway: this.agentGateway,
@@ -169,6 +185,14 @@ export class GraphReviewGateway {
       ? new Poc3AgentReviewThreadReplyCoordinator({
           agentGateway: this.agentGateway,
           store: this.agentReviewStore,
+        })
+      : null;
+    this.resolveJudgementCoordinator = this.agentGateway
+      ? new ResolveJudgementCoordinator({
+          graphStore: this.graphStore,
+          agentReviewStore: this.agentReviewStore,
+          agentGateway: this.agentGateway,
+          resultStore: this.resolveJudgementStore,
         })
       : null;
     this.analysisCoordinator = new AnalysisCoordinator(this.graphStore, (event) => {
@@ -406,6 +430,7 @@ export class GraphReviewGateway {
       }
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
       this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
+      this.resolveJudgementStore.deleteWorkspace(reviewWorkspaceId);
       this.clearWorkspaceCaches(reviewWorkspaceId);
       this.dbOnlyPurgeAllowedWorkspaceIds.delete(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
@@ -427,6 +452,7 @@ export class GraphReviewGateway {
       await removeWorktree(profile.localClonePath, workspace.worktreePath, force);
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
       this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
+      this.resolveJudgementStore.deleteWorkspace(reviewWorkspaceId);
       this.clearWorkspaceCaches(reviewWorkspaceId);
       this.dbOnlyPurgeAllowedWorkspaceIds.delete(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
@@ -1199,12 +1225,84 @@ export class GraphReviewGateway {
     };
   }
 
+  startResolveJudgement(input: StartResolveJudgementInput): StartResolveJudgementResult {
+    if (!this.resolveJudgementCoordinator) {
+      return {
+        ok: false,
+        reason: 'agentUnavailable',
+        message: 'AgentGateway が設定されていません。',
+        run: null,
+      };
+    }
+    const result = this.resolveJudgementCoordinator.start({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      scopeKey: input.scopeKey,
+      agent: input.agent,
+      codexModel: input.codexModel,
+      codexReasoningEffort: input.codexReasoningEffort,
+    });
+    if (!result.ok) {
+      return result;
+    }
+    if (!result.reusedRunningRun && result.run.status !== 'completed') {
+      this.emitResolveJudgementEvent({ type: 'resolve-judgement.started', run: result.run });
+      void this.finalizeResolveJudgementRun(result.run.runId);
+    }
+    return { ok: true, run: result.run, reusedRunningRun: result.reusedRunningRun };
+  }
+
+  async awaitResolveJudgementResult(
+    input: AwaitResolveJudgementInput,
+  ): Promise<AwaitResolveJudgementResult> {
+    if (!this.resolveJudgementCoordinator) {
+      return {
+        ok: false,
+        reason: 'agentFailed',
+        message: 'AgentGateway が設定されていません。',
+        run: null,
+        results: [],
+      };
+    }
+    return this.resolveJudgementCoordinator.awaitResult({ runId: input.runId });
+  }
+
+  listResolveJudgementResults(
+    input: ListResolveJudgementResultsInput,
+  ): ListResolveJudgementResultsResult {
+    if (!this.resolveJudgementCoordinator) {
+      return { results: [], runningRun: null };
+    }
+    return this.resolveJudgementCoordinator.listResults({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      revisionId: input.revisionId,
+    });
+  }
+
+  private async finalizeResolveJudgementRun(runId: string): Promise<void> {
+    if (!this.resolveJudgementCoordinator) return;
+    const outcome = await this.resolveJudgementCoordinator.awaitResult({ runId });
+    if (outcome.ok) {
+      this.emitResolveJudgementEvent({
+        type: 'resolve-judgement.completed',
+        run: outcome.run,
+        results: outcome.results,
+      });
+    } else if (outcome.run) {
+      this.emitResolveJudgementEvent({
+        type: 'resolve-judgement.failed',
+        run: outcome.run,
+        message: outcome.message,
+      });
+    }
+  }
+
   dispose(): void {
     this.renderSnapshotCache.clear();
     this.providerStore.close();
     this.profileStore.close();
     this.graphStore.close();
     this.agentReviewStore.close();
+    this.resolveJudgementStore.close();
   }
 
   private toListItem(workspace: ReviewWorkspace): ReviewWorkspaceListItem {

@@ -48,6 +48,8 @@ import {
   type AwaitAgentReviewResultResult,
   type AwaitAgentReviewThreadReplyResultInput,
   type AwaitAgentReviewThreadReplyResultResult,
+  type AwaitResolveJudgementInput,
+  type AwaitResolveJudgementResult,
   type BeginAgentReviewThreadReplyInput,
   type BeginAgentReviewThreadReplyResult,
   type BrowseDirectoryInput,
@@ -91,12 +93,16 @@ import {
   type SaveRepositoryProviderResult,
   type StartAgentReviewInput,
   type StartAgentReviewResult,
+  type StartResolveJudgementInput,
+  type StartResolveJudgementResult,
   type SelectWorkspaceRevisionInput,
   type SelectWorkspaceRevisionResult,
   type ListArchivedRemoteThreadsInput,
   type ListArchivedRemoteThreadsResult,
   type ListOutdatedAgentThreadsInput,
   type ListOutdatedAgentThreadsResult,
+  type ListResolveJudgementResultsInput,
+  type ListResolveJudgementResultsResult,
   type PublishInlineCommentInput,
   type PublishInlineCommentResult,
   type ReplyRemoteCommentInput,
@@ -107,6 +113,7 @@ import {
   type ValidateRepositoryProfileResult,
   type WorkspaceCreationEvent,
   type Poc3AgentReviewEvent,
+  type ResolveJudgementEvent,
 } from '../shared/poc3-contracts/graph-review-ipc';
 
 const handler = {
@@ -347,6 +354,19 @@ const poc3GraphReviewApi = {
   replyRemoteComment(input: ReplyRemoteCommentInput): Promise<ReplyRemoteCommentResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.replyRemoteComment, input);
   },
+  startResolveJudgement(input: StartResolveJudgementInput): Promise<StartResolveJudgementResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.startResolveJudgement, input);
+  },
+  awaitResolveJudgementResult(
+    input: AwaitResolveJudgementInput,
+  ): Promise<AwaitResolveJudgementResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.awaitResolveJudgementResult, input);
+  },
+  listResolveJudgementResults(
+    input: ListResolveJudgementResultsInput,
+  ): Promise<ListResolveJudgementResultsResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listResolveJudgementResults, input);
+  },
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void) {
     const subscription = (_event: IpcRendererEvent, payload: WorkspaceCreationEvent) =>
       callback(payload);
@@ -380,6 +400,17 @@ const poc3GraphReviewApi = {
     ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.agentReviewEvent, subscription);
     return () => {
       ipcRenderer.removeListener(POC3_GRAPH_REVIEW_IPC_CHANNELS.agentReviewEvent, subscription);
+    };
+  },
+  onResolveJudgementEvent(callback: (event: ResolveJudgementEvent) => void) {
+    const subscription = (_event: IpcRendererEvent, payload: ResolveJudgementEvent) =>
+      callback(payload);
+    ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveJudgementEvent, subscription);
+    return () => {
+      ipcRenderer.removeListener(
+        POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveJudgementEvent,
+        subscription,
+      );
     };
   },
 };

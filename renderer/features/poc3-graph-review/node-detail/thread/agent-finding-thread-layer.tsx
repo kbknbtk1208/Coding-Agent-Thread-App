@@ -7,6 +7,14 @@ import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-doma
 import type { ReviewProviderKind } from '../../../../../shared/poc3-domain/review-workspace';
 import { useAgentThreadConversationContext } from '../../agent-review/agent-thread-conversation-context';
 import { FindingPublishComposer } from '../../provider-comments/finding-publish-composer';
+import {
+  ResolveJudgementPill,
+  ResolveJudgementReasonBlock,
+} from '../../resolve-judgement/resolve-judgement-card-decoration';
+import {
+  lookupResolveJudgement,
+  useResolveJudgementContext,
+} from '../../resolve-judgement/resolve-judgement-context';
 import { resolveProviderLabel } from '../utils/format';
 import { FindingThreadAccordionHeader } from './finding-accordion-header';
 import { FindingMessagesList } from './finding-messages-list';
@@ -27,9 +35,13 @@ export interface AgentFindingPublishProps {
 export function OverviewFindingThreads({
   findings,
   publishProps,
+  reviewWorkspaceId,
+  revisionId,
 }: {
   findings: NodeDetailSnapshot['findings'];
   publishProps?: AgentFindingPublishProps;
+  reviewWorkspaceId: string;
+  revisionId: string;
 }) {
   const overviewFindings = findings.filter((finding) => finding.line === null);
   if (overviewFindings.length === 0) {
@@ -43,6 +55,8 @@ export function OverviewFindingThreads({
             key={finding.findingId}
             finding={finding}
             publishProps={publishProps}
+            reviewWorkspaceId={reviewWorkspaceId}
+            revisionId={revisionId}
           />
         ))}
       </div>
@@ -53,9 +67,13 @@ export function OverviewFindingThreads({
 export function AgentFindingThreadLayer({
   findings,
   publishProps,
+  reviewWorkspaceId,
+  revisionId,
 }: {
   findings: NodeDetailSnapshot['findings'];
   publishProps?: AgentFindingPublishProps;
+  reviewWorkspaceId: string;
+  revisionId: string;
 }) {
   return (
     <div className="border-l-2 border-fuchsia-400/40 bg-fuchsia-400/[0.05] px-3 py-3">
@@ -65,6 +83,8 @@ export function AgentFindingThreadLayer({
             key={finding.findingId}
             finding={finding}
             publishProps={publishProps}
+            reviewWorkspaceId={reviewWorkspaceId}
+            revisionId={revisionId}
           />
         ))}
       </div>
@@ -75,12 +95,17 @@ export function AgentFindingThreadLayer({
 function AgentFindingThreadCard({
   finding,
   publishProps,
+  reviewWorkspaceId,
+  revisionId,
 }: {
   finding: NodeDetailSnapshot['findings'][number];
   publishProps?: AgentFindingPublishProps;
+  reviewWorkspaceId: string;
+  revisionId: string;
 }) {
   const threadContext = useAgentThreadConversationContext();
   const { loadOne } = threadContext;
+  const resolveJudgementContext = useResolveJudgementContext();
   const headerId = useId();
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -89,6 +114,12 @@ function AgentFindingThreadCard({
   const draft = threadContext.draftReplies[finding.localThreadId] ?? '';
   const isReplyPending = threadContext.isReplyPending(finding.localThreadId);
   const replyStatus = isReplyPending ? 'replying' : (conversation?.replyStatus ?? 'idle');
+  const judgement = lookupResolveJudgement(resolveJudgementContext, {
+    reviewWorkspaceId,
+    revisionId,
+    commentType: 'agent-thread',
+    commentId: finding.localThreadId,
+  });
 
   const sourceKey = `agent-finding:${finding.localThreadId}`;
   const published = publishProps?.publishedBySourceKey[sourceKey] ?? null;
@@ -122,13 +153,18 @@ function AgentFindingThreadCard({
         className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.038)_48%,rgba(255,255,255,0.018)_100%)] opacity-80 backdrop-blur-[18px] [backdrop-filter:blur(18px)_saturate(145%)]"
       />
       <div className="relative z-10">
-        <FindingThreadAccordionHeader
-          headerId={headerId}
-          contentId={contentId}
-          finding={finding}
-          isExpanded={isExpanded}
-          onToggle={() => setIsExpanded((current) => !current)}
-        />
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <FindingThreadAccordionHeader
+              headerId={headerId}
+              contentId={contentId}
+              finding={finding}
+              isExpanded={isExpanded}
+              onToggle={() => setIsExpanded((current) => !current)}
+            />
+          </div>
+          {judgement ? <ResolveJudgementPill judgement={judgement} /> : null}
+        </div>
         <div
           id={contentId}
           role="region"
@@ -136,6 +172,7 @@ function AgentFindingThreadCard({
           className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
         >
           <div className="overflow-hidden">
+            {judgement ? <ResolveJudgementReasonBlock judgement={judgement} /> : null}
             {published ? (
               <div className="mt-2 flex items-center gap-1.5">
                 <span className="flex items-center gap-1.5 rounded-full border border-[#4EBE96]/25 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d7f5e8]">

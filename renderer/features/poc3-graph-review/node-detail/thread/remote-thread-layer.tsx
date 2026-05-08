@@ -5,6 +5,14 @@ import { useId, useState } from 'react';
 import type { NodeDetailSnapshot } from '../../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-domain/comment-publish';
 import { RemoteThreadReplyComposer } from '../../provider-comments/remote-thread-reply-composer';
+import {
+  ResolveJudgementPill,
+  ResolveJudgementReasonBlock,
+} from '../../resolve-judgement/resolve-judgement-card-decoration';
+import {
+  lookupResolveJudgement,
+  useResolveJudgementContext,
+} from '../../resolve-judgement/resolve-judgement-context';
 import { formatShortDate } from '../utils/format';
 import { MarkdownBody } from './markdown-body';
 
@@ -34,9 +42,13 @@ export function isRemoteThreadReplyable(
 export function RemoteCommentThreadLayer({
   threads,
   replyProps,
+  reviewWorkspaceId,
+  revisionId,
 }: {
   threads: NodeDetailSnapshot['threads']['remote'];
   replyProps?: RemoteCommentReplyProps;
+  reviewWorkspaceId: string;
+  revisionId: string;
 }) {
   return (
     <div className="border-l-2 border-[#58d7ff]/35 bg-[#58d7ff]/[0.045] px-3 py-3">
@@ -46,6 +58,8 @@ export function RemoteCommentThreadLayer({
             key={thread.providerThreadId}
             thread={thread}
             replyProps={replyProps}
+            reviewWorkspaceId={reviewWorkspaceId}
+            revisionId={revisionId}
           />
         ))}
       </div>
@@ -56,10 +70,21 @@ export function RemoteCommentThreadLayer({
 function RemoteCommentThreadCard({
   thread,
   replyProps,
+  reviewWorkspaceId,
+  revisionId,
 }: {
   thread: NodeDetailSnapshot['threads']['remote'][number];
   replyProps?: RemoteCommentReplyProps;
+  reviewWorkspaceId: string;
+  revisionId: string;
 }) {
+  const resolveJudgementContext = useResolveJudgementContext();
+  const judgement = lookupResolveJudgement(resolveJudgementContext, {
+    reviewWorkspaceId,
+    revisionId,
+    commentType: 'remote-thread',
+    commentId: thread.providerThreadId,
+  });
   const headerId = useId();
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -111,6 +136,7 @@ function RemoteCommentThreadCard({
               <ExternalLink className="size-3" aria-hidden="true" />
             </a>
           ) : null}
+          {judgement ? <ResolveJudgementPill judgement={judgement} /> : null}
         </button>
         <div
           id={contentId}
@@ -119,6 +145,7 @@ function RemoteCommentThreadCard({
           className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
         >
           <div className="overflow-hidden">
+            {judgement ? <ResolveJudgementReasonBlock judgement={judgement} /> : null}
             <div className="space-y-2 border-t border-[#58d7ff]/15 pt-2">
               {thread.comments.map((comment) => (
                 <div

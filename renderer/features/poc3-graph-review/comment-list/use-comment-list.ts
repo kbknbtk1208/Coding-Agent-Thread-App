@@ -2,18 +2,29 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import type { ResolveJudgementCommentKey } from '../../../../shared/poc3-domain/resolve-judgement';
 
 export interface CommentListItem {
   key: string;
   type: 'agent' | 'remote';
   nodeId: string;
+  commentKey: ResolveJudgementCommentKey;
   title: string;
   filePath: string | null;
   line: number | null;
 }
 
-export function useCommentList(graph: GraphRenderSnapshot, reviewWorkspaceId: string) {
+export interface UseCommentListResult {
+  items: CommentListItem[];
+  revisionId: string | null;
+}
+
+export function useCommentList(
+  graph: GraphRenderSnapshot,
+  reviewWorkspaceId: string,
+): UseCommentListResult {
   const [items, setItems] = useState<CommentListItem[]>([]);
+  const [revisionId, setRevisionId] = useState<string | null>(null);
   const lastSnapshotIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -27,6 +38,7 @@ export function useCommentList(graph: GraphRenderSnapshot, reviewWorkspaceId: st
 
     if (nodesWithComments.length === 0) {
       setItems([]);
+      setRevisionId(null);
       return;
     }
 
@@ -42,6 +54,7 @@ export function useCommentList(graph: GraphRenderSnapshot, reviewWorkspaceId: st
       if (lastSnapshotIdRef.current !== snapshotId) return;
 
       const collected: CommentListItem[] = [];
+      let resolvedRevisionId: string | null = null;
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
@@ -49,12 +62,21 @@ export function useCommentList(graph: GraphRenderSnapshot, reviewWorkspaceId: st
         if (!result.ok || !result.detail) continue;
 
         const { detail } = result;
+        if (!resolvedRevisionId) {
+          resolvedRevisionId = detail.revisionId;
+        }
 
         for (const finding of detail.findings) {
           collected.push({
             key: `agent:${finding.findingId}`,
             type: 'agent',
             nodeId: node.nodeId,
+            commentKey: {
+              reviewWorkspaceId,
+              revisionId: detail.revisionId,
+              commentType: 'agent-thread',
+              commentId: finding.localThreadId,
+            },
             title: finding.title,
             filePath: detail.node.filePath,
             line: finding.line,
@@ -67,6 +89,12 @@ export function useCommentList(graph: GraphRenderSnapshot, reviewWorkspaceId: st
             key: `remote:${thread.providerThreadId}`,
             type: 'remote',
             nodeId: node.nodeId,
+            commentKey: {
+              reviewWorkspaceId,
+              revisionId: detail.revisionId,
+              commentType: 'remote-thread',
+              commentId: thread.providerThreadId,
+            },
             title: thread.comments[0]?.body ?? '',
             filePath: location.kind === 'diff' ? location.filePath : detail.node.filePath,
             line: location.kind === 'diff' ? location.startLine : null,
@@ -75,8 +103,9 @@ export function useCommentList(graph: GraphRenderSnapshot, reviewWorkspaceId: st
       }
 
       setItems(collected);
+      setRevisionId(resolvedRevisionId);
     });
   }, [graph.graphSnapshotId, graph.nodes, graph.scopeKey, reviewWorkspaceId]);
 
-  return items;
+  return { items, revisionId };
 }

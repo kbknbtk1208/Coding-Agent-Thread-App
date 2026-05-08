@@ -2,6 +2,7 @@ import { dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'ele
 import type {
   AwaitAgentReviewResultInput,
   AwaitAgentReviewThreadReplyResultInput,
+  AwaitResolveJudgementInput,
   BeginAgentReviewThreadReplyInput,
   BrowseDirectoryInput,
   CreateReviewWorkspaceInput,
@@ -10,6 +11,7 @@ import type {
   ListAgentReviewRunsInput,
   ListArchivedRemoteThreadsInput,
   ListOutdatedAgentThreadsInput,
+  ListResolveJudgementResultsInput,
   LoadAgentThreadConversationInput,
   LoadNodeDetailInput,
   LoadWorkspaceGraphInput,
@@ -22,6 +24,7 @@ import type {
   SaveRepositoryProviderInput,
   SelectWorkspaceRevisionInput,
   StartAgentReviewInput,
+  StartResolveJudgementInput,
   TestRepositoryProviderInput,
   ValidateRepositoryProfileInput,
   PublishInlineCommentInput,
@@ -257,6 +260,27 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.replyRemoteComment,
     (_event, input: ReplyRemoteCommentInput) => {
       return gateway.replyRemoteComment(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.startResolveJudgement,
+    (_event, input: StartResolveJudgementInput) => {
+      return gateway.startResolveJudgement(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.awaitResolveJudgementResult,
+    (_event, input: AwaitResolveJudgementInput) => {
+      return gateway.awaitResolveJudgementResult(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.listResolveJudgementResults,
+    (_event, input: ListResolveJudgementResultsInput) => {
+      return gateway.listResolveJudgementResults(input);
     },
   );
 }

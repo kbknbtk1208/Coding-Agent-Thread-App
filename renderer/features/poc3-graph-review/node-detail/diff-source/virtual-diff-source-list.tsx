@@ -191,6 +191,8 @@ function renderVirtualItem({
       <OverviewFindingThreads
         findings={overviewPublishProps.detail.findings}
         publishProps={overviewPublishProps}
+        reviewWorkspaceId={overviewPublishProps.detail.reviewWorkspaceId}
+        revisionId={overviewPublishProps.detail.revisionId}
       />
     );
   }
@@ -217,10 +219,20 @@ function renderVirtualItem({
         onKeyDownLine={handlers.onRowKeyDown}
       />
       {findings.length > 0 ? (
-        <AgentFindingThreadLayer findings={findings} publishProps={overviewPublishProps} />
+        <AgentFindingThreadLayer
+          findings={findings}
+          publishProps={overviewPublishProps}
+          reviewWorkspaceId={overviewPublishProps.detail.reviewWorkspaceId}
+          revisionId={overviewPublishProps.detail.revisionId}
+        />
       ) : null}
       {remoteThreads.length > 0 ? (
-        <RemoteCommentThreadLayer threads={remoteThreads} replyProps={remoteReplyProps} />
+        <RemoteCommentThreadLayer
+          threads={remoteThreads}
+          replyProps={remoteReplyProps}
+          reviewWorkspaceId={overviewPublishProps.detail.reviewWorkspaceId}
+          revisionId={overviewPublishProps.detail.revisionId}
+        />
       ) : null}
       {composerSelection &&
       line.side === composerSelection.side &&
