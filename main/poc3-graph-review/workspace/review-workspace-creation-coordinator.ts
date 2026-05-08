@@ -247,8 +247,7 @@ export class ReviewWorkspaceCreationCoordinator {
       headSha: snapshot.headSha,
       sourceBranchName: snapshot.sourceBranchName,
       worktreePath,
-      setupStatus:
-        target.setupScript && target.setupScript.scriptText.trim() ? 'completed' : 'pending',
+      setupStatus: 'completed',
       status: 'active',
       createdAt: persistedAt,
       updatedAt: persistedAt,
