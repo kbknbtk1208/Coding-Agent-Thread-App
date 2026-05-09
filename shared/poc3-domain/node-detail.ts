@@ -35,6 +35,47 @@ export interface NodeDetailSnapshot {
   threads: NodeThreadSummary;
   findings: NodeFindingSummary[];
   diagnostics: NodeDetailDiagnostic[];
+  companion: NodeCompanionState | null;
+}
+
+export interface NodeCompanionSummary {
+  relationId: string;
+  role: 'product' | 'test';
+  filePath: string;
+  displayMode: 'diff' | 'code';
+  existsInWorkspaceHead: boolean;
+  existsInDiff: boolean;
+  unavailableMessage: string | null;
+}
+
+export interface NodeCompanionState {
+  targetRole: 'product' | 'test';
+  toggleLabel: string;
+  emptyMessage: string;
+  companions: NodeCompanionSummary[];
+}
+
+export interface DiffAwareCodePaneSnapshot {
+  reviewWorkspaceId: string;
+  revisionId: string;
+  scopeKey: string;
+  summary: {
+    filePath: string | null;
+  };
+  diffSummary: NodeDiffSummary;
+  diffExcerpt: NodeDiffExcerpt | null;
+  threads: NodeThreadSummary;
+  findings: NodeFindingSummary[];
+}
+
+export interface NodeCompanionDetailSnapshot extends DiffAwareCodePaneSnapshot {
+  ownerNodeId: string;
+  relationId: string;
+  role: 'product' | 'test';
+  filePath: string;
+  displayMode: 'diff' | 'code';
+  source: NodeFileContext | NodeCodeExcerpt | null;
+  diagnostics: NodeDetailDiagnostic[];
 }
 
 export interface NodeDetailSummary {

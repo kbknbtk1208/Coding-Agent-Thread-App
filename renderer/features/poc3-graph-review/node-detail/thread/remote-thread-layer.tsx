@@ -2,7 +2,10 @@
 
 import { ChevronDown, ExternalLink, MessageSquareText } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import type { NodeDetailSnapshot } from '../../../../../shared/poc3-contracts/graph-review-ipc';
+import type {
+  NodeCompanionDetailSnapshot,
+  NodeDetailSnapshot,
+} from '../../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-domain/comment-publish';
 import {
   isRemoteThreadScrollTarget,
@@ -21,7 +24,7 @@ import { formatShortDate } from '../utils/format';
 import { MarkdownBody } from './markdown-body';
 
 export interface RemoteCommentReplyProps {
-  detail: NodeDetailSnapshot;
+  detail: NodeDetailSnapshot | NodeCompanionDetailSnapshot;
   inFlightKey: string | null;
   errorByKey: Record<string, string>;
   publishedBySourceKey: Record<string, Poc3PublishedCommentRecord>;

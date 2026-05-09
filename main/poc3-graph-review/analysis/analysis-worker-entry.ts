@@ -38,6 +38,7 @@ export async function runInitialGraphAnalysis(
     });
     const graph = buildInitialGraph({
       revisionId: input.revisionId,
+      worktreePath: input.worktreePath,
       sourceSnapshot: input.sourceSnapshot,
       extraction: {
         symbols: [],
@@ -76,6 +77,7 @@ export async function runInitialGraphAnalysis(
   });
   const graph = buildInitialGraph({
     revisionId: input.revisionId,
+    worktreePath: input.worktreePath,
     sourceSnapshot: input.sourceSnapshot,
     extraction,
     diagnostics,

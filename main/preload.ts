@@ -73,6 +73,8 @@ import {
   type ListAgentThreadConversationsResult,
   type ListReviewWorkspacesResult,
   type ListWorkspaceCreationJobsResult,
+  type LoadNodeCompanionDetailInput,
+  type LoadNodeCompanionDetailResult,
   type LoadNodeDetailInput,
   type LoadNodeDetailResult,
   type LoadAgentThreadConversationInput,
@@ -295,6 +297,11 @@ const poc3GraphReviewApi = {
   },
   loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeDetail, input);
+  },
+  loadNodeCompanionDetail(
+    input: LoadNodeCompanionDetailInput,
+  ): Promise<LoadNodeCompanionDetailResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadNodeCompanionDetail, input);
   },
   startAgentReview(input: StartAgentReviewInput): Promise<StartAgentReviewResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.startAgentReview, input);

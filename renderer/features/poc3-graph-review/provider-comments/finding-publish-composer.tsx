@@ -3,12 +3,15 @@
 import { Loader2, SendHorizontal, X } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { useEffect, useId, useState } from 'react';
-import type { NodeDetailSnapshot } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type {
+  NodeCompanionDetailSnapshot,
+  NodeDetailSnapshot,
+} from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-workspace';
 
 export interface FindingPublishComposerProps {
   finding: NodeDetailSnapshot['findings'][number];
-  detail: NodeDetailSnapshot;
+  detail: NodeDetailSnapshot | NodeCompanionDetailSnapshot;
   initialBody: string;
   inFlight: boolean;
   errorMessage: string | null;

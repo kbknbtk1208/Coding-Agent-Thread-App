@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useId, useMemo, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { GraphRenderNode } from '../../../../shared/poc3-domain/graph';
 import type {
   NodeDetailSnapshot,
@@ -23,8 +23,10 @@ import { RelationsSection } from './sections/relations-section';
 import { DiagnosticsSection } from './sections/diagnostics-section';
 import { UnavailableSection } from './sections/unavailable-section';
 import { DiffAwareSourceSection } from './diff-source/diff-aware-source-section';
+import { CompanionCodePane } from './companion-code-pane';
 
 const PANEL_WIDTH_CLASS = 'w-[min(710px,calc(100vw-28px))]';
+const PANEL_WITH_COMPANION_WIDTH_CLASS = 'w-[min(1280px,calc(100vw-28px))]';
 
 export interface NodeDetailPanelProps {
   state: NodeDetailState;
@@ -53,6 +55,7 @@ export function NodeDetailPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const [showCompanion, setShowCompanion] = useState(false);
 
   useEffect(() => {
     if (!selectedNode) {
@@ -66,6 +69,14 @@ export function NodeDetailPanel({
       previousFocusRef.current?.focus();
     };
   }, [selectedNode]);
+
+  useEffect(() => {
+    setShowCompanion(false);
+  }, [selectedNode?.nodeId]);
+
+  const companionState = state.detail?.companion ?? null;
+  const companionEnabled = Boolean(companionState && companionState.companions.length > 0);
+  const isCompanionOpen = showCompanion && companionEnabled;
 
   return (
     <AnimatePresence initial={false}>
@@ -86,7 +97,9 @@ export function NodeDetailPanel({
             aria-labelledby={titleId}
             tabIndex={-1}
             ref={panelRef}
-            className={`absolute inset-y-3 right-3 z-30 flex ${PANEL_WIDTH_CLASS} overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#090909]/96 text-white shadow-[0_28px_80px_rgba(0,0,0,0.58)] backdrop-blur-[20px]`}
+            className={`absolute inset-y-3 right-3 z-30 flex ${
+              isCompanionOpen ? PANEL_WITH_COMPANION_WIDTH_CLASS : PANEL_WIDTH_CLASS
+            } overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#090909]/96 text-white shadow-[0_28px_80px_rgba(0,0,0,0.58)] backdrop-blur-[20px]`}
             initial={{ opacity: 0, x: 36 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
@@ -109,6 +122,11 @@ export function NodeDetailPanel({
                 onClose={onClose}
                 titleId={titleId}
                 closeButtonRef={closeButtonRef}
+                companionToggle={{
+                  state: companionState,
+                  checked: isCompanionOpen,
+                  onCheckedChange: setShowCompanion,
+                }}
               />
               <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
                 <NodeDetailScrollTargetProvider target={scrollTarget}>
@@ -120,6 +138,7 @@ export function NodeDetailPanel({
                     onSelectNode={onSelectNode}
                     onNodeDetailRefresh={onNodeDetailRefresh}
                     providerKind={providerKind}
+                    showCompanion={isCompanionOpen}
                   />
                 </NodeDetailScrollTargetProvider>
               </div>
@@ -139,6 +158,7 @@ function PanelBody({
   onSelectNode,
   onNodeDetailRefresh,
   providerKind,
+  showCompanion,
 }: {
   state: NodeDetailState;
   selectedNode: GraphRenderNode;
@@ -147,6 +167,7 @@ function PanelBody({
   onSelectNode(nodeId: string): void;
   onNodeDetailRefresh?: () => void;
   providerKind?: ReviewProviderKind;
+  showCompanion: boolean;
 }) {
   const detail = state.detail;
   const publishComments = usePublishComments({
@@ -170,8 +191,8 @@ function PanelBody({
     );
   }
 
-  return (
-    <div className="flex flex-col gap-4">
+  const primary = (
+    <div className="flex min-w-0 flex-1 flex-col gap-4">
       {state.status === 'loading' && detail ? (
         <InlineNotice tone="loading" message={state.message ?? 'Refreshing node detail…'} />
       ) : null}
@@ -189,6 +210,26 @@ function PanelBody({
       />
       {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
       {detail ? <DiagnosticsSection detail={detail} /> : null}
+    </div>
+  );
+  if (!showCompanion || !detail?.companion) {
+    return primary;
+  }
+  return (
+    <div className="flex flex-col gap-4 xl:flex-row">
+      {primary}
+      <div className="min-w-0 flex-1 border-t border-white/[0.08] pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+        <CompanionCodePane
+          companion={detail.companion}
+          reviewWorkspaceId={detail.reviewWorkspaceId}
+          scopeKey={detail.scopeKey}
+          graphSnapshotId={null}
+          ownerNodeId={detail.nodeId}
+          refreshKey={0}
+          publishComments={publishComments}
+          providerKind={providerKind}
+        />
+      </div>
     </div>
   );
 }

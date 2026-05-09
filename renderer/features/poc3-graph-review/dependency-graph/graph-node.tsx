@@ -2,7 +2,7 @@
 
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
-import { FileCode2, FunctionSquare, Package } from 'lucide-react';
+import { FileCode2, FunctionSquare, Package, TestTube2 } from 'lucide-react';
 import { memo } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { POC3_MOTION_DURATION, POC3_MOTION_EASE } from '../components/motion-timing';
@@ -30,8 +30,24 @@ export const Poc3GraphNode = memo(function Poc3GraphNode({
 
   return (
     <div className="relative h-full w-full">
-      {graphNode.badges.findingCount > 0 || graphNode.badges.remoteThreadCount > 0 ? (
+      {graphNode.badges.findingCount > 0 ||
+      graphNode.badges.remoteThreadCount > 0 ||
+      graphNode.badges.hasCompanionCode ? (
         <span className="absolute -right-4 -top-4 z-10 flex items-center gap-1">
+          {graphNode.badges.hasCompanionCode ? (
+            <span
+              className="flex size-[28px] items-center justify-center rounded-full border-2 border-[#9cff9c]/55 bg-[#061a06] text-[#baffba]"
+              title={
+                graphNode.isDiffNode ? '対応するテストコードあり' : '対応するプロダクトコードあり'
+              }
+            >
+              {graphNode.isDiffNode ? (
+                <TestTube2 className="size-3.5" aria-hidden="true" />
+              ) : (
+                <FileCode2 className="size-3.5" aria-hidden="true" />
+              )}
+            </span>
+          ) : null}
           {graphNode.badges.remoteThreadCount > 0 ? (
             <span
               className="flex size-[28px] items-center justify-center rounded-full border-2 border-[#58d7ff]/60 bg-[#001a22] text-[13px] font-bold leading-none text-[#58d7ff]"

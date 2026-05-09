@@ -5,7 +5,12 @@ import type {
   Poc3PublishedCommentRecord,
 } from '../../../../shared/poc3-domain/comment-publish';
 import type { ReviewRemoteThread } from '../../../../shared/poc3-domain/source-snapshot';
-import type { NodeDetailSnapshot } from '../../../../shared/poc3-contracts/graph-review-ipc';
+import type {
+  NodeCompanionDetailSnapshot,
+  NodeDetailSnapshot,
+} from '../../../../shared/poc3-contracts/graph-review-ipc';
+
+type PublishablePaneSnapshot = NodeDetailSnapshot | NodeCompanionDetailSnapshot;
 
 interface PublishCommentState {
   inFlightKey: string | null;
@@ -37,14 +42,14 @@ export interface ReplyRemoteCommentArgs {
 }
 
 export interface ReplyRemoteThreadArgs {
-  detail: NodeDetailSnapshot;
+  detail: PublishablePaneSnapshot;
   providerThreadId: string;
   body: string;
 }
 
 export interface PublishFindingArgs {
   finding: NodeDetailSnapshot['findings'][number];
-  detail: NodeDetailSnapshot;
+  detail: PublishablePaneSnapshot;
   body: string;
 }
 
@@ -293,10 +298,10 @@ function resolvePublishErrorMessage(reason: string, fallbackMessage: string): st
 
 function findingToInlineAnchor(
   finding: NodeDetailSnapshot['findings'][number],
-  detail: NodeDetailSnapshot,
+  detail: PublishablePaneSnapshot,
 ): Poc3InlineCommentAnchor | null {
   if (finding.line === null) return null;
-  const filePath = detail.summary.filePath ?? detail.node.filePath;
+  const filePath = detail.summary.filePath ?? ('node' in detail ? detail.node.filePath : null);
   if (!filePath) return null;
   const side = finding.side === 'old' ? 'LEFT' : 'RIGHT';
   return {

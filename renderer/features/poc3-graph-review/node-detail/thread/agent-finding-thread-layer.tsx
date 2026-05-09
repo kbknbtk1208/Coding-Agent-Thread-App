@@ -2,7 +2,10 @@
 
 import { ExternalLink, SendHorizontal } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import type { NodeDetailSnapshot } from '../../../../../shared/poc3-contracts/graph-review-ipc';
+import type {
+  NodeCompanionDetailSnapshot,
+  NodeDetailSnapshot,
+} from '../../../../../shared/poc3-contracts/graph-review-ipc';
 import type { Poc3PublishedCommentRecord } from '../../../../../shared/poc3-domain/comment-publish';
 import type { ReviewProviderKind } from '../../../../../shared/poc3-domain/review-workspace';
 import { useAgentThreadConversationContext } from '../../agent-review/agent-thread-conversation-context';
@@ -26,7 +29,7 @@ import { InlineThreadStreamingPanel } from './inline-thread-streaming-panel';
 import { ThreadErrorBanner, ThreadReplyComposer } from './thread-reply-composer';
 
 export interface AgentFindingPublishProps {
-  detail: NodeDetailSnapshot;
+  detail: NodeDetailSnapshot | NodeCompanionDetailSnapshot;
   publishedBySourceKey: Record<string, Poc3PublishedCommentRecord>;
   commentUrlBySourceKey: Record<string, string>;
   inFlightKey: string | null;

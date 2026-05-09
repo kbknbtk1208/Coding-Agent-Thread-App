@@ -118,6 +118,7 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     outdatedAgentThreads.map((item) => item.thread.localThreadId),
   );
   const threads = resolveThreads(renderNode, sourceSnapshot, allAgentThreads);
+  const companion = resolveCompanionState(renderNode, record, workspace);
 
   const detail: NodeDetailSnapshot = {
     reviewWorkspaceId: workspace.reviewWorkspaceId,
@@ -142,9 +143,55 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
       }),
     ),
     diagnostics,
+    companion,
   };
 
   return { ok: true, reason: null, message: null, detail };
+}
+
+function resolveCompanionState(
+  node: GraphRenderNode,
+  record: WorkspaceGraphRecord,
+  workspace: ReviewWorkspace,
+): NodeDetailSnapshot['companion'] {
+  const nodeFilePath = node.filePath ?? '';
+  const ownerItems = (record.graph?.companionFiles ?? []).filter(
+    (item) => item.ownerNodeId === node.nodeId,
+  );
+  const reverseItems = (record.graph?.companionFiles ?? []).filter(
+    (item) =>
+      item.companionNodeIds.includes(node.nodeId) ||
+      item.hiddenNodeIds.includes(node.nodeId) ||
+      item.companionFilePath === nodeFilePath,
+  );
+  const companions = ownerItems.length > 0 ? ownerItems : reverseItems;
+  if (companions.length === 0) {
+    return null;
+  }
+
+  const targetRole = ownerItems.length > 0 ? ownerItems[0].companionRole : companions[0].ownerRole;
+  const emptyMessage =
+    targetRole === 'test'
+      ? '対応するテストコードが存在しません'
+      : '対応するプロダクトコードが存在しません';
+  return {
+    targetRole,
+    toggleLabel: targetRole === 'test' ? 'Test' : 'Product',
+    emptyMessage,
+    companions: companions.map((item) => {
+      const filePath = ownerItems.length > 0 ? item.companionFilePath : item.ownerFilePath;
+      const existsInWorkspaceHead = fs.existsSync(path.join(workspace.worktreePath, filePath));
+      return {
+        relationId: item.relationId,
+        role: ownerItems.length > 0 ? item.companionRole : item.ownerRole,
+        filePath,
+        displayMode: item.displayMode,
+        existsInWorkspaceHead,
+        existsInDiff: item.existsInDiff,
+        unavailableMessage: existsInWorkspaceHead ? null : 'worktree にファイルが存在しません',
+      };
+    }),
+  };
 }
 
 function buildSummary(node: GraphRenderNode): NodeDetailSummary {

@@ -353,6 +353,22 @@ describe('resolveNodeDetail', () => {
     expect(result.detail?.diffExcerpt?.hunkHeaders).toEqual(['@@ -8,6 +8,7 @@']);
   });
 
+  it('companionFiles がない snapshot では companion state を返さない', () => {
+    const worktreePath = createTempWorkspace();
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-function-1',
+      record: createRecord(worktreePath),
+      sourceSnapshot: createSourceSnapshot(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.companion).toBeNull();
+  });
+
   it('file-scope node では同一 file の current remote thread を本文付きで返す', () => {
     const worktreePath = createTempWorkspace();
     const sourceSnapshot = createSourceSnapshot();

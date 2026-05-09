@@ -14,6 +14,7 @@ import {
 } from '../../provider-comments/diff-inline-selection';
 import type { UsePublishCommentsReturn } from '../../provider-comments/use-publish-comments';
 import type {
+  NodeCompanionDetailSnapshot,
   NodeDetailSnapshot,
   NodeDetailViewMode,
   NodeFileContext,
@@ -37,7 +38,7 @@ import { buildEffectiveSource } from './build-effective-source';
 import { resolveHighlightLanguage } from './highlighted-source-line';
 
 export interface UseDiffLineSelectionProps {
-  detail: NodeDetailSnapshot;
+  detail: NodeDetailSnapshot | NodeCompanionDetailSnapshot;
   source: DiffAwareSourceBase | null;
   publishComments: UsePublishCommentsReturn;
   viewMode: NodeDetailViewMode;
@@ -123,7 +124,10 @@ export function useDiffLineSelection({
     filePath: string;
   } | null>(null);
 
-  const functionCode = detail.functionCode;
+  const functionCode = 'functionCode' in detail ? detail.functionCode : null;
+  const fallbackFilePath = 'node' in detail ? detail.node.filePath : detail.summary.filePath;
+  const detailIdentity =
+    'nodeId' in detail ? detail.nodeId : `${detail.ownerNodeId}:${detail.relationId}`;
 
   const effectiveRange = useMemo(() => {
     if (!functionCode || !fileContext || !canExpandWithinFile) return null;
@@ -144,12 +148,12 @@ export function useDiffLineSelection({
         source: effectiveSource,
         diffExcerpt: detail.diffExcerpt,
         diffSummary: detail.diffSummary,
-        filePath: detail.summary.filePath ?? detail.node.filePath,
+        filePath: detail.summary.filePath ?? fallbackFilePath,
       }),
     [
       detail.diffExcerpt,
       detail.diffSummary,
-      detail.node.filePath,
+      fallbackFilePath,
       detail.summary.filePath,
       effectiveSource,
     ],
@@ -204,7 +208,7 @@ export function useDiffLineSelection({
     setComposerDraftBySourceKey({});
     dragAnchorRef.current = null;
     keyboardSelectionAnchorRef.current = null;
-  }, [detail.nodeId, viewMode]);
+  }, [detailIdentity, viewMode]);
 
   useEffect(() => {
     if (!functionCode?.startLine || !scrollContainerRef.current || viewMode === 'function') return;

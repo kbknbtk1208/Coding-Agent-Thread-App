@@ -13,6 +13,7 @@ import type {
   ExtractedSymbolNode,
   ExtractedUsageEdge,
 } from './dependency-extractor';
+import { resolveCompanionFiles } from './companion-file-resolver';
 import { normalizeRepoPath } from './graph-id';
 import { snapshotEdgeId, snapshotNodeId, stableSymbolId } from './graph-id';
 
@@ -113,6 +114,7 @@ function usageEdges(extraction: DependencyExtractionResult): ExtractedUsageEdge[
 
 export function buildInitialGraph(input: {
   revisionId: string;
+  worktreePath?: string | null;
   sourceSnapshot: ReviewSourceSnapshot;
   extraction: DependencyExtractionResult;
   diagnostics: GraphDiagnostic[];
@@ -213,6 +215,14 @@ export function buildInitialGraph(input: {
   }
 
   const limitedEdges = edges.slice(0, INITIAL_GRAPH_EDGE_LIMIT);
+  const companionResult = resolveCompanionFiles({
+    graphNodes: nodes,
+    graphEdges: limitedEdges,
+    imports: input.extraction.imports,
+    sourceSnapshot: input.sourceSnapshot,
+    worktreePath: input.worktreePath ?? null,
+  });
+  diagnostics.push(...companionResult.diagnostics);
   const limits: GraphLimitSummary = {
     nodeLimit: INITIAL_GRAPH_NODE_LIMIT,
     edgeLimit: INITIAL_GRAPH_EDGE_LIMIT,
@@ -242,8 +252,9 @@ export function buildInitialGraph(input: {
     revisionId: input.revisionId,
     scopeKey: INITIAL_GRAPH_SCOPE_KEY,
     status: 'ready',
-    nodes,
-    edges: limitedEdges,
+    nodes: companionResult.visibleNodes,
+    edges: companionResult.visibleEdges,
+    companionFiles: companionResult.companionFiles,
     limits,
     diagnostics,
     createdAt: timestamp,
