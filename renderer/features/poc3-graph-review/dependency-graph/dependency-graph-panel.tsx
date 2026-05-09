@@ -1,7 +1,7 @@
 'use client';
 
 import { Network } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { AgentControlCenter } from '../agent-review/agent-control-center';
 import { CommentListDock } from '../comment-list/comment-list-dock';
@@ -31,34 +31,62 @@ export function DependencyGraphPanel({
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [scrollTarget, setScrollTarget] = useState<NodeDetailScrollTarget | null>(null);
-  const handleSelectNode = useCallback((id: string | null) => {
-    setSelectedNodeId(id);
-    setScrollTarget(null);
-  }, []);
-  const handleSelectComment = useCallback((item: CommentListItem) => {
-    setSelectedNodeId(item.nodeId);
-    setScrollTarget((current) => {
-      const nextNonce = (current?.nonce ?? 0) + 1;
-      if (item.type === 'agent') {
+  const [revealedNodeIds, setRevealedNodeIds] = useState<Set<string>>(() => new Set());
+  const graph = state.status === 'ready' ? state.result.graph : null;
+  const revealIfHidden = useCallback(
+    (id: string | null) => {
+      if (!id || !graph) return;
+      const node = graph.nodes.find((n) => n.nodeId === id);
+      if (!node || node.isDiffNode) return;
+      setRevealedNodeIds((current) => {
+        if (current.has(id)) return current;
+        const next = new Set(current);
+        next.add(id);
+        return next;
+      });
+    },
+    [graph],
+  );
+  const handleSelectNode = useCallback(
+    (id: string | null) => {
+      setSelectedNodeId(id);
+      setScrollTarget(null);
+      revealIfHidden(id);
+    },
+    [revealIfHidden],
+  );
+  const handleSelectComment = useCallback(
+    (item: CommentListItem) => {
+      setSelectedNodeId(item.nodeId);
+      setScrollTarget((current) => {
+        const nextNonce = (current?.nonce ?? 0) + 1;
+        if (item.type === 'agent') {
+          return {
+            kind: 'agent-thread',
+            localThreadId: item.commentKey.commentId,
+            nonce: nextNonce,
+          };
+        }
         return {
-          kind: 'agent-thread',
-          localThreadId: item.commentKey.commentId,
+          kind: 'remote-thread',
+          providerThreadId: item.commentKey.commentId,
           nonce: nextNonce,
         };
-      }
-      return {
-        kind: 'remote-thread',
-        providerThreadId: item.commentKey.commentId,
-        nonce: nextNonce,
-      };
-    });
-  }, []);
+      });
+      revealIfHidden(item.nodeId);
+    },
+    [revealIfHidden],
+  );
   const handleCompleted = useCallback(() => void reload(), [reload]);
 
   useEffect(() => {
     setHighlightedFilePath(null);
     setScrollTarget(null);
   }, [selectedWorkspace?.reviewWorkspaceId]);
+
+  useEffect(() => {
+    setRevealedNodeIds(new Set());
+  }, [selectedWorkspace?.reviewWorkspaceId, graph?.graphSnapshotId]);
 
   if (!selectedWorkspace) {
     return <GraphSetupState />;
@@ -83,6 +111,7 @@ export function DependencyGraphPanel({
       {state.status === 'ready' && state.result.graph && state.result.graph.nodes.length > 0 ? (
         <ReadyGraphContent
           graph={state.result.graph}
+          revealedNodeIds={revealedNodeIds}
           selectedWorkspace={selectedWorkspace}
           highlightedFilePath={highlightedFilePath}
           selectedNodeId={selectedNodeId}
@@ -99,6 +128,7 @@ export function DependencyGraphPanel({
 
 function ReadyGraphContent({
   graph,
+  revealedNodeIds,
   selectedWorkspace,
   highlightedFilePath,
   selectedNodeId,
@@ -109,6 +139,7 @@ function ReadyGraphContent({
   onCompleted,
 }: {
   graph: GraphRenderSnapshot;
+  revealedNodeIds: Set<string>;
   selectedWorkspace: ReviewWorkspaceListItem;
   highlightedFilePath: string | null;
   selectedNodeId: string | null;
@@ -125,6 +156,26 @@ function ReadyGraphContent({
     scopeKey: graph.scopeKey,
     agent: 'codex',
   });
+
+  const canvasGraph = useMemo<GraphRenderSnapshot>(() => {
+    const visibleNodeIds = new Set<string>();
+    for (const node of graph.nodes) {
+      if (node.isDiffNode) {
+        visibleNodeIds.add(node.nodeId);
+      }
+    }
+    for (const id of Array.from(revealedNodeIds)) {
+      visibleNodeIds.add(id);
+    }
+    return {
+      ...graph,
+      nodes: graph.nodes.filter((node) => visibleNodeIds.has(node.nodeId)),
+      edges: graph.edges.filter(
+        (edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId),
+      ),
+      viewport: null,
+    };
+  }, [graph, revealedNodeIds]);
 
   const toResolveKey = useCallback(
     (item: CommentListItem) => buildResolveJudgementMapKey(item.commentKey),
@@ -145,7 +196,7 @@ function ReadyGraphContent({
         }}
       />
       <DependencyGraphCanvas
-        graph={graph}
+        graph={canvasGraph}
         reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
         providerKind={selectedWorkspace.provider}
         highlightedFilePath={highlightedFilePath}
