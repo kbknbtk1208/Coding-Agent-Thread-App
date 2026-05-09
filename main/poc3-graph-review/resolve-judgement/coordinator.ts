@@ -448,6 +448,17 @@ function buildPrompt(input: {
         lines.push(`  - [${reply.role}] ${truncate(reply.body, 600)}`);
       }
     }
+    if (target.linkedRemoteThreads && target.linkedRemoteThreads.length > 0) {
+      lines.push('- linked remote threads:');
+      for (const remoteThread of target.linkedRemoteThreads) {
+        lines.push(
+          `  - providerThreadId=${remoteThread.providerThreadId} isResolved=${formatNullable(remoteThread.isResolved)} isOutdated=${formatNullable(remoteThread.isOutdated)}`,
+        );
+        for (const comment of remoteThread.comments) {
+          lines.push(`    - [${comment.role}] ${truncate(comment.body, 600)}`);
+        }
+      }
+    }
     if (target.currentCodeContext.diffPatch) {
       lines.push('- diff (truncated):');
       lines.push('```diff');

@@ -26,6 +26,14 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function hasReliableRemoteThreadSnapshot(snapshot: {
+  diagnostics: Array<{ code: string; message: string }>;
+}): boolean {
+  return !snapshot.diagnostics.some(
+    (diagnostic) => diagnostic.code === 'REMOTE_COMMENTS_FETCH_FAILED',
+  );
+}
+
 export interface RevisionRefreshCoordinatorDeps {
   graphStore: GraphReviewStore;
   analysisCoordinator: AnalysisCoordinator;
@@ -156,11 +164,13 @@ export class RevisionRefreshCoordinator {
             remoteThreadsSummary: buildRemoteThreadSummary(snapshot.remoteThreads),
             updatedAt: syncedAt,
           });
-          this.markPublishedAgentThreadSyncResult(
-            reviewWorkspaceId,
-            snapshot.remoteThreads.map((thread) => thread.providerThreadId),
-            syncedAt,
-          );
+          if (hasReliableRemoteThreadSnapshot(snapshot)) {
+            this.markPublishedAgentThreadSyncResult(
+              reviewWorkspaceId,
+              snapshot.remoteThreads.map((thread) => thread.providerThreadId),
+              syncedAt,
+            );
+          }
         }
         const completed = this.saveAndEmit({
           ...refresh,
@@ -269,11 +279,13 @@ export class RevisionRefreshCoordinator {
         analysisRun,
         commits: snapshot.commits,
       });
-      this.markPublishedAgentThreadSyncResult(
-        reviewWorkspaceId,
-        sourceSnapshot.remoteThreads.map((thread) => thread.providerThreadId),
-        persistedAt,
-      );
+      if (hasReliableRemoteThreadSnapshot(snapshot)) {
+        this.markPublishedAgentThreadSyncResult(
+          reviewWorkspaceId,
+          sourceSnapshot.remoteThreads.map((thread) => thread.providerThreadId),
+          persistedAt,
+        );
+      }
 
       const knownHeadShas = new Set(snapshot.commits.map((commit) => commit.sha));
       this.deps.graphStore.markRevisionsOrphaned({
