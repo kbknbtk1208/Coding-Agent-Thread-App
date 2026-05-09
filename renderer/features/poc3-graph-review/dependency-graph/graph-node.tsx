@@ -6,6 +6,7 @@ import { FileCode2, FunctionSquare, Package } from 'lucide-react';
 import { memo } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { POC3_MOTION_DURATION, POC3_MOTION_EASE } from '../components/motion-timing';
+import { Poc3LiquidMetalNodeBorder } from '../components/liquid-metal-node-border';
 import type { Poc3FlowNode } from './to-react-flow-elements';
 
 export const Poc3GraphNode = memo(function Poc3GraphNode({
@@ -70,34 +71,40 @@ export const Poc3GraphNode = memo(function Poc3GraphNode({
           }}
         />
       ) : null}
-      <div
-        className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 backdrop-blur-[12px] ${tone} ${
-          selected
-            ? 'border-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.3)]'
-            : isFileHighlighted
-              ? 'shadow-[0_0_0_2px_rgba(251,146,60,0.65),0_0_16px_rgba(251,146,60,0.22),0_14px_36px_rgba(0,0,0,0.25)]'
+      {/*
+       * Liquid metal wrapper: position:absolute inset:0.
+       * When active, children are inset by borderWidth (2px), exposing the shader ring at the edge.
+       * Badges and the selected-animation span intentionally live outside this wrapper so they
+       * are not clipped by the wrapper's overflow:hidden.
+       */}
+      <Poc3LiquidMetalNodeBorder active={!selected && isFileHighlighted}>
+        <div
+          className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 backdrop-blur-[12px] ${tone} ${
+            selected
+              ? 'border-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.3)]'
               : 'shadow-[0_14px_36px_rgba(0,0,0,0.25)]'
-        }`}
-      >
-        <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-white/70" />
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-[5px] bg-black/20">
-          <Icon className="size-4" aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-semibold leading-5">
-            {graphNode.label}
+          }`}
+        >
+          <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-white/70" />
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-[5px] bg-black/20">
+            <Icon className="size-4" aria-hidden="true" />
           </span>
-          <span className="block truncate text-[11px] leading-4 text-white/50">
-            {graphNode.filePath ?? graphNode.kind}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-semibold leading-5">
+              {graphNode.label}
+            </span>
+            <span className="block truncate text-[11px] leading-4 text-white/50">
+              {graphNode.filePath ?? graphNode.kind}
+            </span>
           </span>
-        </span>
-        {graphNode.badges.changedLines > 0 ? (
-          <span className="rounded-[5px] border border-[#d8e071]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#d8e071]">
-            +{graphNode.badges.changedLines}
-          </span>
-        ) : null}
-        <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-white/70" />
-      </div>
+          {graphNode.badges.changedLines > 0 ? (
+            <span className="rounded-[5px] border border-[#d8e071]/25 px-1.5 py-0.5 text-[10px] font-semibold text-[#d8e071]">
+              +{graphNode.badges.changedLines}
+            </span>
+          ) : null}
+          <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-white/70" />
+        </div>
+      </Poc3LiquidMetalNodeBorder>
     </div>
   );
 });
