@@ -132,8 +132,15 @@ export function CommentListDock({
                         {item.type === 'agent' ? 'Agent' : 'Remote'}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12px] text-white/80">
-                          {item.title}
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="min-w-0 flex-1 truncate text-[12px] text-white/80">
+                            {item.title}
+                          </span>
+                          {item.publishedRemoteCount ? (
+                            <span className="shrink-0 rounded-full border border-[#4EBE96]/18 bg-[#4EBE96]/08 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#d7f5e8]/70">
+                              posted {item.publishedRemoteCount}
+                            </span>
+                          ) : null}
                         </span>
                         {item.filePath !== null || item.line !== null ? (
                           <span className="mt-0.5 block truncate text-[10px] text-white/38">

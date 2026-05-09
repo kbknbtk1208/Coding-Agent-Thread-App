@@ -13,6 +13,7 @@ import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-sn
 import type { AgentGateway } from '../../agent-gateway/agent-gateway';
 import type { Poc3AgentReviewStore } from '../agent/store';
 import type { GraphReviewStore, WorkspaceGraphRecord } from '../store/graph-review-store';
+import type { PublishedAgentThreadLinkStore } from '../published-agent-thread/store';
 import { ResolveJudgementContextAssembler } from './context-assembler';
 import { parseResolveJudgementOutput } from './output-parser';
 import type { ResolveJudgementStore } from './store';
@@ -22,6 +23,7 @@ export interface ResolveJudgementCoordinatorDependencies {
   agentReviewStore: Poc3AgentReviewStore;
   agentGateway: Pick<AgentGateway, 'startSession' | 'awaitSettled'>;
   resultStore: ResolveJudgementStore;
+  publishedAgentThreadLinkStore?: PublishedAgentThreadLinkStore;
   contextAssembler?: ResolveJudgementContextAssembler;
   now?: () => string;
 }
@@ -121,6 +123,8 @@ export class ResolveJudgementCoordinator {
       record,
       sourceSnapshot,
       agentReviewStore: this.deps.agentReviewStore,
+      publishedAgentThreadLinks:
+        this.deps.publishedAgentThreadLinkStore?.listLinksForWorkspace(reviewWorkspaceId) ?? [],
     });
 
     const createdAt = this.now();

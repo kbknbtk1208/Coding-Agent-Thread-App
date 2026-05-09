@@ -12,6 +12,7 @@ export interface CommentListItem {
   title: string;
   filePath: string | null;
   line: number | null;
+  publishedRemoteCount?: number;
 }
 
 export interface UseCommentListResult {
@@ -54,6 +55,7 @@ export function useCommentList(
       if (lastSnapshotIdRef.current !== snapshotId) return;
 
       const collected: CommentListItem[] = [];
+      const seen = new Set<string>();
       let resolvedRevisionId: string | null = null;
 
       for (let i = 0; i < results.length; i++) {
@@ -67,8 +69,11 @@ export function useCommentList(
         }
 
         for (const finding of detail.findings) {
+          const key = `agent:${finding.localThreadId}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
           collected.push({
-            key: `agent:${finding.findingId}`,
+            key,
             type: 'agent',
             nodeId: node.nodeId,
             commentKey: {
@@ -80,13 +85,19 @@ export function useCommentList(
             title: finding.title,
             filePath: detail.node.filePath,
             line: finding.line,
+            publishedRemoteCount: finding.publishedRemoteThreads.filter(
+              (item) => item.status === 'active' && item.remoteThread,
+            ).length,
           });
         }
 
         for (const thread of detail.threads.remote) {
           const { location } = thread;
+          const key = `remote:${thread.providerThreadId}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
           collected.push({
-            key: `remote:${thread.providerThreadId}`,
+            key,
             type: 'remote',
             nodeId: node.nodeId,
             commentKey: {

@@ -23,9 +23,14 @@ import type {
   NodeFunctionCode,
   NodeRelationItem,
   NodeRelationSummary,
+  NodePublishedRemoteThreadSummary,
   NodeRemoteThreadSummary,
   NodeThreadSummary,
 } from '../../../shared/poc3-domain/node-detail';
+import type {
+  PublishedAgentThreadLink,
+  PublishedRemoteThreadSummary,
+} from '../../../shared/poc3-domain/published-agent-thread';
 import type {
   DiffHunkRange,
   ReviewChangedFile,
@@ -41,6 +46,7 @@ import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspa
 import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
 import { isUnitOrIntegrationTestFile } from '../analysis/test-file-classifier';
+import { buildPublishedThreadVisibility } from '../published-agent-thread/visibility';
 
 export interface ResolveNodeDetailContext {
   workspace: ReviewWorkspace;
@@ -54,6 +60,7 @@ export interface ResolveNodeDetailContext {
   agentThreads?: Poc3AgentReviewThread[];
   outdatedAgentThreads?: Poc3OutdatedAgentThread[];
   runById?: Map<string, Poc3AgentReviewRun>;
+  publishedAgentThreadLinks?: PublishedAgentThreadLink[];
 }
 
 export interface ResolveNodeDetailResult {
@@ -112,13 +119,28 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     agentThreads,
   );
   const allAgentThreads = [...agentThreads, ...outdatedAgentThreads.map((item) => item.thread)];
+  const visibility = buildPublishedThreadVisibility({
+    reviewWorkspaceId: workspace.reviewWorkspaceId,
+    agentThreads: allAgentThreads,
+    remoteThreads: sourceSnapshot?.remoteThreads ?? [],
+    links: context.publishedAgentThreadLinks ?? [],
+  });
   const summary = buildSummary(renderNode);
   const primaryView = pickPrimaryView(renderNode, functionCode, fileContext, codeExcerpt);
   const status = pickStatus(renderNode, functionCode, fileContext, codeExcerpt);
   const outdatedLocalThreadIds = new Set(
     outdatedAgentThreads.map((item) => item.thread.localThreadId),
   );
-  const threads = resolveThreads(renderNode, sourceSnapshot, allAgentThreads);
+  const threads = resolveThreads(
+    renderNode,
+    sourceSnapshot
+      ? {
+          ...sourceSnapshot,
+          remoteThreads: visibility.visibleRemoteThreads,
+        }
+      : null,
+    allAgentThreads,
+  );
   const companion = resolveCompanionState(renderNode, record, workspace);
 
   const detail: NodeDetailSnapshot = {
@@ -141,6 +163,9 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
       toNodeFindingSummary(thread, {
         isOutdated: outdatedLocalThreadIds.has(thread.localThreadId),
         hasReplyableSession: context.runById?.get(thread.runId)?.resultSource !== 'richText',
+        publishedRemoteThreads: (
+          visibility.publishedRemoteByLocalThreadId.get(thread.localThreadId) ?? []
+        ).map(toNodePublishedRemoteThreadSummary),
       }),
     ),
     diagnostics,
@@ -661,16 +686,7 @@ function resolveThreads(
   const filtered = sourceSnapshot.remoteThreads
     .filter((t) => isNodeDetailRemoteThread(t) && t.location.kind === 'diff')
     .filter((t) => matchesRemoteThread(t, node))
-    .map(
-      (t): NodeRemoteThreadSummary => ({
-        providerThreadId: t.providerThreadId,
-        location: t.location,
-        anchorStatus: t.anchorStatus,
-        isResolved: t.isResolved,
-        isOutdated: t.isOutdated || t.anchorStatus === 'outdated',
-        comments: t.comments,
-      }),
-    );
+    .map(toNodeRemoteThreadSummary);
   return {
     remote: filtered,
     local: [],
@@ -718,6 +734,7 @@ function toNodeFindingSummary(
   options: {
     isOutdated: boolean;
     hasReplyableSession: boolean;
+    publishedRemoteThreads: NodePublishedRemoteThreadSummary[];
   },
 ): NodeDetailSnapshot['findings'][number] {
   return {
@@ -735,6 +752,32 @@ function toNodeFindingSummary(
     status: thread.status === 'dismissed' ? 'resolved' : 'open',
     hasReplyableSession: options.hasReplyableSession,
     isOutdated: options.isOutdated,
+    publishedRemoteThreads: options.publishedRemoteThreads,
+  };
+}
+
+function toNodePublishedRemoteThreadSummary(
+  summary: PublishedRemoteThreadSummary,
+): NodePublishedRemoteThreadSummary {
+  return {
+    linkId: summary.link.linkId,
+    providerThreadId: summary.link.providerThreadId,
+    providerCommentIds: summary.link.providerCommentIds,
+    publishedAt: summary.link.publishedAt,
+    lastSyncedAt: summary.link.lastSyncedAt,
+    status: summary.link.status,
+    remoteThread: summary.remoteThread ? toNodeRemoteThreadSummary(summary.remoteThread) : null,
+  };
+}
+
+function toNodeRemoteThreadSummary(thread: ReviewRemoteThread): NodeRemoteThreadSummary {
+  return {
+    providerThreadId: thread.providerThreadId,
+    location: thread.location,
+    anchorStatus: thread.anchorStatus,
+    isResolved: thread.isResolved,
+    isOutdated: thread.isOutdated || thread.anchorStatus === 'outdated',
+    comments: thread.comments,
   };
 }
 

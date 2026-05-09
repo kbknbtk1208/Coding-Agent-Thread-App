@@ -9,8 +9,10 @@ import type {
   ReviewRemoteThread,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
+import type { PublishedAgentThreadLink } from '../../../shared/poc3-domain/published-agent-thread';
 import type { Poc3AgentReviewStore } from '../agent/store';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
+import { buildPublishedThreadVisibility } from '../published-agent-thread/visibility';
 
 interface ContextAssemblerInput {
   reviewWorkspaceId: string;
@@ -18,6 +20,7 @@ interface ContextAssemblerInput {
   record: WorkspaceGraphRecord;
   sourceSnapshot: ReviewSourceSnapshot | null;
   agentReviewStore: Poc3AgentReviewStore;
+  publishedAgentThreadLinks?: PublishedAgentThreadLink[];
 }
 
 export interface ResolveJudgementTargetCollection {
@@ -36,7 +39,18 @@ export class ResolveJudgementContextAssembler {
       targets.push(target);
     }
 
-    for (const target of this.collectRemoteTargets(input)) {
+    const agentThreads = input.agentReviewStore.listThreadsForWorkspace({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      revisionId: input.revisionId,
+    });
+    const visibility = buildPublishedThreadVisibility({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      agentThreads,
+      remoteThreads: input.sourceSnapshot?.remoteThreads ?? [],
+      links: input.publishedAgentThreadLinks ?? [],
+    });
+
+    for (const target of this.collectRemoteTargets(input, visibility.suppressedProviderThreadIds)) {
       const dedupKey = `${target.key.commentType}:${target.key.commentId}`;
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
@@ -132,10 +146,14 @@ export class ResolveJudgementContextAssembler {
     };
   }
 
-  private collectRemoteTargets(input: ContextAssemblerInput): ResolveJudgementTarget[] {
+  private collectRemoteTargets(
+    input: ContextAssemblerInput,
+    suppressedProviderThreadIds: Set<string>,
+  ): ResolveJudgementTarget[] {
     const remoteThreads = input.sourceSnapshot?.remoteThreads ?? [];
     const targets: ResolveJudgementTarget[] = [];
     for (const thread of remoteThreads) {
+      if (suppressedProviderThreadIds.has(thread.providerThreadId)) continue;
       if (thread.isResolved !== false) continue;
       targets.push(this.toRemoteTarget(thread, input));
     }

@@ -119,6 +119,8 @@ import {
 } from './source/review-comment-publish-coordinator';
 import { ResolveJudgementCoordinator } from './resolve-judgement/coordinator';
 import { ResolveJudgementStore } from './resolve-judgement/store';
+import { PublishedAgentThreadLinkStore } from './published-agent-thread/store';
+import { buildPublishedThreadVisibility } from './published-agent-thread/visibility';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -142,6 +144,7 @@ export class GraphReviewGateway {
   private readonly graphStore: GraphReviewStore;
   private readonly agentReviewStore: Poc3AgentReviewStore;
   private readonly resolveJudgementStore: ResolveJudgementStore;
+  private readonly publishedAgentThreadLinkStore: PublishedAgentThreadLinkStore;
   private readonly resolveJudgementCoordinator: ResolveJudgementCoordinator | null;
   private readonly agentReviewCoordinator: Poc3AgentReviewCoordinator | null;
   private readonly threadReplyCoordinator: Poc3AgentReviewThreadReplyCoordinator | null;
@@ -179,6 +182,7 @@ export class GraphReviewGateway {
     this.graphStore = new GraphReviewStore(userDataPath);
     this.agentReviewStore = new Poc3AgentReviewStore(userDataPath);
     this.resolveJudgementStore = new ResolveJudgementStore(userDataPath);
+    this.publishedAgentThreadLinkStore = new PublishedAgentThreadLinkStore(userDataPath);
     this.agentReviewCoordinator = this.agentGateway
       ? new Poc3AgentReviewCoordinator({
           agentGateway: this.agentGateway,
@@ -195,6 +199,7 @@ export class GraphReviewGateway {
       ? new ResolveJudgementCoordinator({
           graphStore: this.graphStore,
           agentReviewStore: this.agentReviewStore,
+          publishedAgentThreadLinkStore: this.publishedAgentThreadLinkStore,
           agentGateway: this.agentGateway,
           resultStore: this.resolveJudgementStore,
         })
@@ -218,6 +223,8 @@ export class GraphReviewGateway {
       analysisCoordinator: this.analysisCoordinator,
       viewBuilder: this.revisionViewBuilder,
       threadRetention: this.threadRetentionService,
+      markPublishedAgentThreadSyncResult: (input) =>
+        this.publishedAgentThreadLinkStore.markSyncResult(input),
       emit: (event) => this.emitRevisionRefreshEvent(event),
       resolveProvider: (workspace) => {
         const profile = this.profileStore.get(workspace.repositoryProfileId);
@@ -435,6 +442,7 @@ export class GraphReviewGateway {
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
       this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
       this.resolveJudgementStore.deleteWorkspace(reviewWorkspaceId);
+      this.publishedAgentThreadLinkStore.deleteWorkspaceLinks(reviewWorkspaceId);
       this.clearWorkspaceCaches(reviewWorkspaceId);
       this.dbOnlyPurgeAllowedWorkspaceIds.delete(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
@@ -457,6 +465,7 @@ export class GraphReviewGateway {
       this.graphStore.deleteWorkspaceBundle(reviewWorkspaceId);
       this.agentReviewStore.deleteWorkspaceRuns(reviewWorkspaceId);
       this.resolveJudgementStore.deleteWorkspace(reviewWorkspaceId);
+      this.publishedAgentThreadLinkStore.deleteWorkspaceLinks(reviewWorkspaceId);
       this.clearWorkspaceCaches(reviewWorkspaceId);
       this.dbOnlyPurgeAllowedWorkspaceIds.delete(reviewWorkspaceId);
       return { ok: true, reviewWorkspaceId };
@@ -605,6 +614,8 @@ export class GraphReviewGateway {
       sourceSnapshot,
       agentThreads,
       outdatedAgentThreads,
+      publishedAgentThreadLinks:
+        this.publishedAgentThreadLinkStore.listLinksForWorkspace(reviewWorkspaceId),
       runById: new Map(
         this.agentReviewStore.listRuns(reviewWorkspaceId).map((run) => [run.runId, run] as const),
       ),
@@ -683,6 +694,8 @@ export class GraphReviewGateway {
       renderSnapshot,
       sourceSnapshot,
       agentThreads,
+      publishedAgentThreadLinks:
+        this.publishedAgentThreadLinkStore.listLinksForWorkspace(reviewWorkspaceId),
     });
     if (resolved.ok) {
       return { ok: true, detail: resolved.detail };
@@ -1514,7 +1527,15 @@ export class GraphReviewGateway {
     const remoteThreadCounts = sourceSnapshot
       ? buildRemoteThreadCountByNode(
           record.graph.nodes,
-          sourceSnapshot.remoteThreads,
+          buildPublishedThreadVisibility({
+            reviewWorkspaceId,
+            agentThreads: [
+              ...currentAgentThreads,
+              ...outdatedAgentThreads.map((item) => item.thread),
+            ],
+            remoteThreads: sourceSnapshot.remoteThreads,
+            links: this.publishedAgentThreadLinkStore.listLinksForWorkspace(reviewWorkspaceId),
+          }).visibleRemoteThreads,
           companionRedirectIndex,
         )
       : new Map<string, number>();
@@ -1553,7 +1574,16 @@ export class GraphReviewGateway {
     if (!sourceSnapshot) {
       return { threads: [] };
     }
-    const archived = sourceSnapshot.remoteThreads.filter((t) => t.anchorStatus === 'unanchored');
+    const links = this.publishedAgentThreadLinkStore.listLinksForWorkspace(reviewWorkspaceId);
+    const suppressedProviderThreadIds = new Set(
+      links
+        .filter((link) => this.agentReviewStore.getThreadDraft(link.localThreadId))
+        .map((link) => link.providerThreadId),
+    );
+    const archived = sourceSnapshot.remoteThreads.filter(
+      (t) =>
+        t.anchorStatus === 'unanchored' && !suppressedProviderThreadIds.has(t.providerThreadId),
+    );
     return {
       threads: archived.map((thread) => ({
         reviewWorkspaceId,
@@ -1580,6 +1610,9 @@ export class GraphReviewGateway {
         providerStore: this.providerStore,
         profileStore: this.profileStore,
         agentReviewStore: this.agentReviewStore,
+        savePublishedAgentThreadLink: (link) => this.publishedAgentThreadLinkStore.saveLink(link),
+        markPublishedAgentThreadSyncResult: (syncInput) =>
+          this.publishedAgentThreadLinkStore.markSyncResult(syncInput),
         savePublishedRecord: (record) => this.graphStore.savePublishedCommentRecord(record),
         clearWorkspaceCaches: (id) => this.clearWorkspaceCaches(id),
       },
@@ -1599,6 +1632,9 @@ export class GraphReviewGateway {
         providerStore: this.providerStore,
         profileStore: this.profileStore,
         agentReviewStore: this.agentReviewStore,
+        savePublishedAgentThreadLink: (link) => this.publishedAgentThreadLinkStore.saveLink(link),
+        markPublishedAgentThreadSyncResult: (syncInput) =>
+          this.publishedAgentThreadLinkStore.markSyncResult(syncInput),
         savePublishedRecord: (record) => this.graphStore.savePublishedCommentRecord(record),
         clearWorkspaceCaches: (id) => this.clearWorkspaceCaches(id),
       },
