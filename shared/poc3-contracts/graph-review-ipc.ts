@@ -14,7 +14,11 @@ import type {
   GraphAnalysisEvent,
   GraphWorkspaceView,
 } from '../poc3-domain/graph';
-import type { NodeDetailSnapshot, NodeDetailViewMode } from '../poc3-domain/node-detail';
+import type {
+  NodeCompanionDetailSnapshot,
+  NodeDetailSnapshot,
+  NodeDetailViewMode,
+} from '../poc3-domain/node-detail';
 import type {
   RevisionRefreshSnapshot,
   WorkspaceRevisionView,
@@ -83,6 +87,9 @@ export type {
 } from '../poc3-domain/agent-review';
 export type {
   NodeCodeExcerpt,
+  NodeCompanionDetailSnapshot,
+  NodeCompanionState,
+  NodeCompanionSummary,
   NodeDetailDiagnostic,
   NodeDetailViewMode,
   NodeDetailSnapshot,
@@ -189,6 +196,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   selectWorkspaceRevision: 'poc3:revision:select',
   revisionRefreshEvent: 'poc3:revision:refresh:event',
   loadNodeDetail: 'poc3:node:load-detail',
+  loadNodeCompanionDetail: 'poc3:node:load-companion-detail',
   startAgentReview: 'poc3:agent-review:start',
   awaitAgentReviewResult: 'poc3:agent-review:await-result',
   listAgentReviewRuns: 'poc3:agent-review:list-runs',
@@ -491,6 +499,34 @@ export type LoadNodeDetailResult =
       detail: NodeDetailSnapshot | null;
     };
 
+export interface LoadNodeCompanionDetailInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  ownerNodeId: string;
+  relationId: string;
+}
+
+export type LoadNodeCompanionDetailFailureReason =
+  | 'workspaceNotFound'
+  | 'revisionNotFound'
+  | 'graphNotReady'
+  | 'ownerNodeNotFound'
+  | 'companionNotFound'
+  | 'fileNotFound'
+  | 'detailUnavailable';
+
+export type LoadNodeCompanionDetailResult =
+  | {
+      ok: true;
+      detail: NodeCompanionDetailSnapshot;
+    }
+  | {
+      ok: false;
+      reason: LoadNodeCompanionDetailFailureReason;
+      message: string;
+      detail: NodeCompanionDetailSnapshot | null;
+    };
+
 export interface StartAgentReviewInput {
   reviewWorkspaceId: string;
   scopeKey?: string;
@@ -681,6 +717,9 @@ export interface Poc3GraphReviewApi {
     input: SelectWorkspaceRevisionInput,
   ): Promise<SelectWorkspaceRevisionResult>;
   loadNodeDetail(input: LoadNodeDetailInput): Promise<LoadNodeDetailResult>;
+  loadNodeCompanionDetail(
+    input: LoadNodeCompanionDetailInput,
+  ): Promise<LoadNodeCompanionDetailResult>;
   startAgentReview(input: StartAgentReviewInput): Promise<StartAgentReviewResult>;
   awaitAgentReviewResult(input: AwaitAgentReviewResultInput): Promise<AwaitAgentReviewResultResult>;
   listAgentReviewRuns(input: ListAgentReviewRunsInput): Promise<ListAgentReviewRunsResult>;

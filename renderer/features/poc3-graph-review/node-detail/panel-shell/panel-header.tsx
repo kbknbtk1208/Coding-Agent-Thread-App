@@ -4,6 +4,7 @@ import { FileCode2, FunctionSquare, Package, X } from 'lucide-react';
 import type { RefObject } from 'react';
 import type { GraphRenderNode } from '../../../../../shared/poc3-domain/graph';
 import type { NodeDetailState } from '../use-node-detail';
+import type { NodeCompanionState } from '../../../../../shared/poc3-contracts/graph-review-ipc';
 
 export function PanelHeader({
   node,
@@ -11,12 +12,18 @@ export function PanelHeader({
   onClose,
   titleId,
   closeButtonRef,
+  companionToggle,
 }: {
   node: GraphRenderNode;
   state: NodeDetailState;
   onClose: () => void;
   titleId: string;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
+  companionToggle?: {
+    state: NodeCompanionState | null;
+    checked: boolean;
+    onCheckedChange(next: boolean): void;
+  };
 }) {
   const Icon =
     node.kind === 'module' || node.kind === 'file-scope'
@@ -63,6 +70,24 @@ export function PanelHeader({
             >
               {filePath}
             </p>
+          ) : null}
+          {companionToggle?.state ? (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                className="h-7 cursor-pointer rounded-[7px] border border-white/[0.1] bg-white/[0.04] px-2 text-[11px] font-semibold text-white/75 transition enabled:hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={companionToggle.state.companions.length === 0}
+                aria-pressed={companionToggle.checked}
+                onClick={() => companionToggle.onCheckedChange(!companionToggle.checked)}
+              >
+                {companionToggle.state.toggleLabel}
+              </button>
+              {companionToggle.state.companions.length === 0 ? (
+                <span className="text-[11px] text-white/45">
+                  {companionToggle.state.emptyMessage}
+                </span>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <button

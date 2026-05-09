@@ -1,10 +1,13 @@
 import type { Poc3DiffLineSelection } from '../../provider-comments/diff-inline-selection';
 import type { Poc3InlineCommentAnchor } from '../../../../../shared/poc3-domain/comment-publish';
-import type { NodeDetailSnapshot } from '../../../../../shared/poc3-contracts/graph-review-ipc';
+import type {
+  NodeCompanionDetailSnapshot,
+  NodeDetailSnapshot,
+} from '../../../../../shared/poc3-contracts/graph-review-ipc';
 
 export function buildManualSelectionSourceKey(
   selection: Poc3DiffLineSelection,
-  detail?: NodeDetailSnapshot,
+  detail?: NodeDetailSnapshot | NodeCompanionDetailSnapshot,
   seed = 0,
 ): string {
   return [

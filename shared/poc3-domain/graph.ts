@@ -33,10 +33,30 @@ export interface CodeGraphSnapshot {
   status: 'ready' | 'partial' | 'failed';
   nodes: CodeGraphNode[];
   edges: CodeGraphEdge[];
+  companionFiles?: CodeCompanionFile[];
   limits: GraphLimitSummary;
   diagnostics: GraphDiagnostic[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type CodeFileRole = 'product' | 'test';
+export type CodeRelationSource = 'import' | 'graph-edge' | 'filename-heuristic';
+export type CodeRelationDisplayMode = 'diff' | 'code';
+
+export interface CodeCompanionFile {
+  relationId: string;
+  ownerNodeId: string;
+  ownerFilePath: string;
+  ownerRole: CodeFileRole;
+  companionRole: CodeFileRole;
+  companionFilePath: string;
+  companionNodeIds: string[];
+  hiddenNodeIds: string[];
+  source: CodeRelationSource;
+  displayMode: CodeRelationDisplayMode;
+  existsInWorkspaceHead: boolean;
+  existsInDiff: boolean;
 }
 
 export type CodeGraphNodeKind =
@@ -75,6 +95,7 @@ export interface CodeGraphNode {
     changedLines: number;
     remoteThreadCount: number;
     findingCount: number;
+    hasCompanionCode?: boolean;
   };
 }
 

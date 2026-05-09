@@ -94,6 +94,7 @@ interface GraphSnapshotRow {
   status: CodeGraphSnapshot['status'];
   nodes_json: string;
   edges_json: string;
+  companion_files_json: string | null;
   limits_json: string;
   diagnostics_json: string;
   created_at: string;
@@ -646,10 +647,10 @@ export class GraphReviewStore {
           `
             INSERT OR REPLACE INTO graph_snapshots (
               graph_snapshot_id, revision_id, scope_key, status, nodes_json, edges_json,
-              limits_json, diagnostics_json, created_at, updated_at
+              companion_files_json, limits_json, diagnostics_json, created_at, updated_at
             ) VALUES (
               @graph_snapshot_id, @revision_id, @scope_key, @status, @nodes_json, @edges_json,
-              @limits_json, @diagnostics_json, @created_at, @updated_at
+              @companion_files_json, @limits_json, @diagnostics_json, @created_at, @updated_at
             )
           `,
         )
@@ -660,6 +661,7 @@ export class GraphReviewStore {
           status: graph.status,
           nodes_json: JSON.stringify(graph.nodes),
           edges_json: JSON.stringify(graph.edges),
+          companion_files_json: JSON.stringify(graph.companionFiles ?? []),
           limits_json: JSON.stringify(graph.limits),
           diagnostics_json: JSON.stringify(graph.diagnostics),
           created_at: graph.createdAt,
@@ -1035,6 +1037,7 @@ export class GraphReviewStore {
       status: row.status,
       nodes: parseJson(row.nodes_json),
       edges: parseJson(row.edges_json),
+      companionFiles: parseJson(row.companion_files_json ?? '[]'),
       limits: parseJson(row.limits_json),
       diagnostics: parseJson<GraphDiagnostic[]>(row.diagnostics_json),
       createdAt: row.created_at,
@@ -1171,6 +1174,7 @@ export class GraphReviewStore {
         status TEXT NOT NULL,
         nodes_json TEXT NOT NULL,
         edges_json TEXT NOT NULL,
+        companion_files_json TEXT NOT NULL DEFAULT '[]',
         limits_json TEXT NOT NULL,
         diagnostics_json TEXT NOT NULL,
         created_at TEXT NOT NULL,
@@ -1258,6 +1262,11 @@ export class GraphReviewStore {
     `);
     try {
       this.db.exec(`ALTER TABLE review_source_snapshots ADD COLUMN remote_threads_json TEXT`);
+    } catch {
+      // column already exists
+    }
+    try {
+      this.db.exec(`ALTER TABLE graph_snapshots ADD COLUMN companion_files_json TEXT DEFAULT '[]'`);
     } catch {
       // column already exists
     }

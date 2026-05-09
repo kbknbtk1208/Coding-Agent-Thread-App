@@ -40,6 +40,7 @@ import type { Poc3OutdatedAgentThread } from '../../../shared/poc3-domain/thread
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
+import { isUnitOrIntegrationTestFile } from '../analysis/test-file-classifier';
 
 export interface ResolveNodeDetailContext {
   workspace: ReviewWorkspace;
@@ -118,6 +119,7 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
     outdatedAgentThreads.map((item) => item.thread.localThreadId),
   );
   const threads = resolveThreads(renderNode, sourceSnapshot, allAgentThreads);
+  const companion = resolveCompanionState(renderNode, record, workspace);
 
   const detail: NodeDetailSnapshot = {
     reviewWorkspaceId: workspace.reviewWorkspaceId,
@@ -142,9 +144,67 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
       }),
     ),
     diagnostics,
+    companion,
   };
 
   return { ok: true, reason: null, message: null, detail };
+}
+
+function resolveCompanionState(
+  node: GraphRenderNode,
+  record: WorkspaceGraphRecord,
+  workspace: ReviewWorkspace,
+): NodeDetailSnapshot['companion'] {
+  const nodeFilePath = node.filePath ?? '';
+  const ownerItems = (record.graph?.companionFiles ?? []).filter(
+    (item) => item.ownerNodeId === node.nodeId || item.ownerFilePath === nodeFilePath,
+  );
+  const reverseItems = (record.graph?.companionFiles ?? []).filter(
+    (item) =>
+      item.companionNodeIds.includes(node.nodeId) ||
+      item.hiddenNodeIds.includes(node.nodeId) ||
+      item.companionFilePath === nodeFilePath,
+  );
+  const companions = ownerItems.length > 0 ? ownerItems : reverseItems;
+  const fallbackTargetRole = isUnitOrIntegrationTestFile(nodeFilePath) ? 'product' : 'test';
+  if (companions.length === 0) {
+    if (!node.filePath || node.kind === 'external' || node.kind === 'external-symbol') {
+      return null;
+    }
+    return {
+      targetRole: fallbackTargetRole,
+      toggleLabel: fallbackTargetRole === 'test' ? 'Test' : 'Product',
+      emptyMessage:
+        fallbackTargetRole === 'test'
+          ? '対応するテストコードが存在しません'
+          : '対応するプロダクトコードが存在しません',
+      companions: [],
+    };
+  }
+
+  const targetRole = ownerItems.length > 0 ? ownerItems[0].companionRole : companions[0].ownerRole;
+  const emptyMessage =
+    targetRole === 'test'
+      ? '対応するテストコードが存在しません'
+      : '対応するプロダクトコードが存在しません';
+  return {
+    targetRole,
+    toggleLabel: targetRole === 'test' ? 'Test' : 'Product',
+    emptyMessage,
+    companions: companions.map((item) => {
+      const filePath = ownerItems.length > 0 ? item.companionFilePath : item.ownerFilePath;
+      const existsInWorkspaceHead = fs.existsSync(path.join(workspace.worktreePath, filePath));
+      return {
+        relationId: item.relationId,
+        role: ownerItems.length > 0 ? item.companionRole : item.ownerRole,
+        filePath,
+        displayMode: item.displayMode,
+        existsInWorkspaceHead,
+        existsInDiff: item.existsInDiff,
+        unavailableMessage: existsInWorkspaceHead ? null : 'worktree にファイルが存在しません',
+      };
+    }),
+  };
 }
 
 function buildSummary(node: GraphRenderNode): NodeDetailSummary {

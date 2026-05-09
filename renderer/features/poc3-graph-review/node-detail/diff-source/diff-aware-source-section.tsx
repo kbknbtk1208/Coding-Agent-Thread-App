@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import type {
+  NodeCompanionDetailSnapshot,
   NodeDetailSnapshot,
   NodeDetailViewMode,
 } from '../../../../../shared/poc3-contracts/graph-review-ipc';
@@ -30,15 +31,15 @@ export function DiffAwareSourceSection({
   publishComments,
   providerKind,
 }: {
-  detail: NodeDetailSnapshot;
+  detail: NodeDetailSnapshot | NodeCompanionDetailSnapshot;
   source: DiffAwareSourceBase | null;
   viewMode: NodeDetailViewMode;
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   publishComments: UsePublishCommentsReturn;
   providerKind?: ReviewProviderKind;
 }) {
-  const fileContext = detail.fileContext;
-  const functionCode = detail.functionCode;
+  const fileContext = 'fileContext' in detail ? detail.fileContext : null;
+  const functionCode = 'functionCode' in detail ? detail.functionCode : null;
   const canExpandWithinFile =
     Boolean(functionCode && fileContext && functionCode.filePath === fileContext.filePath) &&
     source?.filePath === functionCode?.filePath;

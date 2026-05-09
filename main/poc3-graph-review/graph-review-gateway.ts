@@ -20,6 +20,8 @@ import type {
   LoadAgentThreadConversationResult,
   LoadNodeDetailInput,
   LoadNodeDetailResult,
+  LoadNodeCompanionDetailInput,
+  LoadNodeCompanionDetailResult,
   LoadWorkspaceGraphInput,
   LoadWorkspaceGraphResult,
   LoadWorkspaceRevisionsInput,
@@ -43,6 +45,7 @@ import type {
 import type { AgentEventPayload, RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import type {
   CodeGraphSnapshot,
+  CodeCompanionFile,
   GraphAnalysisEvent,
   GraphDiagnostic,
   GraphNodeLayout,
@@ -104,6 +107,7 @@ import {
 } from './agent/thread-reply-coordinator';
 import { fallbackGridLayout } from './layout/elk-layout-service';
 import { resolveNodeDetail } from './node-detail/node-detail-resolver';
+import { resolveNodeCompanionDetail } from './node-detail/node-companion-detail-resolver';
 import { GraphReviewStore, type WorkspaceGraphRecord } from './store/graph-review-store';
 import type { AgentGateway } from '../agent-gateway/agent-gateway';
 import { RevisionRefreshCoordinator } from './revision/revision-refresh-coordinator';
@@ -612,6 +616,81 @@ export class GraphReviewGateway {
       ok: false,
       reason: resolved.reason ?? 'detailUnavailable',
       message: resolved.message ?? 'Node detail を解決できませんでした。',
+      detail: resolved.detail,
+    };
+  }
+
+  loadNodeCompanionDetail(input: LoadNodeCompanionDetailInput): LoadNodeCompanionDetailResult {
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const scopeKey = input.scopeKey ?? INITIAL_GRAPH_SCOPE_KEY;
+    const ownerNodeId = input.ownerNodeId.trim();
+    const relationId = input.relationId.trim();
+    const record = this.graphStore.getWorkspaceGraphRecord(reviewWorkspaceId, scopeKey);
+    if (!record) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Review Workspace が見つかりません。',
+        detail: null,
+      };
+    }
+    if (!record.activeRevision) {
+      return {
+        ok: false,
+        reason: 'revisionNotFound',
+        message: 'Active revision が見つかりません。',
+        detail: null,
+      };
+    }
+    if (!record.graph) {
+      return {
+        ok: false,
+        reason: 'graphNotReady',
+        message: 'Graph snapshot がまだ保存されていません。',
+        detail: null,
+      };
+    }
+    const renderSnapshot = this.getRenderSnapshot(reviewWorkspaceId, scopeKey, record);
+    const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(
+      record.activeRevision.revisionId,
+    );
+    const ownerNode = renderSnapshot.nodes.find((node) => node.nodeId === ownerNodeId);
+    const companion = (record.graph.companionFiles ?? []).find(
+      (item) =>
+        item.relationId === relationId &&
+        (item.ownerNodeId === ownerNodeId || item.ownerFilePath === ownerNode?.filePath),
+    );
+    const agentThreads = this.agentReviewStore
+      .listThreadsForWorkspace({
+        reviewWorkspaceId,
+        revisionId: record.activeRevision.revisionId,
+      })
+      .filter((thread) => {
+        if (!companion) return false;
+        return (
+          companion.hiddenNodeIds.includes(thread.nodeId ?? '') ||
+          (thread.location.kind === 'diff' &&
+            thread.location.filePath === companion.companionFilePath)
+        );
+      });
+    const resolved = resolveNodeCompanionDetail({
+      workspace: record.workspace,
+      revisionId: record.activeRevision.revisionId,
+      scopeKey,
+      ownerNodeId,
+      relationId,
+      record,
+      renderSnapshot,
+      sourceSnapshot,
+      agentThreads,
+    });
+    if (resolved.ok) {
+      return { ok: true, detail: resolved.detail };
+    }
+    return {
+      ok: false,
+      reason: resolved.reason,
+      message: resolved.message,
       detail: resolved.detail,
     };
   }
@@ -1368,7 +1447,10 @@ export class GraphReviewGateway {
     const outdatedAgentThreadsKey = outdatedAgentThreads
       .map((item) => `${item.thread.localThreadId}:${item.tracking.checkedAt}`)
       .join('|');
-    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}::${outdatedAgentThreadsKey}`;
+    const companionKey = (record.graph.companionFiles ?? [])
+      .map((item) => `${item.relationId}:${item.existsInWorkspaceHead}:${item.existsInDiff}`)
+      .join('|');
+    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}::${outdatedAgentThreadsKey}::${companionKey}`;
     const cached = this.renderSnapshotCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -1381,7 +1463,19 @@ export class GraphReviewGateway {
       }
     }
 
+    const companionRedirectIndex = buildCompanionThreadRedirectIndex(
+      record.graph.companionFiles ?? [],
+    );
+    const visibleNodeIds = new Set(record.graph.nodes.map((node) => node.nodeId));
     const agentFindingCounts = new Map<string, number>();
+    const countedAgentFindings = new Map<string, Set<string>>();
+    const addAgentFindingCount = (nodeId: string, localThreadId: string): void => {
+      const counted = countedAgentFindings.get(nodeId) ?? new Set<string>();
+      if (counted.has(localThreadId)) return;
+      counted.add(localThreadId);
+      countedAgentFindings.set(nodeId, counted);
+      agentFindingCounts.set(nodeId, (agentFindingCounts.get(nodeId) ?? 0) + 1);
+    };
     let currentAgentThreads: Poc3AgentReviewThread[] = [];
     if (record.activeRevision) {
       currentAgentThreads = this.agentReviewStore.listThreadsForWorkspace({
@@ -1389,8 +1483,21 @@ export class GraphReviewGateway {
         revisionId: record.activeRevision.revisionId,
       });
       for (const thread of currentAgentThreads) {
-        if (thread.nodeId) {
-          agentFindingCounts.set(thread.nodeId, (agentFindingCounts.get(thread.nodeId) ?? 0) + 1);
+        if (thread.nodeId && visibleNodeIds.has(thread.nodeId)) {
+          addAgentFindingCount(thread.nodeId, thread.localThreadId);
+        } else if (thread.nodeId) {
+          const ownerNodeId = companionRedirectIndex.hiddenNodeIdToOwnerNodeId.get(thread.nodeId);
+          if (ownerNodeId) {
+            addAgentFindingCount(ownerNodeId, thread.localThreadId);
+          }
+        }
+        if (thread.location.kind === 'diff' && thread.location.filePath) {
+          const ownerNodeIds =
+            companionRedirectIndex.companionFilePathToOwnerNodeIds.get(thread.location.filePath) ??
+            [];
+          for (const ownerNodeId of ownerNodeIds) {
+            addAgentFindingCount(ownerNodeId, thread.localThreadId);
+          }
         }
       }
     }
@@ -1398,20 +1505,37 @@ export class GraphReviewGateway {
       record.graph.nodes,
       outdatedAgentThreads,
       currentAgentThreads,
+      companionRedirectIndex,
     );
     outdatedAgentFindingCounts.forEach((count, nodeId) => {
       agentFindingCounts.set(nodeId, (agentFindingCounts.get(nodeId) ?? 0) + count);
     });
 
     const remoteThreadCounts = sourceSnapshot
-      ? buildRemoteThreadCountByNode(record.graph.nodes, sourceSnapshot.remoteThreads)
+      ? buildRemoteThreadCountByNode(
+          record.graph.nodes,
+          sourceSnapshot.remoteThreads,
+          companionRedirectIndex,
+        )
       : new Map<string, number>();
 
+    const companionOwnerNodeIds = new Set(
+      (record.graph.companionFiles ?? []).flatMap((item) => {
+        const ownerFilePath = item.ownerFilePath;
+        const nodeIdsInOwnerFile = record.graph?.nodes
+          .filter((node) => node.filePath === ownerFilePath)
+          .map((node) => node.nodeId);
+        return nodeIdsInOwnerFile && nodeIdsInOwnerFile.length > 0
+          ? nodeIdsInOwnerFile
+          : [item.ownerNodeId];
+      }),
+    );
     const renderSnapshot = toRenderSnapshot(
       record.graph,
       record.layout,
       agentFindingCounts,
       remoteThreadCounts,
+      companionOwnerNodeIds,
     );
     this.renderSnapshotCache.set(cacheKey, renderSnapshot);
     return renderSnapshot;
@@ -1506,6 +1630,7 @@ function toRenderSnapshot(
   layout: LayoutSnapshot | null,
   agentFindingCounts: Map<string, number> = new Map(),
   remoteThreadCounts: Map<string, number> = new Map(),
+  companionOwnerNodeIds: Set<string> = new Set(),
 ): GraphRenderSnapshot {
   const diagnostics: GraphDiagnostic[] = [...graph.diagnostics];
   const positions: Record<string, GraphNodeLayout> = layout?.positions ?? fallbackGridLayout(graph);
@@ -1532,6 +1657,8 @@ function toRenderSnapshot(
           ...node.badges,
           findingCount,
           remoteThreadCount,
+          hasCompanionCode:
+            node.badges.hasCompanionCode === true || companionOwnerNodeIds.has(node.nodeId),
         },
         position: { x: position.x, y: position.y },
         size: { width: position.width, height: position.height },
@@ -1551,8 +1678,17 @@ function toRenderSnapshot(
 export function buildRemoteThreadCountByNode(
   nodes: CodeGraphSnapshot['nodes'],
   remoteThreads: import('../../shared/poc3-domain/source-snapshot').ReviewRemoteThread[],
+  companionRedirectIndex: CompanionRedirectIndex = createEmptyCompanionRedirectIndex(),
 ): Map<string, number> {
   const counts = new Map<string, number>();
+  const countedByNode = new Map<string, Set<string>>();
+  const addCount = (nodeId: string, providerThreadId: string): void => {
+    const counted = countedByNode.get(nodeId) ?? new Set<string>();
+    if (counted.has(providerThreadId)) return;
+    counted.add(providerThreadId);
+    countedByNode.set(nodeId, counted);
+    counts.set(nodeId, (counts.get(nodeId) ?? 0) + 1);
+  };
   const currentThreads = remoteThreads.filter(
     (t) =>
       (t.anchorStatus === 'current' || t.anchorStatus === 'outdated') && t.location.kind === 'diff',
@@ -1587,6 +1723,14 @@ export function buildRemoteThreadCountByNode(
       counts.set(node.nodeId, count);
     }
   }
+  for (const thread of currentThreads) {
+    if (thread.location.kind !== 'diff') continue;
+    const ownerNodeIds =
+      companionRedirectIndex.companionFilePathToOwnerNodeIds.get(thread.location.filePath) ?? [];
+    for (const ownerNodeId of ownerNodeIds) {
+      addCount(ownerNodeId, thread.providerThreadId);
+    }
+  }
   return counts;
 }
 
@@ -1594,9 +1738,22 @@ export function buildOutdatedAgentFindingCountByNode(
   nodes: CodeGraphSnapshot['nodes'],
   outdatedThreads: Poc3OutdatedAgentThread[],
   currentThreads: Poc3AgentReviewThread[] = [],
+  companionRedirectIndex: CompanionRedirectIndex = createEmptyCompanionRedirectIndex(),
 ): Map<string, number> {
   const counts = new Map<string, number>();
   const currentLocalThreadIds = new Set(currentThreads.map((thread) => thread.localThreadId));
+  const visibleNodeIds = new Set(nodes.map((node) => node.nodeId));
+  const addCount = (nodeId: string): void => {
+    counts.set(nodeId, (counts.get(nodeId) ?? 0) + 1);
+  };
+  const redirectedLocalThreadIdsByNode = new Map<string, Set<string>>();
+  const addRedirectedCount = (nodeId: string, localThreadId: string): void => {
+    const counted = redirectedLocalThreadIdsByNode.get(nodeId) ?? new Set<string>();
+    if (counted.has(localThreadId)) return;
+    counted.add(localThreadId);
+    redirectedLocalThreadIdsByNode.set(nodeId, counted);
+    addCount(nodeId);
+  };
   for (const node of nodes) {
     let count = 0;
     for (const item of outdatedThreads) {
@@ -1611,7 +1768,56 @@ export function buildOutdatedAgentFindingCountByNode(
       counts.set(node.nodeId, count);
     }
   }
+  for (const item of outdatedThreads) {
+    if (currentLocalThreadIds.has(item.thread.localThreadId)) {
+      continue;
+    }
+    if (item.thread.nodeId && !visibleNodeIds.has(item.thread.nodeId)) {
+      const ownerNodeId = companionRedirectIndex.hiddenNodeIdToOwnerNodeId.get(item.thread.nodeId);
+      if (ownerNodeId) {
+        addRedirectedCount(ownerNodeId, item.thread.localThreadId);
+      }
+    }
+    if (item.thread.location.kind === 'diff' && item.thread.location.filePath) {
+      const ownerNodeIds =
+        companionRedirectIndex.companionFilePathToOwnerNodeIds.get(item.thread.location.filePath) ??
+        [];
+      for (const ownerNodeId of ownerNodeIds) {
+        addRedirectedCount(ownerNodeId, item.thread.localThreadId);
+      }
+    }
+  }
   return counts;
+}
+
+interface CompanionRedirectIndex {
+  hiddenNodeIdToOwnerNodeId: Map<string, string>;
+  companionFilePathToOwnerNodeIds: Map<string, string[]>;
+}
+
+function createEmptyCompanionRedirectIndex(): CompanionRedirectIndex {
+  return {
+    hiddenNodeIdToOwnerNodeId: new Map(),
+    companionFilePathToOwnerNodeIds: new Map(),
+  };
+}
+
+export function buildCompanionThreadRedirectIndex(
+  companionFiles: CodeCompanionFile[],
+): CompanionRedirectIndex {
+  const index = createEmptyCompanionRedirectIndex();
+  for (const companion of companionFiles) {
+    for (const hiddenNodeId of companion.hiddenNodeIds) {
+      index.hiddenNodeIdToOwnerNodeId.set(hiddenNodeId, companion.ownerNodeId);
+    }
+    const ownerNodeIds =
+      index.companionFilePathToOwnerNodeIds.get(companion.companionFilePath) ?? [];
+    if (!ownerNodeIds.includes(companion.ownerNodeId)) {
+      ownerNodeIds.push(companion.ownerNodeId);
+      index.companionFilePathToOwnerNodeIds.set(companion.companionFilePath, ownerNodeIds);
+    }
+  }
+  return index;
 }
 
 function matchesAgentThreadToGraphNode(
