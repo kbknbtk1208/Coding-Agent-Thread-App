@@ -263,3 +263,26 @@
     background-position: -20% 0;
   }
 }
+
+@keyframes test-case-flash {
+  0% {
+    background-color: rgba(216, 224, 113, 0);
+    box-shadow: inset 3px 0 0 rgba(216, 224, 113, 0);
+  }
+
+  20% {
+    background-color: rgba(216, 224, 113, 0.28);
+    box-shadow: inset 3px 0 0 rgba(216, 224, 113, 0.7);
+  }
+
+  100% {
+    background-color: rgba(216, 224, 113, 0);
+    box-shadow: inset 3px 0 0 rgba(216, 224, 113, 0);
+  }
+}
+
+@layer components {
+  .animate-test-case-flash {
+    animation: test-case-flash 1.5s ease-out;
+  }
+}

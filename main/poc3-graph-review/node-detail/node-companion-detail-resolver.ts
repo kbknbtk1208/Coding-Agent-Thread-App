@@ -10,7 +10,9 @@ import type {
   NodeFileContext,
   NodeRemoteThreadSummary,
   NodeThreadSummary,
+  TestCaseTreeNode,
 } from '../../../shared/poc3-domain/node-detail';
+import { extractTestCases, isAstSupportedLanguage } from '../analysis/test-case-extractor';
 import type { Poc3AgentReviewThread } from '../../../shared/poc3-domain/agent-review';
 import type {
   ReviewChangedFile,
@@ -83,6 +85,25 @@ export function resolveNodeCompanionDetail(
     };
   }
 
+  let testCases: TestCaseTreeNode[] | null = null;
+  if (companion.companionRole === 'test' && source) {
+    if (isAstSupportedLanguage(source.language)) {
+      const result = extractTestCases({
+        content: source.content,
+        language: source.language,
+        baseLine: source.startLine,
+      });
+      testCases = result.testCases;
+      for (const d of result.diagnostics) {
+        diagnostics.push({
+          code: d.code,
+          message: `${filePath}: ${d.message}`,
+          severity: 'warning',
+        });
+      }
+    }
+  }
+
   const detail: NodeCompanionDetailSnapshot = {
     reviewWorkspaceId: workspace.reviewWorkspaceId,
     revisionId: context.revisionId,
@@ -115,6 +136,7 @@ export function resolveNodeCompanionDetail(
         hasReplyableSession: true,
       })),
     diagnostics,
+    testCases,
   };
 
   return { ok: true, detail };

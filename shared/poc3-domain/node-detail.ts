@@ -76,6 +76,20 @@ export interface NodeCompanionDetailSnapshot extends DiffAwareCodePaneSnapshot {
   displayMode: 'diff' | 'code';
   source: NodeFileContext | NodeCodeExcerpt | null;
   diagnostics: NodeDetailDiagnostic[];
+  testCases: TestCaseTreeNode[] | null;
+}
+
+export type TestCaseKind = 'describe' | 'it' | 'test';
+
+export type TestCaseModifier = 'skip' | 'only' | 'todo' | 'each' | null;
+
+export interface TestCaseTreeNode {
+  kind: TestCaseKind;
+  label: string;
+  modifier: TestCaseModifier;
+  line: number;
+  endLine: number;
+  children: TestCaseTreeNode[];
 }
 
 export interface NodeDetailSummary {

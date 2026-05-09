@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useRegisterScrollTarget } from '../test-case-summary';
 import type {
   NodeCompanionDetailSnapshot,
   NodeDetailSnapshot,
@@ -70,6 +71,7 @@ export function DiffAwareSourceSection({
     submitInlineComment,
     expandRange,
     registerVirtualScroller,
+    scrollToSourceLine,
     scrollContainerRef,
   } = useDiffLineSelection({
     detail,
@@ -80,6 +82,30 @@ export function DiffAwareSourceSection({
     fileContext,
     canExpandWithinFile,
   });
+
+  const registerScrollTarget = useRegisterScrollTarget();
+  useEffect(() => {
+    registerScrollTarget((line: number) => {
+      scrollToSourceLine(line);
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const lineEl =
+          container.querySelector<HTMLElement>(
+            `[data-poc3-source-line="true"][data-new-line="${line}"]`,
+          ) ??
+          container.querySelector<HTMLElement>(
+            `[data-poc3-source-line="true"][data-line="${line}"]`,
+          );
+        if (!lineEl) return;
+        lineEl.classList.add('animate-test-case-flash');
+        window.setTimeout(() => {
+          lineEl.classList.remove('animate-test-case-flash');
+        }, 1500);
+      });
+    });
+    return () => registerScrollTarget(null);
+  }, [registerScrollTarget, scrollContainerRef, scrollToSourceLine]);
 
   const findingsByLine = useMemo(
     () => groupFindingsByAwareLine(detail.findings),

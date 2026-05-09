@@ -59,6 +59,7 @@ export const DiffAwareSourceRow = memo(function DiffAwareSourceRow({
       data-file-path={line.filePath}
       data-side={line.side ?? undefined}
       data-line={providerLineNumber ?? undefined}
+      data-new-line={line.newLineNumber ?? undefined}
       data-provider-selectable={line.selectableForProviderComment}
       data-agent-selectable={line.selectableForAgentMention}
       onFocus={line.selectableForProviderComment ? () => onFocusLine?.(line) : undefined}

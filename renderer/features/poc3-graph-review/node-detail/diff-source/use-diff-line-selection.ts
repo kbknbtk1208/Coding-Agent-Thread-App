@@ -73,6 +73,7 @@ export interface UseDiffLineSelectionReturn {
   submitInlineComment(body: string): void;
   expandRange(direction: 'up' | 'down'): void;
   registerVirtualScroller(scroller: DiffLineVirtualScroller | null): void;
+  scrollToSourceLine(lineNumber: number): void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -585,6 +586,16 @@ export function useDiffLineSelection({
     setScrollerReady(scroller !== null);
   });
 
+  const scrollToSourceLine = useEventCallback((lineNumber: number) => {
+    if (virtualScrollerRef.current?.scrollToNewLine(lineNumber, { align: 'center' })) {
+      return;
+    }
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const lineEl = container.querySelector<HTMLElement>(`[data-new-line="${lineNumber}"]`);
+    lineEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
   useEffect(() => {
     if (!scrollerReady || !scrollTarget) return;
     if (handledScrollNonceRef.current === scrollTarget.nonce) return;
@@ -652,6 +663,7 @@ export function useDiffLineSelection({
     submitInlineComment,
     expandRange,
     registerVirtualScroller,
+    scrollToSourceLine,
     scrollContainerRef,
   };
 }

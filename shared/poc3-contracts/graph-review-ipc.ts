@@ -102,6 +102,9 @@ export type {
   NodeRelationSummary,
   NodeRemoteThreadSummary,
   NodeThreadSummary,
+  TestCaseKind,
+  TestCaseModifier,
+  TestCaseTreeNode,
 } from '../poc3-domain/node-detail';
 export type {
   ReviewRemoteComment,
