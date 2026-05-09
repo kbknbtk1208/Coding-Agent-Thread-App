@@ -186,7 +186,7 @@ export class ResolveJudgementContextAssembler {
     const targets: ResolveJudgementTarget[] = [];
     for (const thread of remoteThreads) {
       if (suppressedProviderThreadIds.has(thread.providerThreadId)) continue;
-      if (thread.isResolved !== false) continue;
+      if (thread.isResolved === true) continue;
       targets.push(this.toRemoteTarget(thread, input));
     }
     return targets;

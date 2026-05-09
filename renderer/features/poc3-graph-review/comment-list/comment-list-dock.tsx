@@ -49,14 +49,17 @@ export function CommentListDock({
   const remoteCount = items.filter((i) => i.type === 'remote').length;
   const isRunning = runState.status === 'running';
 
-  const headerLabel = open
-    ? 'Comments'
-    : [
-        agentCount > 0 ? `${String(agentCount)} Agent Thread` : null,
-        remoteCount > 0 ? `${String(remoteCount)} Remote Comment` : null,
-      ]
-        .filter(Boolean)
-        .join(' / ');
+  const headerLabel =
+    runState.status === 'empty'
+      ? '判定対象なし'
+      : open
+        ? 'Comments'
+        : [
+            agentCount > 0 ? `${String(agentCount)} Agent Thread` : null,
+            remoteCount > 0 ? `${String(remoteCount)} Remote Comment` : null,
+          ]
+            .filter(Boolean)
+            .join(' / ');
 
   return (
     <MotionConfig transition={{ type: 'spring', bounce: 0, duration: 0.5 }}>
@@ -174,6 +177,7 @@ function ResolveJudgementHeaderAction({
 }) {
   const isRunning = runState.status === 'running';
   const isFailed = runState.status === 'failed';
+  const isEmpty = runState.status === 'empty';
   return (
     <button
       type="button"
@@ -187,7 +191,9 @@ function ResolveJudgementHeaderAction({
           ? 'resolve 判定を実行中です'
           : isFailed
             ? `判定に失敗: ${runState.message}`
-            : 'コメントの resolve 可否を Agent に判定させる'
+            : isEmpty
+              ? runState.message
+              : 'コメントの resolve 可否を Agent に判定させる'
       }
       aria-label="Resolve判定を開始"
       className={`flex size-7 cursor-pointer items-center justify-center rounded-full border text-white/70 transition focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed ${
