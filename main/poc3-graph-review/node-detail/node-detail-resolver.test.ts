@@ -353,7 +353,7 @@ describe('resolveNodeDetail', () => {
     expect(result.detail?.diffExcerpt?.hunkHeaders).toEqual(['@@ -8,6 +8,7 @@']);
   });
 
-  it('companionFiles がない snapshot では companion state を返さない', () => {
+  it('companionFiles がない snapshot では product node にテスト未存在 state を返す', () => {
     const worktreePath = createTempWorkspace();
 
     const result = resolveNodeDetail({
@@ -366,7 +366,58 @@ describe('resolveNodeDetail', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.detail?.companion).toBeNull();
+    expect(result.detail?.companion).toEqual({
+      targetRole: 'test',
+      toggleLabel: 'Test',
+      emptyMessage: '対応するテストコードが存在しません',
+      companions: [],
+    });
+  });
+
+  it('同一 product file の別 node でも companion state を返す', () => {
+    const worktreePath = createTempWorkspace();
+    fs.writeFileSync(
+      path.join(worktreePath, 'src', 'example.test.ts'),
+      'test("example", () => {});\n',
+      'utf8',
+    );
+    const record = createRecord(worktreePath);
+    record.graph!.companionFiles = [
+      {
+        relationId: 'node-file-scope-1::src/example.test.ts',
+        ownerNodeId: 'node-file-scope-1',
+        ownerFilePath: 'src/example.ts',
+        ownerRole: 'product',
+        companionRole: 'test',
+        companionFilePath: 'src/example.test.ts',
+        companionNodeIds: [],
+        hiddenNodeIds: [],
+        source: 'filename-heuristic',
+        displayMode: 'code',
+        existsInWorkspaceHead: true,
+        existsInDiff: false,
+      },
+    ];
+
+    const result = resolveNodeDetail({
+      workspace: createWorkspace(worktreePath),
+      revisionId: 'revision-1',
+      scopeKey: 'initial:diff-plus-1-hop:v1',
+      nodeId: 'node-function-1',
+      record,
+      sourceSnapshot: createSourceSnapshot(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.companion?.targetRole).toBe('test');
+    expect(result.detail?.companion?.companions).toEqual([
+      expect.objectContaining({
+        relationId: 'node-file-scope-1::src/example.test.ts',
+        role: 'test',
+        filePath: 'src/example.test.ts',
+        unavailableMessage: null,
+      }),
+    ]);
   });
 
   it('file-scope node では同一 file の current remote thread を本文付きで返す', () => {

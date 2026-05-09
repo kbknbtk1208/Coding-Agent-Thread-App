@@ -33,6 +33,7 @@ const SOURCE_PRIORITY: Record<CodeRelationSource, number> = {
   'graph-edge': 1,
   'filename-heuristic': 2,
 };
+const TYPESCRIPT_FILE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'] as const;
 
 export function resolveCompanionFiles(
   input: ResolveCompanionFilesInput,
@@ -144,9 +145,17 @@ function findFilenameHeuristicCandidate(
   testFilePath: string,
   productFiles: string[],
 ): string | null {
-  const direct = testFilePath.replace(/\.test(\.[cm]?[tj]sx?)$/i, '$1');
-  const withoutTestsDir = direct.replace(/(^|\/)__tests__\//, '$1');
-  const candidates = new Set([direct, withoutTestsDir]);
+  const testMatch = testFilePath.match(/^(.*)\.test(\.[cm]?[tj]sx?)$/i);
+  if (!testMatch) return null;
+  const testBase = testMatch[1]!;
+  const testExtension = testMatch[2]!;
+  const productBases = new Set([testBase, testBase.replace(/(^|\/)__tests__\//, '$1')]);
+  const candidates = new Set<string>();
+  for (const productBase of Array.from(productBases)) {
+    for (const extension of candidateProductExtensions(testExtension)) {
+      candidates.add(`${productBase}${extension}`);
+    }
+  }
   const matched = productFiles.filter((filePath) => candidates.has(filePath));
   return matched.length === 1 ? matched[0] : null;
 }
@@ -161,15 +170,42 @@ function findExistingFilenameHeuristicTest(
   const extension = extensionMatch[1]!;
   const base = productFilePath.slice(0, -extension.length);
   const parts = productFilePath.split('/');
-  const candidates = [`${base}.test${extension}`];
+  const candidates: string[] = [];
   const filenameBase = parts.at(-1)!.slice(0, -extension.length);
-  if (parts.length > 1) {
-    candidates.push(
-      [...parts.slice(0, -1), '__tests__', `${filenameBase}.test${extension}`].join('/'),
-    );
+  for (const testExtension of candidateTestExtensions(extension)) {
+    candidates.push(`${base}.test${testExtension}`);
+    if (parts.length > 1) {
+      candidates.push(
+        [...parts.slice(0, -1), '__tests__', `${filenameBase}.test${testExtension}`].join('/'),
+      );
+    }
   }
   const existing = candidates.filter((candidate) =>
     fs.existsSync(path.join(worktreePath, candidate)),
   );
   return existing.length === 1 ? existing[0]! : null;
+}
+
+function candidateTestExtensions(productExtension: string): string[] {
+  const preferred =
+    productExtension === '.tsx'
+      ? ['.tsx', '.ts']
+      : productExtension === '.ts'
+        ? ['.ts', '.tsx']
+        : [productExtension, '.ts'];
+  return uniqueExtensions([...preferred, ...TYPESCRIPT_FILE_EXTENSIONS]);
+}
+
+function candidateProductExtensions(testExtension: string): string[] {
+  const preferred =
+    testExtension === '.ts'
+      ? ['.ts', '.tsx']
+      : testExtension === '.tsx'
+        ? ['.tsx', '.ts']
+        : [testExtension, '.ts'];
+  return uniqueExtensions([...preferred, ...TYPESCRIPT_FILE_EXTENSIONS]);
+}
+
+function uniqueExtensions(extensions: readonly string[]): string[] {
+  return Array.from(new Set(extensions.map((extension) => extension.toLowerCase())));
 }

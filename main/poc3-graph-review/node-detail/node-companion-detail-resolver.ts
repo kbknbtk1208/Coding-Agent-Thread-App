@@ -57,7 +57,9 @@ export function resolveNodeCompanionDetail(
     };
   }
   const companion = (record.graph?.companionFiles ?? []).find(
-    (item) => item.ownerNodeId === ownerNodeId && item.relationId === relationId,
+    (item) =>
+      item.relationId === relationId &&
+      (item.ownerNodeId === ownerNodeId || item.ownerFilePath === ownerNode.filePath),
   );
   if (!companion) {
     return {

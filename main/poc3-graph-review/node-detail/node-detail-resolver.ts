@@ -40,6 +40,7 @@ import type { Poc3OutdatedAgentThread } from '../../../shared/poc3-domain/thread
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
+import { isUnitOrIntegrationTestFile } from '../analysis/test-file-classifier';
 
 export interface ResolveNodeDetailContext {
   workspace: ReviewWorkspace;
@@ -156,7 +157,7 @@ function resolveCompanionState(
 ): NodeDetailSnapshot['companion'] {
   const nodeFilePath = node.filePath ?? '';
   const ownerItems = (record.graph?.companionFiles ?? []).filter(
-    (item) => item.ownerNodeId === node.nodeId,
+    (item) => item.ownerNodeId === node.nodeId || item.ownerFilePath === nodeFilePath,
   );
   const reverseItems = (record.graph?.companionFiles ?? []).filter(
     (item) =>
@@ -165,8 +166,20 @@ function resolveCompanionState(
       item.companionFilePath === nodeFilePath,
   );
   const companions = ownerItems.length > 0 ? ownerItems : reverseItems;
+  const fallbackTargetRole = isUnitOrIntegrationTestFile(nodeFilePath) ? 'product' : 'test';
   if (companions.length === 0) {
-    return null;
+    if (!node.filePath || node.kind === 'external' || node.kind === 'external-symbol') {
+      return null;
+    }
+    return {
+      targetRole: fallbackTargetRole,
+      toggleLabel: fallbackTargetRole === 'test' ? 'Test' : 'Product',
+      emptyMessage:
+        fallbackTargetRole === 'test'
+          ? '対応するテストコードが存在しません'
+          : '対応するプロダクトコードが存在しません',
+      companions: [],
+    };
   }
 
   const targetRole = ownerItems.length > 0 ? ownerItems[0].companionRole : companions[0].ownerRole;

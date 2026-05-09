@@ -1,7 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
 import type { DependencyExtractionResult } from './dependency-extractor';
 import { buildInitialGraph } from './graph-builder';
+
+const tempDirs: string[] = [];
+
+function createTempWorktree(): string {
+  const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-builder-'));
+  tempDirs.push(worktreePath);
+  fs.mkdirSync(path.join(worktreePath, 'src'), { recursive: true });
+  return worktreePath;
+}
+
+afterEach(() => {
+  for (const tempDir of tempDirs.splice(0)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 function createSourceSnapshot(): ReviewSourceSnapshot {
   return {
@@ -294,5 +312,35 @@ describe('buildInitialGraph', () => {
       existsInDiff: true,
     });
     expect(graph.companionFiles?.[0]?.hiddenNodeIds).toHaveLength(1);
+  });
+
+  it('product のみ Diff にある場合は拡張子違いの既存 test file を companion にする', () => {
+    const worktreePath = createTempWorktree();
+    fs.writeFileSync(
+      path.join(worktreePath, 'src', 'App.test.ts'),
+      'test("App", () => {});\n',
+      'utf8',
+    );
+
+    const graph = buildInitialGraph({
+      revisionId: 'revision-1',
+      worktreePath,
+      sourceSnapshot: createSourceSnapshot(),
+      extraction: createExtraction(),
+      diagnostics: [],
+    });
+
+    expect(graph.companionFiles).toEqual([
+      expect.objectContaining({
+        ownerFilePath: 'src/App.tsx',
+        ownerRole: 'product',
+        companionRole: 'test',
+        companionFilePath: 'src/App.test.ts',
+        source: 'filename-heuristic',
+        displayMode: 'code',
+        existsInWorkspaceHead: true,
+        existsInDiff: false,
+      }),
+    ]);
   });
 });

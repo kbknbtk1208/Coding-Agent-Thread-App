@@ -654,8 +654,11 @@ export class GraphReviewGateway {
     const sourceSnapshot = this.graphStore.getSourceSnapshotByRevision(
       record.activeRevision.revisionId,
     );
+    const ownerNode = renderSnapshot.nodes.find((node) => node.nodeId === ownerNodeId);
     const companion = (record.graph.companionFiles ?? []).find(
-      (item) => item.ownerNodeId === ownerNodeId && item.relationId === relationId,
+      (item) =>
+        item.relationId === relationId &&
+        (item.ownerNodeId === ownerNodeId || item.ownerFilePath === ownerNode?.filePath),
     );
     const agentThreads = this.agentReviewStore
       .listThreadsForWorkspace({
@@ -1517,7 +1520,15 @@ export class GraphReviewGateway {
       : new Map<string, number>();
 
     const companionOwnerNodeIds = new Set(
-      (record.graph.companionFiles ?? []).map((item) => item.ownerNodeId),
+      (record.graph.companionFiles ?? []).flatMap((item) => {
+        const ownerFilePath = item.ownerFilePath;
+        const nodeIdsInOwnerFile = record.graph?.nodes
+          .filter((node) => node.filePath === ownerFilePath)
+          .map((node) => node.nodeId);
+        return nodeIdsInOwnerFile && nodeIdsInOwnerFile.length > 0
+          ? nodeIdsInOwnerFile
+          : [item.ownerNodeId];
+      }),
     );
     const renderSnapshot = toRenderSnapshot(
       record.graph,
