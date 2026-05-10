@@ -41,6 +41,10 @@ import type {
   PublishInlineCommentResult,
   ReplyRemoteCommentInput,
   ReplyRemoteCommentResult,
+  ResolveAgentThreadInput,
+  ResolveAgentThreadResult,
+  ResolveRemoteThreadInput,
+  ResolveRemoteThreadResult,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { AgentEventPayload, RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import type {
@@ -121,6 +125,7 @@ import { ResolveJudgementCoordinator } from './resolve-judgement/coordinator';
 import { ResolveJudgementStore } from './resolve-judgement/store';
 import { PublishedAgentThreadLinkStore } from './published-agent-thread/store';
 import { buildPublishedThreadVisibility } from './published-agent-thread/visibility';
+import { ThreadResolveCoordinator } from './source/review-thread-resolve-coordinator';
 
 export interface CreateReviewWorkspaceInput {
   reviewUrl: string;
@@ -153,6 +158,7 @@ export class GraphReviewGateway {
   private readonly revisionViewBuilder: RevisionViewBuilder;
   private readonly threadRetentionService: ThreadRetentionService;
   private readonly revisionRefreshCoordinator: RevisionRefreshCoordinator;
+  private readonly threadResolveCoordinator: ThreadResolveCoordinator;
   private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
   private readonly dbOnlyPurgeAllowedWorkspaceIds = new Set<string>();
   private removingWorkspaceId: string | null = null;
@@ -233,6 +239,14 @@ export class GraphReviewGateway {
       resolveProviderToken: (provider) => this.providerStore.getToken(provider.tokenRef),
       resolveProfile: (workspace) => this.profileStore.get(workspace.repositoryProfileId),
     });
+    this.threadResolveCoordinator = new ThreadResolveCoordinator({
+      graphStore: this.graphStore,
+      agentReviewStore: this.agentReviewStore,
+      publishedAgentThreadLinkStore: this.publishedAgentThreadLinkStore,
+      profileStore: this.profileStore,
+      providerStore: this.providerStore,
+      clearWorkspaceCaches: (reviewWorkspaceId) => this.clearWorkspaceCaches(reviewWorkspaceId),
+    });
     this.creationCoordinator = new ReviewWorkspaceCreationCoordinator({
       emit: (event) => this.emitWorkspaceCreationEvent(event),
       saveInitialWorkspaceBundle: (bundle) => this.graphStore.saveInitialWorkspaceBundle(bundle),
@@ -243,6 +257,14 @@ export class GraphReviewGateway {
           onProgress,
         ),
     });
+  }
+
+  resolveAgentThread(input: ResolveAgentThreadInput): Promise<ResolveAgentThreadResult> {
+    return this.threadResolveCoordinator.resolveAgentThread(input);
+  }
+
+  resolveRemoteThread(input: ResolveRemoteThreadInput): Promise<ResolveRemoteThreadResult> {
+    return this.threadResolveCoordinator.resolveRemoteThread(input);
   }
 
   listRepositoryProviders(): PublicRepositoryProvider[] {
@@ -1496,6 +1518,9 @@ export class GraphReviewGateway {
         revisionId: record.activeRevision.revisionId,
       });
       for (const thread of currentAgentThreads) {
+        if (thread.status !== 'open') {
+          continue;
+        }
         if (thread.nodeId && visibleNodeIds.has(thread.nodeId)) {
           addAgentFindingCount(thread.nodeId, thread.localThreadId);
         } else if (thread.nodeId) {
@@ -1727,7 +1752,9 @@ export function buildRemoteThreadCountByNode(
   };
   const currentThreads = remoteThreads.filter(
     (t) =>
-      (t.anchorStatus === 'current' || t.anchorStatus === 'outdated') && t.location.kind === 'diff',
+      (t.anchorStatus === 'current' || t.anchorStatus === 'outdated') &&
+      t.location.kind === 'diff' &&
+      t.isResolved !== true,
   );
   for (const node of nodes) {
     if (!node.filePath) {
@@ -1793,6 +1820,9 @@ export function buildOutdatedAgentFindingCountByNode(
   for (const node of nodes) {
     let count = 0;
     for (const item of outdatedThreads) {
+      if (item.thread.status !== 'open') {
+        continue;
+      }
       if (currentLocalThreadIds.has(item.thread.localThreadId)) {
         continue;
       }
@@ -1805,6 +1835,9 @@ export function buildOutdatedAgentFindingCountByNode(
     }
   }
   for (const item of outdatedThreads) {
+    if (item.thread.status !== 'open') {
+      continue;
+    }
     if (currentLocalThreadIds.has(item.thread.localThreadId)) {
       continue;
     }

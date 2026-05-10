@@ -33,6 +33,7 @@ export interface DependencyGraphCanvasProps {
   selectedNodeId: string | null;
   scrollTarget?: NodeDetailScrollTarget | null;
   onSelectNode: (nodeId: string | null) => void;
+  onThreadResolved?: () => void;
 }
 
 export function DependencyGraphCanvas(props: DependencyGraphCanvasProps) {
@@ -51,6 +52,7 @@ function DependencyGraphCanvasInner({
   selectedNodeId,
   scrollTarget,
   onSelectNode,
+  onThreadResolved,
 }: DependencyGraphCanvasProps) {
   const reactFlowRef = useRef<ReactFlowInstance<Poc3FlowNode, Poc3FlowEdge> | null>(null);
   const appliedViewportSnapshotRef = useRef<string | null>(null);
@@ -173,6 +175,10 @@ function DependencyGraphCanvasInner({
           }}
           onClose={() => onSelectNode(null)}
           onNodeDetailRefresh={() => setNodeDetailRefreshKey((k) => k + 1)}
+          onThreadResolved={() => {
+            setNodeDetailRefreshKey((k) => k + 1);
+            onThreadResolved?.();
+          }}
           providerKind={providerKind}
           scrollTarget={scrollTarget ?? null}
         />

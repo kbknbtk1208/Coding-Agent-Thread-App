@@ -8,6 +8,7 @@ import type { RevisionCommit as Poc3RevisionCommit } from '../../../shared/poc3-
 import { apiEndpointForProvider } from './repository-url';
 import { parseUnifiedDiffHunks } from './unified-diff-parser';
 import {
+  type GithubReviewThreadState,
   normalizeGitHubRemoteThreads,
   normalizeGitLabRemoteThreads,
 } from './remote-thread-normalizer';
@@ -156,6 +157,94 @@ function normalizeGitlabStatus(file: GitlabMergeRequestDiffResponse): ReviewChan
   return 'modified';
 }
 
+function githubGraphqlEndpoint(baseUrl: string): string {
+  if (baseUrl.includes('github.com')) {
+    return 'https://api.github.com/graphql';
+  }
+  const url = new URL(baseUrl);
+  const normalizedPath = url.pathname.replace(/\/+$/, '');
+  url.pathname = `${normalizedPath}/api/graphql`;
+  return url.toString();
+}
+
+async function fetchGithubReviewThreadStates(input: {
+  baseUrl: string;
+  token: string;
+  owner: string;
+  repo: string;
+  pullNumber: string;
+}): Promise<GithubReviewThreadState[]> {
+  const states: GithubReviewThreadState[] = [];
+  let cursor: string | null = null;
+  do {
+    const response = await fetch(githubGraphqlEndpoint(input.baseUrl), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: `
+          query ReviewThreadStates($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                reviewThreads(first: 100, after: $cursor) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes {
+                    id
+                    isResolved
+                    isOutdated
+                    comments(first: 1) { nodes { databaseId } }
+                  }
+                }
+              }
+            }
+          }
+        `,
+        variables: {
+          owner: input.owner,
+          repo: input.repo,
+          number: Number(input.pullNumber),
+          cursor,
+        },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub GraphQL が HTTP ${response.status} を返しました。`);
+    }
+    const data = (await response.json()) as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewThreads?: {
+              pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+              nodes?: Array<{
+                id: string;
+                isResolved?: boolean | null;
+                isOutdated?: boolean | null;
+                comments?: { nodes?: Array<{ databaseId?: number | null }> };
+              }>;
+            };
+          };
+        };
+      };
+    };
+    const threads = data.data?.repository?.pullRequest?.reviewThreads;
+    for (const node of threads?.nodes ?? []) {
+      const rootCommentDatabaseId = node.comments?.nodes?.[0]?.databaseId;
+      if (typeof rootCommentDatabaseId !== 'number') continue;
+      states.push({
+        rootCommentDatabaseId,
+        nodeId: node.id,
+        isResolved: node.isResolved ?? null,
+        isOutdated: node.isOutdated ?? null,
+      });
+    }
+    cursor = threads?.pageInfo?.hasNextPage ? (threads.pageInfo.endCursor ?? null) : null;
+  } while (cursor);
+  return states;
+}
+
 export async function fetchReviewSourceSnapshot(
   input: ReviewSourceFetchInput,
 ): Promise<FetchedReviewSourceSnapshot> {
@@ -224,10 +313,26 @@ export async function fetchReviewSourceSnapshot(
           3000,
         ),
       ]);
+      let threadStates: GithubReviewThreadState[] = [];
+      try {
+        threadStates = await fetchGithubReviewThreadStates({
+          baseUrl: input.baseUrl,
+          token: input.token,
+          owner,
+          repo,
+          pullNumber: input.reviewId,
+        });
+      } catch {
+        diagnostics.push({
+          code: 'GITHUB_REVIEW_THREAD_STATE_FETCH_FAILED',
+          message: 'GitHub review thread の resolved 状態取得に失敗しました。',
+        });
+      }
       const normalized = normalizeGitHubRemoteThreads(
         rawReviewComments as unknown as Parameters<typeof normalizeGitHubRemoteThreads>[0],
         rawIssueComments as unknown as Parameters<typeof normalizeGitHubRemoteThreads>[1],
         headSha,
+        threadStates,
       );
       remoteThreads = resolveRemoteThreadAnchors({ threads: normalized, changedFiles, headSha });
     } catch {

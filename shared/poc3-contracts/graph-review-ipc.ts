@@ -52,6 +52,12 @@ import type {
   ResolveJudgementResult,
   ResolveJudgementRun,
 } from '../poc3-domain/resolve-judgement';
+import type {
+  ResolveAgentThreadInput,
+  ResolveAgentThreadResult,
+  ResolveRemoteThreadInput,
+  ResolveRemoteThreadResult,
+} from '../poc3-domain/thread-resolve';
 
 export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
 export type {
@@ -131,6 +137,14 @@ export type {
   ResolveJudgementRun,
   ResolveJudgementRunStatus,
 } from '../poc3-domain/resolve-judgement';
+export type {
+  RemoteThreadResolveItemResult,
+  ResolveAgentThreadInput,
+  ResolveAgentThreadResult,
+  ResolveRemoteThreadInput,
+  ResolveRemoteThreadResult,
+  ThreadResolveFailureReason,
+} from '../poc3-domain/thread-resolve';
 export type { ResolveRepositoryProviderResult } from '../poc3-domain/repository';
 export type {
   ResolveReviewWorkspaceTargetResult,
@@ -208,6 +222,8 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   listArchivedRemoteThreads: 'poc3:remote-comment:archive:list',
   publishInlineComment: 'poc3:remote-comment:publish-inline',
   replyRemoteComment: 'poc3:remote-comment:reply',
+  resolveAgentThread: 'poc3:agent-review:thread:resolve',
+  resolveRemoteThread: 'poc3:remote-comment:thread:resolve',
   getAgentReviewRunDetail: 'poc3:agent-review:get-run-detail',
   respondAgentReviewPermission: 'poc3:agent-review:permission:respond',
   agentReviewEvent: 'poc3:agent-review:event',
@@ -736,6 +752,8 @@ export interface Poc3GraphReviewApi {
   ): Promise<ListArchivedRemoteThreadsResult>;
   publishInlineComment(input: PublishInlineCommentInput): Promise<PublishInlineCommentResult>;
   replyRemoteComment(input: ReplyRemoteCommentInput): Promise<ReplyRemoteCommentResult>;
+  resolveAgentThread(input: ResolveAgentThreadInput): Promise<ResolveAgentThreadResult>;
+  resolveRemoteThread(input: ResolveRemoteThreadInput): Promise<ResolveRemoteThreadResult>;
   getAgentReviewRunDetail(
     input: GetAgentReviewRunDetailInput,
   ): Promise<GetAgentReviewRunDetailResult>;

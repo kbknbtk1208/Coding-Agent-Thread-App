@@ -121,7 +121,7 @@ export class ResolveJudgementContextAssembler {
       sourceState: {
         isOutdated: null,
         isResolved: null,
-        status: thread.status === 'open' ? 'open' : 'dismissed',
+        status: thread.status === 'open' ? 'open' : 'resolved',
       },
       linkedRemoteThreads: publishedRemoteThreads.flatMap((item) => {
         const remoteThread = item.remoteThread;
@@ -187,6 +187,7 @@ export class ResolveJudgementContextAssembler {
     for (const thread of remoteThreads) {
       if (suppressedProviderThreadIds.has(thread.providerThreadId)) continue;
       if (thread.isResolved === true) continue;
+      if (thread.location.kind !== 'diff') continue;
       targets.push(this.toRemoteTarget(thread, input));
     }
     return targets;

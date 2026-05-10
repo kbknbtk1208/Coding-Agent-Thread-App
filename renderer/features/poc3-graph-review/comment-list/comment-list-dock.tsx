@@ -10,6 +10,7 @@ import {
 import { ChevronDown, Wand2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { CommentListItem } from './use-comment-list';
+import { ResolveThreadButton } from '../thread-resolve/resolve-thread-button';
 import type {
   ResolveJudgementRunState,
   ResolveJudgementViewModel,
@@ -26,6 +27,7 @@ interface CommentListDockProps {
   runState: ResolveJudgementRunState;
   onSelectComment: (item: CommentListItem) => void;
   onStartResolveJudgement: () => void;
+  onThreadResolved?: () => void;
   toResolveKey: (item: CommentListItem) => string;
 }
 
@@ -35,9 +37,14 @@ export function CommentListDock({
   runState,
   onSelectComment,
   onStartResolveJudgement,
+  onThreadResolved,
   toResolveKey,
 }: CommentListDockProps) {
   const [open, setOpen] = useState(false);
+  const [resolvedKeys, setResolvedKeys] = useState<ReadonlySet<string>>(new Set());
+  const [inFlightKey, setInFlightKey] = useState<string | null>(null);
+  const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<string | null>(null);
   const dragControls = useDragControls();
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -45,8 +52,11 @@ export function CommentListDock({
 
   if (items.length === 0) return null;
 
-  const agentCount = items.filter((i) => i.type === 'agent').length;
-  const remoteCount = items.filter((i) => i.type === 'remote').length;
+  const visibleItems = items.filter((item) => !resolvedKeys.has(item.key));
+  if (visibleItems.length === 0 && !notice) return null;
+
+  const agentCount = visibleItems.filter((i) => i.type === 'agent').length;
+  const remoteCount = visibleItems.filter((i) => i.type === 'remote').length;
   const isRunning = runState.status === 'running';
 
   const headerLabel =
@@ -102,9 +112,14 @@ export function CommentListDock({
             disabled={isDraggingRef.current}
           />
         </div>
+        {notice ? (
+          <div className="mx-2 mb-1 rounded-[5px] border border-[#ff8470]/25 bg-[#ff8470]/10 px-2 py-1 text-[10px] leading-4 text-[#ffd2c8]">
+            {notice}
+          </div>
+        ) : null}
 
         <AnimatePresence initial={false}>
-          {open ? (
+          {open && visibleItems.length > 0 ? (
             <motion.div
               key="comment-list"
               initial={{ opacity: 0, height: 0, filter: 'blur(18px)', y: -8 }}
@@ -114,12 +129,11 @@ export function CommentListDock({
               className="origin-top overflow-hidden border-t border-white/[0.06]"
             >
               <div className="max-h-[400px] overflow-y-auto py-1">
-                {items.map((item) => {
+                {visibleItems.map((item) => {
                   const judgement = resultsByKey.get(toResolveKey(item)) ?? null;
                   return (
-                    <button
+                    <div
                       key={item.key}
-                      type="button"
                       onClick={() => onSelectComment(item)}
                       className="flex w-full cursor-pointer items-start gap-2 rounded-[5px] px-3 py-2 text-left transition-colors hover:bg-white/[0.045]"
                     >
@@ -153,8 +167,76 @@ export function CommentListDock({
                             {item.line !== null ? `:${String(item.line)}` : null}
                           </span>
                         ) : null}
+                        {errorByKey[item.key] ? (
+                          <span className="mt-1 block text-[10px] leading-4 text-[#ffd0d0]">
+                            {errorByKey[item.key]}
+                          </span>
+                        ) : null}
                       </span>
-                    </button>
+                      <ResolveThreadButton
+                        inFlight={inFlightKey === item.key}
+                        onClick={async () => {
+                          setInFlightKey(item.key);
+                          setErrorByKey((current) => ({ ...current, [item.key]: '' }));
+                          setNotice(null);
+                          if (item.type === 'agent') {
+                            const result = await window.poc3GraphReviewApi.resolveAgentThread({
+                              reviewWorkspaceId: item.commentKey.reviewWorkspaceId,
+                              revisionId: item.commentKey.revisionId,
+                              localThreadId: item.commentKey.commentId,
+                            });
+                            setInFlightKey(null);
+                            if (result.ok) {
+                              if (
+                                result.remoteResults.some((remote) => remote.status === 'failed')
+                              ) {
+                                setNotice('一部の Remote Comment を resolve できませんでした。');
+                              }
+                              setResolvedKeys((current) => {
+                                const next = new Set(current);
+                                next.add(item.key);
+                                return next;
+                              });
+                              onThreadResolved?.();
+                            } else {
+                              setErrorByKey((current) => ({
+                                ...current,
+                                [item.key]: result.message,
+                              }));
+                            }
+                            return;
+                          }
+                          const result = await window.poc3GraphReviewApi.resolveRemoteThread({
+                            reviewWorkspaceId: item.commentKey.reviewWorkspaceId,
+                            revisionId: item.commentKey.revisionId,
+                            providerThreadId: item.commentKey.commentId,
+                          });
+                          setInFlightKey(null);
+                          if (result.ok) {
+                            setResolvedKeys((current) => {
+                              const next = new Set(current);
+                              next.add(item.key);
+                              return next;
+                            });
+                            onThreadResolved?.();
+                          } else {
+                            if (result.reason === 'localPersistenceFailed') {
+                              setNotice(result.message);
+                              setResolvedKeys((current) => {
+                                const next = new Set(current);
+                                next.add(item.key);
+                                return next;
+                              });
+                              return;
+                            }
+                            setErrorByKey((current) => ({
+                              ...current,
+                              [item.key]: result.message,
+                            }));
+                          }
+                        }}
+                      />
+                    </div>
                   );
                 })}
               </div>

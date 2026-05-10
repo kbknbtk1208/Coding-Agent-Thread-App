@@ -23,14 +23,15 @@ export interface UseCommentListResult {
 export function useCommentList(
   graph: GraphRenderSnapshot,
   reviewWorkspaceId: string,
+  refreshKey = 0,
 ): UseCommentListResult {
   const [items, setItems] = useState<CommentListItem[]>([]);
   const [revisionId, setRevisionId] = useState<string | null>(null);
   const lastSnapshotIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (lastSnapshotIdRef.current === graph.graphSnapshotId) return;
-    const snapshotId = graph.graphSnapshotId;
+    const snapshotId = `${graph.graphSnapshotId}:${String(refreshKey)}`;
+    if (lastSnapshotIdRef.current === snapshotId) return;
     lastSnapshotIdRef.current = snapshotId;
 
     const nodesWithComments = graph.nodes.filter(
@@ -69,6 +70,7 @@ export function useCommentList(
         }
 
         for (const finding of detail.findings) {
+          if (finding.status === 'resolved') continue;
           const key = `agent:${finding.localThreadId}`;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -92,6 +94,7 @@ export function useCommentList(
         }
 
         for (const thread of detail.threads.remote) {
+          if (thread.location.kind !== 'diff' || thread.isResolved === true) continue;
           const { location } = thread;
           const key = `remote:${thread.providerThreadId}`;
           if (seen.has(key)) continue;
@@ -116,7 +119,7 @@ export function useCommentList(
       setItems(collected);
       setRevisionId(resolvedRevisionId);
     });
-  }, [graph.graphSnapshotId, graph.nodes, graph.scopeKey, reviewWorkspaceId]);
+  }, [graph.graphSnapshotId, graph.nodes, graph.scopeKey, refreshKey, reviewWorkspaceId]);
 
   return { items, revisionId };
 }

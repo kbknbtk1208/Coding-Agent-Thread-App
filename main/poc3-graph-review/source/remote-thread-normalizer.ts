@@ -36,6 +36,13 @@ interface GithubIssueComment {
   user: { login: string; avatar_url?: string | null } | null;
 }
 
+export interface GithubReviewThreadState {
+  rootCommentDatabaseId: number;
+  nodeId: string;
+  isResolved: boolean | null;
+  isOutdated: boolean | null;
+}
+
 interface GitlabNote {
   id: number;
   body: string;
@@ -103,8 +110,12 @@ export function normalizeGitHubRemoteThreads(
   reviewComments: GithubReviewComment[],
   issueComments: GithubIssueComment[],
   headSha: string,
+  reviewThreadStates: GithubReviewThreadState[] = [],
 ): ReviewRemoteThread[] {
   const threads: ReviewRemoteThread[] = [];
+  const stateByRootCommentId = new Map(
+    reviewThreadStates.map((state) => [state.rootCommentDatabaseId, state]),
+  );
 
   const roots = reviewComments.filter((c) => !c.in_reply_to_id);
   const repliesById = new Map<number, GithubReviewComment[]>();
@@ -117,6 +128,7 @@ export function normalizeGitHubRemoteThreads(
   }
 
   for (const root of roots) {
+    const threadState = stateByRootCommentId.get(root.id) ?? null;
     const replies = repliesById.get(root.id) ?? [];
     const comments: ReviewRemoteComment[] = [
       toGithubReviewComment(root),
@@ -144,8 +156,8 @@ export function normalizeGitHubRemoteThreads(
       providerThreadId: `github-review-comment:${root.id}`,
       location,
       anchorStatus: 'current',
-      isResolved: null,
-      isOutdated: isOutdated ? true : null,
+      isResolved: threadState?.isResolved ?? null,
+      isOutdated: threadState?.isOutdated ?? (isOutdated ? true : null),
       comments,
       providerContext: {
         remoteDiscussionId: String(root.id),
@@ -157,6 +169,11 @@ export function normalizeGitHubRemoteThreads(
           position: root.position,
           original_position: root.original_position,
         },
+        resolve: threadState?.nodeId
+          ? {
+              githubReviewThreadNodeId: threadState.nodeId,
+            }
+          : undefined,
       },
     });
   }
@@ -219,6 +236,9 @@ export function normalizeGitLabRemoteThreads(
           remoteDiscussionId: discussion.id,
           remoteCommentIds: discussion.notes.map((n) => String(n.id)),
           anchorRefs: {},
+          resolve: {
+            gitlabDiscussionId: discussion.id,
+          },
         },
       });
       continue;
@@ -252,6 +272,9 @@ export function normalizeGitLabRemoteThreads(
           head_sha: position.head_sha,
           start_sha: position.start_sha,
           line_range: position.line_range,
+        },
+        resolve: {
+          gitlabDiscussionId: discussion.id,
         },
       },
     });

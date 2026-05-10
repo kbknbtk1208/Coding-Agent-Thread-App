@@ -30,6 +30,13 @@ function createAgentThread(localThreadId: string): Poc3AgentReviewThread {
   };
 }
 
+function createResolvedAgentThread(localThreadId: string): Poc3AgentReviewThread {
+  return {
+    ...createAgentThread(localThreadId),
+    status: 'resolved',
+  };
+}
+
 function createRemoteThread(providerThreadId: string): ReviewRemoteThread {
   return {
     providerThreadId,
@@ -141,5 +148,25 @@ describe('buildPublishedThreadVisibility', () => {
     expect(result.visibleRemoteThreads).toEqual([]);
     expect(result.suppressedProviderThreadIds).toEqual(new Set(['remote-a', 'remote-b']));
     expect(result.publishedRemoteByLocalThreadId.get('thread-1')).toHaveLength(2);
+  });
+
+  it('resolved Agent Thread に紐づく未解決 Remote Thread は単独表示に残す', () => {
+    const linkedRemote = createRemoteThread('remote-linked');
+
+    const result = buildPublishedThreadVisibility({
+      reviewWorkspaceId: 'workspace-1',
+      agentThreads: [createResolvedAgentThread('thread-1')],
+      remoteThreads: [linkedRemote],
+      links: [createLink('thread-1', 'remote-linked')],
+    });
+
+    expect(result.visibleRemoteThreads).toEqual([linkedRemote]);
+    expect(result.suppressedProviderThreadIds.size).toBe(0);
+    expect(result.publishedRemoteByLocalThreadId.get('thread-1')).toEqual([
+      {
+        link: createLink('thread-1', 'remote-linked'),
+        remoteThread: linkedRemote,
+      },
+    ]);
   });
 });

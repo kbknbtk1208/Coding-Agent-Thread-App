@@ -148,7 +148,7 @@ export function resolveNodeCompanionDetail(
         line: thread.location.kind === 'diff' ? thread.location.startLine : null,
         endLine: thread.location.kind === 'diff' ? thread.location.endLine : null,
         side: thread.location.kind === 'diff' ? thread.location.side : null,
-        status: thread.status === 'dismissed' ? 'resolved' : 'open',
+        status: thread.status === 'resolved' ? 'resolved' : 'open',
         hasReplyableSession: true,
         publishedRemoteThreads: (
           visibility.publishedRemoteByLocalThreadId.get(thread.localThreadId) ?? []
@@ -247,7 +247,7 @@ function resolveThreads(
       .map((thread) => ({
         threadId: thread.localThreadId,
         summary: thread.title,
-        status: thread.status === 'dismissed' ? 'resolved' : 'open',
+        status: thread.status === 'resolved' ? 'resolved' : 'open',
         line: thread.location.kind === 'diff' ? thread.location.startLine : null,
       })),
   };

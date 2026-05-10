@@ -22,6 +22,11 @@ export function buildPublishedThreadVisibility(
   input: BuildPublishedThreadVisibilityInput,
 ): PublishedThreadVisibilityModel {
   const visibleLocalThreadIds = new Set(input.agentThreads.map((thread) => thread.localThreadId));
+  const openLocalThreadIds = new Set(
+    input.agentThreads
+      .filter((thread) => thread.status === 'open')
+      .map((thread) => thread.localThreadId),
+  );
   const remoteThreadByProviderThreadId = new Map(
     input.remoteThreads.map((thread) => [thread.providerThreadId, thread]),
   );
@@ -41,7 +46,7 @@ export function buildPublishedThreadVisibility(
     summaries.push({ link, remoteThread });
     publishedRemoteByLocalThreadId.set(link.localThreadId, summaries);
 
-    if (remoteThread) {
+    if (remoteThread && openLocalThreadIds.has(link.localThreadId)) {
       suppressedProviderThreadIds.add(link.providerThreadId);
     }
   }

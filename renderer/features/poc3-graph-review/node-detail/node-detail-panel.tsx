@@ -36,6 +36,7 @@ export interface NodeDetailPanelProps {
   onSelectNode(nodeId: string): void;
   onClose(): void;
   onNodeDetailRefresh?: () => void;
+  onThreadResolved?: () => void;
   providerKind?: ReviewProviderKind;
   scrollTarget?: NodeDetailScrollTarget | null;
 }
@@ -48,6 +49,7 @@ export function NodeDetailPanel({
   onSelectNode,
   onClose,
   onNodeDetailRefresh,
+  onThreadResolved,
   providerKind,
   scrollTarget = null,
 }: NodeDetailPanelProps) {
@@ -137,6 +139,7 @@ export function NodeDetailPanel({
                     onViewModeChange={onViewModeChange}
                     onSelectNode={onSelectNode}
                     onNodeDetailRefresh={onNodeDetailRefresh}
+                    onThreadResolved={onThreadResolved}
                     providerKind={providerKind}
                     showCompanion={isCompanionOpen}
                   />
@@ -157,6 +160,7 @@ function PanelBody({
   onViewModeChange,
   onSelectNode,
   onNodeDetailRefresh,
+  onThreadResolved,
   providerKind,
   showCompanion,
 }: {
@@ -166,6 +170,7 @@ function PanelBody({
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   onSelectNode(nodeId: string): void;
   onNodeDetailRefresh?: () => void;
+  onThreadResolved?: () => void;
   providerKind?: ReviewProviderKind;
   showCompanion: boolean;
 }) {
@@ -207,6 +212,7 @@ function PanelBody({
         onViewModeChange={onViewModeChange}
         publishComments={publishComments}
         providerKind={providerKind}
+        onThreadResolved={onThreadResolved}
       />
       {detail ? <RelationsSection detail={detail} onSelectNode={onSelectNode} /> : null}
       {detail ? <DiagnosticsSection detail={detail} /> : null}
@@ -228,6 +234,7 @@ function PanelBody({
           refreshKey={0}
           publishComments={publishComments}
           providerKind={providerKind}
+          onThreadResolved={onThreadResolved}
         />
       </div>
     </div>
@@ -241,6 +248,7 @@ function PrimarySection({
   onViewModeChange,
   publishComments,
   providerKind,
+  onThreadResolved,
 }: {
   detail: NodeDetailSnapshot | null;
   selectedNode: GraphRenderNode;
@@ -248,6 +256,7 @@ function PrimarySection({
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   publishComments: UsePublishCommentsReturn;
   providerKind?: ReviewProviderKind;
+  onThreadResolved?: () => void;
 }) {
   const source = useMemo<DiffAwareSourceBase | null>(
     () => (detail ? (detail.functionCode ?? detail.fileContext ?? detail.codeExcerpt) : null),
@@ -267,6 +276,7 @@ function PrimarySection({
         onViewModeChange={onViewModeChange}
         publishComments={publishComments}
         providerKind={providerKind}
+        onThreadResolved={onThreadResolved}
       />
     );
   }

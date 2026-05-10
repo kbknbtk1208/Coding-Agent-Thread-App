@@ -17,6 +17,11 @@ import {
   ResolveJudgementReasonBlock,
 } from '../../resolve-judgement/resolve-judgement-card-decoration';
 import {
+  ResolveErrorBanner,
+  ResolveThreadButton,
+  ResolvedBadge,
+} from '../../thread-resolve/resolve-thread-button';
+import {
   lookupResolveJudgement,
   useResolveJudgementContext,
 } from '../../resolve-judgement/resolve-judgement-context';
@@ -32,6 +37,7 @@ export interface RemoteCommentReplyProps {
   onReply(providerThreadId: string, body: string): void;
   onDraftChange(threadId: string, body: string): void;
   onClearError(sourceKey: string): void;
+  onThreadResolved?: () => void;
 }
 
 export function isRemoteThreadReplyable(
@@ -86,18 +92,24 @@ function RemoteCommentThreadCard({
   revisionId: string;
 }) {
   const resolveJudgementContext = useResolveJudgementContext();
-  const judgement = lookupResolveJudgement(resolveJudgementContext, {
-    reviewWorkspaceId,
-    revisionId,
-    commentType: 'remote-thread',
-    commentId: thread.providerThreadId,
-  });
   const scrollTarget = useNodeDetailScrollTarget();
   const articleRef = useRef<HTMLElement | null>(null);
   const handledScrollNonceRef = useRef<number | null>(null);
   const headerId = useId();
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [optimisticResolved, setOptimisticResolved] = useState(false);
+  const [resolveInFlight, setResolveInFlight] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const isResolved = optimisticResolved || thread.isResolved === true;
+  const judgement = isResolved
+    ? null
+    : lookupResolveJudgement(resolveJudgementContext, {
+        reviewWorkspaceId,
+        revisionId,
+        commentType: 'remote-thread',
+        commentId: thread.providerThreadId,
+      });
   const commentCount = thread.comments.length;
   const firstUrl = thread.comments[0]?.url ?? null;
 
@@ -112,6 +124,27 @@ function RemoteCommentThreadCard({
     return () => window.cancelAnimationFrame(frameId);
   }, [scrollTarget, thread.providerThreadId]);
 
+  const handleResolve = async () => {
+    if (resolveInFlight) return;
+    setResolveInFlight(true);
+    setResolveError(null);
+    setOptimisticResolved(true);
+    const result = await window.poc3GraphReviewApi.resolveRemoteThread({
+      reviewWorkspaceId,
+      revisionId,
+      providerThreadId: thread.providerThreadId,
+    });
+    setResolveInFlight(false);
+    if (!result.ok) {
+      if (result.reason !== 'localPersistenceFailed') {
+        setOptimisticResolved(false);
+      }
+      setResolveError(result.message);
+      return;
+    }
+    replyProps?.onThreadResolved?.();
+  };
+
   return (
     <article
       ref={articleRef}
@@ -123,26 +156,33 @@ function RemoteCommentThreadCard({
         className="pointer-events-none absolute inset-px rounded-[inherit] bg-[linear-gradient(180deg,rgba(88,215,255,0.045)_0%,rgba(88,215,255,0.02)_48%,rgba(255,255,255,0.01)_100%)] opacity-80"
       />
       <div className="relative z-10">
-        <button
-          id={headerId}
-          type="button"
-          className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[6px] px-1 py-1 text-left text-[#dff7ff] transition hover:bg-[#58d7ff]/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#58d7ff]/35"
-          onClick={() => setIsExpanded((v) => !v)}
-          aria-expanded={isExpanded}
-          aria-controls={contentId}
-        >
-          <ChevronDown
-            className={`size-4 shrink-0 text-[#58d7ff]/75 transition-transform duration-200 ease-in-out ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
-            aria-hidden="true"
-          />
-          <MessageSquareText className="size-3.5 shrink-0 text-[#58d7ff]/70" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
-            {commentCount}件のコメントスレッド
-          </span>
-          {thread.isResolved !== null ? (
-            <span className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white/55">
-              {thread.isResolved ? 'resolved' : 'open'}
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            id={headerId}
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[6px] px-1 py-1 text-left text-[#dff7ff] transition hover:bg-[#58d7ff]/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#58d7ff]/35"
+            onClick={() => setIsExpanded((v) => !v)}
+            aria-expanded={isExpanded}
+            aria-controls={contentId}
+          >
+            <ChevronDown
+              className={`size-4 shrink-0 text-[#58d7ff]/75 transition-transform duration-200 ease-in-out ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+              aria-hidden="true"
+            />
+            <MessageSquareText className="size-3.5 shrink-0 text-[#58d7ff]/70" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+              {commentCount}件のコメントスレッド
             </span>
+          </button>
+          {isResolved ? (
+            <ResolvedBadge />
+          ) : thread.isResolved !== null ? (
+            <span className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white/55">
+              open
+            </span>
+          ) : null}
+          {thread.location.kind === 'diff' && !isResolved ? (
+            <ResolveThreadButton inFlight={resolveInFlight} onClick={handleResolve} />
           ) : null}
           {thread.isOutdated || thread.anchorStatus === 'outdated' ? (
             <span className="shrink-0 rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
@@ -156,13 +196,12 @@ function RemoteCommentThreadCard({
               rel="noreferrer"
               className="flex size-5 shrink-0 items-center justify-center rounded-[5px] border border-[#58d7ff]/18 text-[#dff7ff]/70 transition hover:bg-[#58d7ff]/10 hover:text-[#dff7ff] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#58d7ff]/35"
               aria-label="Open remote comment"
-              onClick={(e) => e.stopPropagation()}
             >
               <ExternalLink className="size-3" aria-hidden="true" />
             </a>
           ) : null}
           {judgement ? <ResolveJudgementPill judgement={judgement} /> : null}
-        </button>
+        </div>
         <div
           id={contentId}
           role="region"
@@ -171,6 +210,7 @@ function RemoteCommentThreadCard({
         >
           <div className="overflow-hidden">
             {judgement ? <ResolveJudgementReasonBlock judgement={judgement} /> : null}
+            {resolveError ? <ResolveErrorBanner message={resolveError} /> : null}
             <div className="space-y-2 border-t border-[#58d7ff]/15 pt-2">
               {thread.comments.map((comment) => (
                 <div

@@ -149,7 +149,12 @@ function ReadyGraphContent({
   onFileSelect: (filePath: string | null) => void;
   onCompleted: () => void;
 }) {
-  const { items, revisionId } = useCommentList(graph, selectedWorkspace.reviewWorkspaceId);
+  const [commentListRefreshKey, setCommentListRefreshKey] = useState(0);
+  const { items, revisionId } = useCommentList(
+    graph,
+    selectedWorkspace.reviewWorkspaceId,
+    commentListRefreshKey,
+  );
   const judgements = useResolveJudgements({
     reviewWorkspaceId: selectedWorkspace.reviewWorkspaceId,
     revisionId,
@@ -181,6 +186,11 @@ function ReadyGraphContent({
     (item: CommentListItem) => buildResolveJudgementMapKey(item.commentKey),
     [],
   );
+  const handleThreadResolved = useCallback(() => {
+    setCommentListRefreshKey((key) => key + 1);
+    void judgements.reload();
+    onCompleted();
+  }, [judgements, onCompleted]);
 
   return (
     <ResolveJudgementContext.Provider value={judgements}>
@@ -194,6 +204,7 @@ function ReadyGraphContent({
         onStartResolveJudgement={() => {
           void judgements.start();
         }}
+        onThreadResolved={handleThreadResolved}
       />
       <DependencyGraphCanvas
         graph={canvasGraph}
@@ -203,6 +214,7 @@ function ReadyGraphContent({
         selectedNodeId={selectedNodeId}
         scrollTarget={scrollTarget}
         onSelectNode={onSelectNode}
+        onThreadResolved={handleThreadResolved}
       />
       <AgentControlCenter
         graph={graph}

@@ -19,6 +19,11 @@ import {
   ResolveJudgementReasonBlock,
 } from '../../resolve-judgement/resolve-judgement-card-decoration';
 import {
+  ResolveErrorBanner,
+  ResolveThreadButton,
+  ResolvedBadge,
+} from '../../thread-resolve/resolve-thread-button';
+import {
   lookupResolveJudgement,
   useResolveJudgementContext,
 } from '../../resolve-judgement/resolve-judgement-context';
@@ -37,6 +42,7 @@ export interface AgentFindingPublishProps {
   errorByKey: Record<string, string>;
   onPublishFinding(finding: NodeDetailSnapshot['findings'][number], body: string): void;
   onClearPublishError(sourceKey: string): void;
+  onThreadResolved?: () => void;
   providerKind?: ReviewProviderKind;
 }
 
@@ -121,6 +127,10 @@ function AgentFindingThreadCard({
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showPublishComposer, setShowPublishComposer] = useState(false);
+  const [optimisticResolved, setOptimisticResolved] = useState(false);
+  const [resolveInFlight, setResolveInFlight] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const displayStatus = optimisticResolved ? 'resolved' : finding.status;
   const displayableRemoteThreads = finding.publishedRemoteThreads
     .filter((item) => item.status === 'active' && item.remoteThread)
     .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
@@ -140,12 +150,15 @@ function AgentFindingThreadCard({
   const draft = threadContext.draftReplies[finding.localThreadId] ?? '';
   const isReplyPending = threadContext.isReplyPending(finding.localThreadId);
   const replyStatus = isReplyPending ? 'replying' : (conversation?.replyStatus ?? 'idle');
-  const judgement = lookupResolveJudgement(resolveJudgementContext, {
-    reviewWorkspaceId,
-    revisionId,
-    commentType: 'agent-thread',
-    commentId: finding.localThreadId,
-  });
+  const judgement =
+    displayStatus === 'resolved'
+      ? null
+      : lookupResolveJudgement(resolveJudgementContext, {
+          reviewWorkspaceId,
+          revisionId,
+          commentType: 'agent-thread',
+          commentId: finding.localThreadId,
+        });
 
   const sourceKey = `agent-finding:${finding.localThreadId}`;
   const published = publishProps?.publishedBySourceKey[sourceKey] ?? null;
@@ -210,6 +223,29 @@ function AgentFindingThreadCard({
     return () => window.cancelAnimationFrame(frameId);
   }, [finding.localThreadId, scrollTarget]);
 
+  const handleResolve = async () => {
+    if (resolveInFlight) return;
+    setResolveInFlight(true);
+    setResolveError(null);
+    setOptimisticResolved(true);
+    const result = await window.poc3GraphReviewApi.resolveAgentThread({
+      reviewWorkspaceId,
+      revisionId,
+      localThreadId: finding.localThreadId,
+    });
+    setResolveInFlight(false);
+    if (!result.ok) {
+      setOptimisticResolved(false);
+      setResolveError(result.message);
+      return;
+    }
+    const failedCount = result.remoteResults.filter((item) => item.status === 'failed').length;
+    if (failedCount > 0) {
+      setResolveError('一部の Remote Comment を resolve できませんでした。');
+    }
+    publishProps?.onThreadResolved?.();
+  };
+
   return (
     <article
       ref={articleRef}
@@ -232,6 +268,10 @@ function AgentFindingThreadCard({
             />
           </div>
           {judgement ? <ResolveJudgementPill judgement={judgement} /> : null}
+          {displayStatus === 'resolved' ? <ResolvedBadge /> : null}
+          {finding.line !== null && displayStatus === 'open' ? (
+            <ResolveThreadButton inFlight={resolveInFlight} onClick={handleResolve} />
+          ) : null}
         </div>
         <div
           id={contentId}
@@ -241,6 +281,7 @@ function AgentFindingThreadCard({
         >
           <div className="overflow-hidden">
             {judgement ? <ResolveJudgementReasonBlock judgement={judgement} /> : null}
+            {resolveError ? <ResolveErrorBanner message={resolveError} /> : null}
             {finding.publishedRemoteThreads.length > 0 || published ? (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span className="flex items-center gap-1.5 rounded-full border border-[#4EBE96]/25 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d7f5e8]">

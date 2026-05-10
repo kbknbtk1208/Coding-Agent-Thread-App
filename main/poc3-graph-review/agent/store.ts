@@ -85,8 +85,34 @@ interface AgentThreadReplyRow {
   created_at: string;
 }
 
+function normalizeLegacyEnvelope(envelope: Poc3AgentReviewEnvelope): Poc3AgentReviewEnvelope {
+  if (envelope.kind !== 'structured') {
+    return envelope;
+  }
+  return {
+    ...envelope,
+    threads: envelope.threads.map((thread) => ({
+      ...thread,
+      status:
+        (thread.status as Poc3AgentReviewThread['status'] | 'dismissed') === 'dismissed'
+          ? 'resolved'
+          : thread.status,
+    })),
+  };
+}
+
 function parseJson<T>(value: string): T {
-  return JSON.parse(value) as T;
+  const parsed = JSON.parse(value) as T;
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    'kind' in parsed &&
+    ((parsed as { kind?: unknown }).kind === 'structured' ||
+      (parsed as { kind?: unknown }).kind === 'fallback-richText')
+  ) {
+    return normalizeLegacyEnvelope(parsed as unknown as Poc3AgentReviewEnvelope) as T;
+  }
+  return parsed;
 }
 
 export class Poc3AgentReviewStore {
@@ -497,6 +523,47 @@ export class Poc3AgentReviewStore {
       }
     }
     return null;
+  }
+
+  resolveThread(input: {
+    reviewWorkspaceId: string;
+    localThreadId: string;
+    resolvedAt: string;
+  }): Poc3AgentReviewThread | null {
+    const transaction = this.db.transaction((): Poc3AgentReviewThread | null => {
+      const rows = this.db
+        .prepare('SELECT run_id, envelope_json FROM agent_review_envelopes')
+        .all() as { run_id: string; envelope_json: string }[];
+      for (const row of rows) {
+        const envelope = parseJson<Poc3AgentReviewEnvelope>(row.envelope_json);
+        if (envelope.kind !== 'structured') continue;
+        const index = envelope.threads.findIndex(
+          (thread) =>
+            thread.localThreadId === input.localThreadId &&
+            thread.reviewWorkspaceId === input.reviewWorkspaceId,
+        );
+        if (index < 0) continue;
+        const nextThread: Poc3AgentReviewThread = {
+          ...envelope.threads[index],
+          status: 'resolved',
+          updatedAt: input.resolvedAt,
+        };
+        const nextEnvelope: Poc3AgentReviewEnvelope = {
+          ...envelope,
+          threads: envelope.threads.map((thread, threadIndex) =>
+            threadIndex === index ? nextThread : thread,
+          ),
+        };
+        this.db
+          .prepare(
+            'UPDATE agent_review_envelopes SET envelope_json = ?, updated_at = ? WHERE run_id = ?',
+          )
+          .run(JSON.stringify(nextEnvelope), input.resolvedAt, row.run_id);
+        return nextThread;
+      }
+      return null;
+    });
+    return transaction();
   }
 
   buildConversation(localThreadId: string): Poc3AgentThreadConversation | null {

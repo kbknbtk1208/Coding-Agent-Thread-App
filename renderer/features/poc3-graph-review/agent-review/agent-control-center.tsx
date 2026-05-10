@@ -117,6 +117,12 @@ export function AgentControlCenter({
     onOutside: close,
   });
 
+  const handleThreadResolved = useCallback(() => {
+    void outdatedThreads.reload();
+    void archivedRemoteThreads.reload();
+    onCompleted?.();
+  }, [archivedRemoteThreads, onCompleted, outdatedThreads]);
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-8 z-40 flex justify-center px-4">
       <motion.div
@@ -224,8 +230,14 @@ export function AgentControlCenter({
                   onSelectRun={(runId) => navigate({ kind: 'run-detail', runId }, 'forward')}
                 />
                 <div className="px-4 pb-3">
-                  <OutdatedThreadSection threads={outdatedThreads.threads} />
-                  <ArchivedRemoteThreadSection threads={archivedRemoteThreads.threads} />
+                  <OutdatedThreadSection
+                    threads={outdatedThreads.threads}
+                    onThreadResolved={handleThreadResolved}
+                  />
+                  <ArchivedRemoteThreadSection
+                    threads={archivedRemoteThreads.threads}
+                    onThreadResolved={handleThreadResolved}
+                  />
                 </div>
               </motion.div>
             ) : effectiveView.kind === 'new-review' ? (

@@ -1,5 +1,8 @@
 import type { Poc3InlineCommentAnchor } from '../../../shared/poc3-domain/comment-publish';
-import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
+import type {
+  ReviewRemoteThread,
+  ReviewSourceSnapshot,
+} from '../../../shared/poc3-domain/source-snapshot';
 import { apiEndpointForProvider } from './repository-url';
 
 export interface PostInlineCommentGitHubInput {
@@ -44,6 +47,27 @@ export interface PostReplyGitLabInput {
   mergeRequestIid: string;
   body: string;
   discussionId: string;
+}
+
+export interface ResolveGitHubReviewThreadInput {
+  kind: 'github';
+  baseUrl: string;
+  token: string;
+  threadNodeId: string;
+}
+
+export interface ResolveGitLabDiscussionInput {
+  kind: 'gitlab';
+  baseUrl: string;
+  token: string;
+  projectPathOrId: string;
+  mergeRequestIid: string;
+  discussionId: string;
+}
+
+export interface ResolveThreadResult {
+  providerThreadId: string;
+  remoteThread?: ReviewRemoteThread;
 }
 
 export interface PostCommentResult {
@@ -92,6 +116,49 @@ export async function postGitHubInlineComment(
     providerThreadId: `github-review-comment:${commentId}`,
     providerCommentIds: [commentId],
   };
+}
+
+function githubGraphqlEndpoint(baseUrl: string): string {
+  if (baseUrl.includes('github.com')) {
+    return 'https://api.github.com/graphql';
+  }
+  const url = new URL(baseUrl);
+  const normalizedPath = url.pathname.replace(/\/+$/, '');
+  url.pathname = `${normalizedPath}/api/graphql`;
+  return url.toString();
+}
+
+export async function resolveGitHubReviewThread(
+  input: ResolveGitHubReviewThreadInput,
+): Promise<ResolveThreadResult> {
+  const response = await fetch(githubGraphqlEndpoint(input.baseUrl), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query: `
+        mutation ResolveReviewThread($threadId: ID!) {
+          resolveReviewThread(input: { threadId: $threadId }) {
+            thread { id isResolved }
+          }
+        }
+      `,
+      variables: { threadId: input.threadNodeId },
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new ProviderRejectedError(
+      `GitHub GraphQL が HTTP ${response.status} を返しました。${text ? ` ${text}` : ''}`,
+    );
+  }
+  const data = (await response.json()) as { errors?: unknown[] };
+  if (data.errors && data.errors.length > 0) {
+    throw new ProviderRejectedError(`GitHub GraphQL が resolve を拒否しました。`);
+  }
+  return { providerThreadId: input.threadNodeId };
 }
 
 export async function postGitHubReply(input: PostReplyGitHubInput): Promise<PostCommentResult> {
@@ -220,6 +287,29 @@ export async function postGitLabReply(input: PostReplyGitLabInput): Promise<Post
     providerThreadId: `gitlab-discussion:${input.discussionId}`,
     providerCommentIds: [commentId],
   };
+}
+
+export async function resolveGitLabDiscussion(
+  input: ResolveGitLabDiscussionInput,
+): Promise<ResolveThreadResult> {
+  const endpoint = apiEndpointForProvider('gitlab', input.baseUrl);
+  const encodedProject = encodeURIComponent(input.projectPathOrId);
+  const url = `${endpoint}/projects/${encodedProject}/merge_requests/${input.mergeRequestIid}/discussions/${input.discussionId}`;
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'PRIVATE-TOKEN': input.token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ resolved: true }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new ProviderRejectedError(
+      `GitLab が HTTP ${response.status} を返しました。${text ? ` ${text}` : ''}`,
+    );
+  }
+  return { providerThreadId: `gitlab-discussion:${input.discussionId}` };
 }
 
 function buildGitLabLineCode(

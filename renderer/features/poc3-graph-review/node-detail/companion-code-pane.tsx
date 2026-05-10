@@ -21,6 +21,7 @@ export function CompanionCodePane({
   refreshKey,
   publishComments,
   providerKind,
+  onThreadResolved,
 }: {
   companion: NodeCompanionState;
   reviewWorkspaceId: string;
@@ -30,6 +31,7 @@ export function CompanionCodePane({
   refreshKey?: number;
   publishComments: UsePublishCommentsReturn;
   providerKind?: ReviewProviderKind;
+  onThreadResolved?: () => void;
 }) {
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(
     companion.companions[0]?.relationId ?? null,
@@ -90,6 +92,7 @@ export function CompanionCodePane({
               onViewModeChange={setViewMode}
               publishComments={publishComments}
               providerKind={providerKind}
+              onThreadResolved={onThreadResolved}
             />
           </>
         ) : null}

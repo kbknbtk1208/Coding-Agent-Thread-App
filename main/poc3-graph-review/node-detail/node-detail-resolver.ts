@@ -749,7 +749,7 @@ function toNodeFindingSummary(
     line: thread.location.kind === 'diff' ? thread.location.startLine : null,
     endLine: thread.location.kind === 'diff' ? thread.location.endLine : null,
     side: thread.location.kind === 'diff' ? thread.location.side : null,
-    status: thread.status === 'dismissed' ? 'resolved' : 'open',
+    status: thread.status === 'resolved' ? 'resolved' : 'open',
     hasReplyableSession: options.hasReplyableSession,
     isOutdated: options.isOutdated,
     publishedRemoteThreads: options.publishedRemoteThreads,
@@ -785,7 +785,7 @@ function toAgentThreadSummary(thread: Poc3AgentReviewThread): NodeThreadSummary[
   return {
     threadId: thread.localThreadId,
     summary: thread.title,
-    status: thread.status === 'dismissed' ? 'resolved' : 'open',
+    status: thread.status === 'resolved' ? 'resolved' : 'open',
     line: thread.location.kind === 'diff' ? thread.location.startLine : null,
   };
 }

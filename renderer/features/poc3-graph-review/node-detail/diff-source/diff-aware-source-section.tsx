@@ -31,6 +31,7 @@ export function DiffAwareSourceSection({
   onViewModeChange,
   publishComments,
   providerKind,
+  onThreadResolved,
 }: {
   detail: NodeDetailSnapshot | NodeCompanionDetailSnapshot;
   source: DiffAwareSourceBase | null;
@@ -38,6 +39,7 @@ export function DiffAwareSourceSection({
   onViewModeChange(viewMode: NodeDetailViewMode): void;
   publishComments: UsePublishCommentsReturn;
   providerKind?: ReviewProviderKind;
+  onThreadResolved?: () => void;
 }) {
   const fileContext = 'fileContext' in detail ? detail.fileContext : null;
   const functionCode = 'functionCode' in detail ? detail.functionCode : null;
@@ -144,8 +146,9 @@ export function DiffAwareSourceSection({
         void publishComments.publishFinding({ finding, detail, body }),
       onClearPublishError: publishComments.clearError,
       providerKind,
+      onThreadResolved,
     }),
-    [detail, providerKind, publishComments],
+    [detail, onThreadResolved, providerKind, publishComments],
   );
   const remoteReplyProps = useMemo<RemoteCommentReplyProps>(
     () => ({
@@ -162,8 +165,9 @@ export function DiffAwareSourceSection({
         }),
       onDraftChange: publishComments.setDraftReplyByThread,
       onClearError: publishComments.clearError,
+      onThreadResolved,
     }),
-    [detail, publishComments],
+    [detail, onThreadResolved, publishComments],
   );
   const listHandlers = useMemo(
     () => ({

@@ -557,6 +557,53 @@ export class GraphReviewStore {
     return row ? this.rowToSourceSnapshot(row) : null;
   }
 
+  updateRemoteThreadResolved(input: {
+    revisionId: string;
+    providerThreadId: string;
+    isResolved: boolean;
+    updatedAt: string;
+  }): ReviewSourceSnapshot | null {
+    return this.updateRemoteThreadsResolved({
+      revisionId: input.revisionId,
+      providerThreadIds: [input.providerThreadId],
+      isResolved: input.isResolved,
+      updatedAt: input.updatedAt,
+    });
+  }
+
+  updateRemoteThreadsResolved(input: {
+    revisionId: string;
+    providerThreadIds: string[];
+    isResolved: boolean;
+    updatedAt: string;
+  }): ReviewSourceSnapshot | null {
+    const current = this.getSourceSnapshotByRevision(input.revisionId);
+    if (!current) {
+      return null;
+    }
+    const targetIds = new Set(input.providerThreadIds);
+    let changed = false;
+    const next: ReviewSourceSnapshot = {
+      ...current,
+      remoteThreads: current.remoteThreads.map((thread) => {
+        if (!targetIds.has(thread.providerThreadId)) return thread;
+        changed = true;
+        return { ...thread, isResolved: input.isResolved };
+      }),
+      remoteThreadsSummary: current.remoteThreadsSummary.map((thread) =>
+        targetIds.has(thread.providerThreadId)
+          ? { ...thread, isResolved: input.isResolved }
+          : thread,
+      ),
+      updatedAt: input.updatedAt,
+    };
+    if (!changed) {
+      return null;
+    }
+    this.insertSourceSnapshot(next);
+    return next;
+  }
+
   getLatestAnalysisRun(revisionId: string, scopeKey: string): AnalysisRunSnapshot | null {
     const row = this.db
       .prepare(

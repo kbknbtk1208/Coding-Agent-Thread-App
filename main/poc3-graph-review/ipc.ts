@@ -30,6 +30,8 @@ import type {
   ValidateRepositoryProfileInput,
   PublishInlineCommentInput,
   ReplyRemoteCommentInput,
+  ResolveAgentThreadInput,
+  ResolveRemoteThreadInput,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import { POC3_GRAPH_REVIEW_IPC_CHANNELS } from '../../shared/poc3-contracts/graph-review-ipc';
@@ -268,6 +270,20 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.replyRemoteComment,
     (_event, input: ReplyRemoteCommentInput) => {
       return gateway.replyRemoteComment(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveAgentThread,
+    (_event, input: ResolveAgentThreadInput) => {
+      return gateway.resolveAgentThread(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveRemoteThread,
+    (_event, input: ResolveRemoteThreadInput) => {
+      return gateway.resolveRemoteThread(input);
     },
   );
 

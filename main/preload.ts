@@ -109,6 +109,10 @@ import {
   type PublishInlineCommentResult,
   type ReplyRemoteCommentInput,
   type ReplyRemoteCommentResult,
+  type ResolveAgentThreadInput,
+  type ResolveAgentThreadResult,
+  type ResolveRemoteThreadInput,
+  type ResolveRemoteThreadResult,
   type TestRepositoryProviderInput,
   type TestRepositoryProviderResult,
   type ValidateRepositoryProfileInput,
@@ -360,6 +364,12 @@ const poc3GraphReviewApi = {
   },
   replyRemoteComment(input: ReplyRemoteCommentInput): Promise<ReplyRemoteCommentResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.replyRemoteComment, input);
+  },
+  resolveAgentThread(input: ResolveAgentThreadInput): Promise<ResolveAgentThreadResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveAgentThread, input);
+  },
+  resolveRemoteThread(input: ResolveRemoteThreadInput): Promise<ResolveRemoteThreadResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.resolveRemoteThread, input);
   },
   startResolveJudgement(input: StartResolveJudgementInput): Promise<StartResolveJudgementResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.startResolveJudgement, input);

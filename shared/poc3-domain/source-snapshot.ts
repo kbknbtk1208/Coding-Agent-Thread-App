@@ -47,6 +47,10 @@ export interface ReviewRemoteThread {
     remoteDiscussionId: string;
     remoteCommentIds: string[];
     anchorRefs: Record<string, unknown>;
+    resolve?: {
+      githubReviewThreadNodeId?: string;
+      gitlabDiscussionId?: string;
+    };
   };
 }
 

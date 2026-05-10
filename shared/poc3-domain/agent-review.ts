@@ -59,6 +59,8 @@ export interface Poc3AgentReviewDebugDowngrade {
   requestedEndLine: number | null;
 }
 
+export type Poc3AgentReviewThreadStatus = 'open' | 'resolved';
+
 export interface Poc3AgentReviewThread {
   localThreadId: string;
   runId: string;
@@ -73,7 +75,7 @@ export interface Poc3AgentReviewThread {
   draftBody: string;
   suggestion?: string;
   location: Poc3AgentReviewLocation;
-  status: 'open' | 'dismissed';
+  status: Poc3AgentReviewThreadStatus;
   debugDowngrade?: Poc3AgentReviewDebugDowngrade;
   createdAt: string;
   updatedAt: string;
