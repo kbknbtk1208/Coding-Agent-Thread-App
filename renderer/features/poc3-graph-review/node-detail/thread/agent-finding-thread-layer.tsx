@@ -22,10 +22,11 @@ import {
   lookupResolveJudgement,
   useResolveJudgementContext,
 } from '../../resolve-judgement/resolve-judgement-context';
-import { resolveProviderLabel } from '../utils/format';
+import { formatShortDate, resolveProviderLabel } from '../utils/format';
 import { FindingThreadAccordionHeader } from './finding-accordion-header';
 import { FindingMessagesList } from './finding-messages-list';
 import { InlineThreadStreamingPanel } from './inline-thread-streaming-panel';
+import { MarkdownBody } from './markdown-body';
 import { ThreadErrorBanner, ThreadReplyComposer } from './thread-reply-composer';
 
 export interface AgentFindingPublishProps {
@@ -120,6 +121,21 @@ function AgentFindingThreadCard({
   const contentId = useId();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showPublishComposer, setShowPublishComposer] = useState(false);
+  const displayableRemoteThreads = finding.publishedRemoteThreads
+    .filter((item) => item.status === 'active' && item.remoteThread)
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  const missingRemoteCount = finding.publishedRemoteThreads.filter(
+    (item) => item.status === 'missingRemote' || !item.remoteThread,
+  ).length;
+  const initialRemoteThreadId =
+    displayableRemoteThreads.find((item) => item.remoteThread?.isResolved === false)
+      ?.providerThreadId ??
+    displayableRemoteThreads[0]?.providerThreadId ??
+    null;
+  const [viewMode, setViewMode] = useState<'agent' | 'remote'>('agent');
+  const [selectedRemoteThreadId, setSelectedRemoteThreadId] = useState<string | null>(
+    initialRemoteThreadId,
+  );
   const conversation = threadContext.conversations[finding.localThreadId] ?? null;
   const draft = threadContext.draftReplies[finding.localThreadId] ?? '';
   const isReplyPending = threadContext.isReplyPending(finding.localThreadId);
@@ -136,6 +152,18 @@ function AgentFindingThreadCard({
   const publishInFlight = publishProps?.inFlightKey === sourceKey;
   const publishError = publishProps?.errorByKey[sourceKey] ?? null;
   const publishedCommentUrl = publishProps?.commentUrlBySourceKey[sourceKey] ?? null;
+  const selectedRemote =
+    displayableRemoteThreads.find((item) => item.providerThreadId === selectedRemoteThreadId) ??
+    displayableRemoteThreads[0] ??
+    null;
+  const firstRemoteUrl =
+    selectedRemote?.remoteThread?.comments[0]?.url ?? publishedCommentUrl ?? null;
+  const postedCount =
+    finding.publishedRemoteThreads.length > 0
+      ? finding.publishedRemoteThreads.length
+      : published
+        ? 1
+        : 0;
 
   useEffect(() => {
     if (!isExpanded) {
@@ -155,6 +183,21 @@ function AgentFindingThreadCard({
       setShowPublishComposer(false);
     }
   }, [published]);
+
+  useEffect(() => {
+    if (!selectedRemoteThreadId && initialRemoteThreadId) {
+      setSelectedRemoteThreadId(initialRemoteThreadId);
+    }
+    if (
+      selectedRemoteThreadId &&
+      !displayableRemoteThreads.some((item) => item.providerThreadId === selectedRemoteThreadId)
+    ) {
+      setSelectedRemoteThreadId(initialRemoteThreadId);
+    }
+    if (displayableRemoteThreads.length === 0) {
+      setViewMode('agent');
+    }
+  }, [displayableRemoteThreads, initialRemoteThreadId, selectedRemoteThreadId]);
 
   useEffect(() => {
     if (!isAgentThreadScrollTarget(scrollTarget, finding.localThreadId)) return;
@@ -198,14 +241,30 @@ function AgentFindingThreadCard({
         >
           <div className="overflow-hidden">
             {judgement ? <ResolveJudgementReasonBlock judgement={judgement} /> : null}
-            {published ? (
-              <div className="mt-2 flex items-center gap-1.5">
+            {finding.publishedRemoteThreads.length > 0 || published ? (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span className="flex items-center gap-1.5 rounded-full border border-[#4EBE96]/25 bg-[#4EBE96]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d7f5e8]">
-                  posted
+                  posted {postedCount}
                 </span>
-                {publishedCommentUrl ? (
+                {missingRemoteCount > 0 ? (
+                  <span className="rounded-full border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#ffe0b5]">
+                    missing {missingRemoteCount}
+                  </span>
+                ) : null}
+                {displayableRemoteThreads.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewMode((current) => (current === 'agent' ? 'remote' : 'agent'))
+                    }
+                    className="cursor-pointer rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold text-white/65 transition hover:bg-white/[0.08] hover:text-white"
+                  >
+                    {viewMode === 'agent' ? 'Remote' : 'Agent'}
+                  </button>
+                ) : null}
+                {firstRemoteUrl ? (
                   <a
-                    href={publishedCommentUrl}
+                    href={firstRemoteUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="flex size-5 items-center justify-center rounded-[5px] border border-[#4EBE96]/20 text-[#d7f5e8]/70 transition hover:bg-[#4EBE96]/10 hover:text-[#d7f5e8] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4EBE96]/35"
@@ -216,13 +275,54 @@ function AgentFindingThreadCard({
                 ) : null}
               </div>
             ) : null}
-            <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
-            {replyStatus === 'replying' ? (
-              <InlineThreadStreamingPanel conversation={conversation} />
-            ) : null}
-            {conversation?.lastError ? (
-              <ThreadErrorBanner message={conversation.lastError} />
-            ) : null}
+            {viewMode === 'remote' && selectedRemote?.remoteThread ? (
+              <div className="mt-2 space-y-2 border-t border-[#58d7ff]/15 pt-2">
+                {displayableRemoteThreads.length > 1 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {displayableRemoteThreads.map((item, index) => (
+                      <button
+                        key={item.linkId}
+                        type="button"
+                        onClick={() => setSelectedRemoteThreadId(item.providerThreadId)}
+                        className={`cursor-pointer rounded-[6px] border px-2 py-0.5 text-[10px] font-semibold transition ${
+                          item.providerThreadId === selectedRemote.providerThreadId
+                            ? 'border-[#58d7ff]/35 bg-[#58d7ff]/12 text-[#dff7ff]'
+                            : 'border-white/[0.08] bg-white/[0.03] text-white/50 hover:bg-white/[0.07]'
+                        }`}
+                      >
+                        Remote {displayableRemoteThreads.length - index}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {selectedRemote.remoteThread.comments.map((comment) => (
+                  <div
+                    key={comment.providerCommentId}
+                    className="border-t border-[#58d7ff]/10 pt-2 first:border-t-0 first:pt-0"
+                  >
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-white/42">
+                      <span className="font-semibold text-[#dff7ff]/78">
+                        {comment.author.login}
+                      </span>
+                      <span>{formatShortDate(comment.createdAt)}</span>
+                    </div>
+                    <div className="poc3-remote-comment-body text-[11px] leading-5 text-white/70">
+                      <MarkdownBody variant="compact">{comment.body}</MarkdownBody>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
+                <FindingMessagesList finding={finding} messages={conversation?.messages ?? null} />
+                {replyStatus === 'replying' ? (
+                  <InlineThreadStreamingPanel conversation={conversation} />
+                ) : null}
+                {conversation?.lastError ? (
+                  <ThreadErrorBanner message={conversation.lastError} />
+                ) : null}
+              </>
+            )}
             {finding.line !== null && publishProps ? (
               published ? (
                 published.providerCommentIds.length > 0 ? (

@@ -8,6 +8,7 @@ import type {
   NodeDiffExcerpt,
   NodeDiffSummary,
   NodeFileContext,
+  NodePublishedRemoteThreadSummary,
   NodeRemoteThreadSummary,
   NodeThreadSummary,
   TestCaseTreeNode,
@@ -15,12 +16,17 @@ import type {
 import { extractTestCases, isAstSupportedLanguage } from '../analysis/test-case-extractor';
 import type { Poc3AgentReviewThread } from '../../../shared/poc3-domain/agent-review';
 import type {
+  PublishedAgentThreadLink,
+  PublishedRemoteThreadSummary,
+} from '../../../shared/poc3-domain/published-agent-thread';
+import type {
   ReviewChangedFile,
   ReviewRemoteThread,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
 import type { ReviewWorkspace } from '../../../shared/poc3-domain/review-workspace';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
+import { buildPublishedThreadVisibility } from '../published-agent-thread/visibility';
 
 export interface ResolveNodeCompanionDetailContext {
   workspace: ReviewWorkspace;
@@ -32,6 +38,7 @@ export interface ResolveNodeCompanionDetailContext {
   renderSnapshot: GraphRenderSnapshot;
   sourceSnapshot: ReviewSourceSnapshot | null;
   agentThreads: Poc3AgentReviewThread[];
+  publishedAgentThreadLinks?: PublishedAgentThreadLink[];
 }
 
 export type ResolveNodeCompanionDetailResult =
@@ -75,6 +82,15 @@ export function resolveNodeCompanionDetail(
   const filePath = companion.companionFilePath;
   const diagnostics: NodeDetailDiagnostic[] = [];
   const changedFile = sourceSnapshot?.changedFiles.find((file) => file.path === filePath) ?? null;
+  const visibility = buildPublishedThreadVisibility({
+    reviewWorkspaceId: workspace.reviewWorkspaceId,
+    agentThreads: context.agentThreads,
+    remoteThreads: sourceSnapshot?.remoteThreads ?? [],
+    links: context.publishedAgentThreadLinks ?? [],
+  });
+  const visibleSourceSnapshot = sourceSnapshot
+    ? { ...sourceSnapshot, remoteThreads: visibility.visibleRemoteThreads }
+    : null;
   const source = resolveFileSource(workspace, filePath, diagnostics);
   if (!source && !changedFile) {
     return {
@@ -117,7 +133,7 @@ export function resolveNodeCompanionDetail(
     source,
     diffSummary: resolveDiffSummary(changedFile),
     diffExcerpt: resolveDiffExcerpt(changedFile),
-    threads: resolveThreads(filePath, sourceSnapshot, context.agentThreads),
+    threads: resolveThreads(filePath, visibleSourceSnapshot, context.agentThreads),
     findings: context.agentThreads
       .filter((thread) => thread.location.kind === 'diff' && thread.location.filePath === filePath)
       .map((thread) => ({
@@ -134,6 +150,9 @@ export function resolveNodeCompanionDetail(
         side: thread.location.kind === 'diff' ? thread.location.side : null,
         status: thread.status === 'dismissed' ? 'resolved' : 'open',
         hasReplyableSession: true,
+        publishedRemoteThreads: (
+          visibility.publishedRemoteByLocalThreadId.get(thread.localThreadId) ?? []
+        ).map(toNodePublishedRemoteThreadSummary),
       })),
     diagnostics,
     testCases,
@@ -219,14 +238,7 @@ function resolveThreads(
   const remote: NodeRemoteThreadSummary[] =
     sourceSnapshot?.remoteThreads
       .filter((thread) => isCurrentDiffThreadForFile(thread, filePath))
-      .map((thread) => ({
-        providerThreadId: thread.providerThreadId,
-        location: thread.location,
-        anchorStatus: thread.anchorStatus,
-        isResolved: thread.isResolved,
-        isOutdated: thread.isOutdated || thread.anchorStatus === 'outdated',
-        comments: thread.comments,
-      })) ?? [];
+      .map(toNodeRemoteThreadSummary) ?? [];
   return {
     remote,
     local: [],
@@ -238,6 +250,31 @@ function resolveThreads(
         status: thread.status === 'dismissed' ? 'resolved' : 'open',
         line: thread.location.kind === 'diff' ? thread.location.startLine : null,
       })),
+  };
+}
+
+function toNodePublishedRemoteThreadSummary(
+  summary: PublishedRemoteThreadSummary,
+): NodePublishedRemoteThreadSummary {
+  return {
+    linkId: summary.link.linkId,
+    providerThreadId: summary.link.providerThreadId,
+    providerCommentIds: summary.link.providerCommentIds,
+    publishedAt: summary.link.publishedAt,
+    lastSyncedAt: summary.link.lastSyncedAt,
+    status: summary.link.status,
+    remoteThread: summary.remoteThread ? toNodeRemoteThreadSummary(summary.remoteThread) : null,
+  };
+}
+
+function toNodeRemoteThreadSummary(thread: ReviewRemoteThread): NodeRemoteThreadSummary {
+  return {
+    providerThreadId: thread.providerThreadId,
+    location: thread.location,
+    anchorStatus: thread.anchorStatus,
+    isResolved: thread.isResolved,
+    isOutdated: thread.isOutdated || thread.anchorStatus === 'outdated',
+    comments: thread.comments,
   };
 }
 

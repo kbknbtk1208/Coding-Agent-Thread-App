@@ -46,6 +46,7 @@ import type {
   Poc3PublishCommentSource,
   Poc3PublishedCommentRecord,
 } from '../poc3-domain/comment-publish';
+import type { PublishedAgentThreadLink } from '../poc3-domain/published-agent-thread';
 import type {
   ResolveJudgementEvent,
   ResolveJudgementResult,
@@ -427,6 +428,7 @@ export type PublishInlineCommentResult =
       published: Poc3PublishedCommentRecord;
       remoteThread: ReviewRemoteThread;
       sourceSnapshot: ReviewSourceSnapshot;
+      publishedAgentThreadLink: PublishedAgentThreadLink | null;
     }
   | {
       ok: false;

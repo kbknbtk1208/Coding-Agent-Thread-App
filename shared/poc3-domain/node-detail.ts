@@ -178,6 +178,16 @@ export interface NodeRemoteThreadSummary {
   comments: ReviewRemoteComment[];
 }
 
+export interface NodePublishedRemoteThreadSummary {
+  linkId: string;
+  providerThreadId: string;
+  providerCommentIds: string[];
+  publishedAt: string;
+  lastSyncedAt: string;
+  status: 'active' | 'missingRemote';
+  remoteThread: NodeRemoteThreadSummary | null;
+}
+
 export interface NodeThreadSummary {
   remote: NodeRemoteThreadSummary[];
   local: LocalNodeThreadSummary[];
@@ -213,6 +223,7 @@ export interface NodeFindingSummary {
   status: 'open' | 'resolved';
   hasReplyableSession: boolean;
   isOutdated?: boolean;
+  publishedRemoteThreads: NodePublishedRemoteThreadSummary[];
 }
 
 export interface NodeDetailDiagnostic {

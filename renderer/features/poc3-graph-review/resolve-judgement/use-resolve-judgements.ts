@@ -20,6 +20,7 @@ export interface ResolveJudgementViewModel {
 export type ResolveJudgementRunState =
   | { status: 'idle'; targetCount: number }
   | { status: 'running'; runId: string; targetCount: number }
+  | { status: 'empty'; message: string; targetCount: 0 }
   | { status: 'failed'; message: string; targetCount: number };
 
 export interface UseResolveJudgementsInput {
@@ -110,7 +111,15 @@ export function useResolveJudgements(input: UseResolveJudgementsInput): UseResol
           }
           return next;
         });
-        setRunState({ status: 'idle', targetCount: 0 });
+        setRunState(
+          event.run.targetCount === 0
+            ? {
+                status: 'empty',
+                message: '判定対象のコメントがありません。',
+                targetCount: 0,
+              }
+            : { status: 'idle', targetCount: 0 },
+        );
         return;
       }
       if (event.type === 'resolve-judgement.failed') {
@@ -139,6 +148,14 @@ export function useResolveJudgements(input: UseResolveJudgementsInput): UseResol
       return;
     }
     if (response.run.status === 'completed') {
+      if (response.run.targetCount === 0) {
+        setRunState({
+          status: 'empty',
+          message: '判定対象のコメントがありません。',
+          targetCount: 0,
+        });
+        return;
+      }
       setRunState({ status: 'idle', targetCount: response.run.targetCount });
       void reload();
       return;

@@ -14,6 +14,7 @@ import type {
   PublishInlineCommentResult,
   ReplyRemoteCommentResult,
 } from '../../../shared/poc3-contracts/graph-review-ipc';
+import type { PublishedAgentThreadLink } from '../../../shared/poc3-domain/published-agent-thread';
 import type { RepositoryProfile } from '../../../shared/poc3-domain/repository';
 import type { RepositoryProviderStore } from '../workspace/repository-provider-store';
 import type { RepositoryProfileStore } from '../workspace/repository-profile-store';
@@ -36,6 +37,12 @@ export interface PublishCoordinatorDeps {
   providerStore: RepositoryProviderStore;
   profileStore: RepositoryProfileStore;
   agentReviewStore: Poc3AgentReviewStore;
+  savePublishedAgentThreadLink: (link: PublishedAgentThreadLink) => PublishedAgentThreadLink;
+  markPublishedAgentThreadSyncResult: (input: {
+    reviewWorkspaceId: string;
+    providerThreadIdsInSnapshot: string[];
+    syncedAt: string;
+  }) => void;
   savePublishedRecord: (record: Poc3PublishedCommentRecord) => void;
   clearWorkspaceCaches: (reviewWorkspaceId: string) => void;
 }
@@ -156,9 +163,26 @@ export async function publishInlineComment(
     const remoteThread = buildRemoteThread(published, anchor);
     const updatedSnapshot = mergeThreadIntoSnapshot(sourceSnapshot, remoteThread);
     deps.graphStore.saveSourceSnapshot(updatedSnapshot);
+    let publishedAgentThreadLink = createPublishedAgentThreadLink(input, published, result, deps);
+    if (publishedAgentThreadLink) {
+      publishedAgentThreadLink = deps.savePublishedAgentThreadLink(publishedAgentThreadLink);
+    }
+    deps.markPublishedAgentThreadSyncResult({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      providerThreadIdsInSnapshot: updatedSnapshot.remoteThreads.map(
+        (thread) => thread.providerThreadId,
+      ),
+      syncedAt: published.createdAt,
+    });
     deps.clearWorkspaceCaches(input.reviewWorkspaceId);
 
-    return { ok: true, published, remoteThread, sourceSnapshot: updatedSnapshot };
+    return {
+      ok: true,
+      published,
+      remoteThread,
+      sourceSnapshot: updatedSnapshot,
+      publishedAgentThreadLink,
+    };
   } catch (err) {
     if (err instanceof ProviderRejectedError) {
       return { ok: false, reason: 'providerRejected', message: err.message };
@@ -304,6 +328,40 @@ export async function replyRemoteComment(
       message: err instanceof Error ? err.message : '返信の投稿に失敗しました。',
     };
   }
+}
+
+function createPublishedAgentThreadLink(
+  input: {
+    reviewWorkspaceId: string;
+    revisionId: string;
+    source: Poc3PublishCommentSource;
+  },
+  published: Poc3PublishedCommentRecord,
+  result: { providerThreadId: string; providerCommentIds: string[] },
+  deps: Pick<PublishCoordinatorDeps, 'agentReviewStore'>,
+): PublishedAgentThreadLink | null {
+  if (input.source.kind !== 'agent-finding') {
+    return null;
+  }
+  const localThreadId = input.source.localThreadId;
+  if (!localThreadId) {
+    return null;
+  }
+  const thread = deps.agentReviewStore.getThreadDraft(localThreadId);
+  if (!thread || thread.location.kind !== 'diff' || thread.revisionId !== input.revisionId) {
+    return null;
+  }
+  return {
+    linkId: randomUUID(),
+    reviewWorkspaceId: input.reviewWorkspaceId,
+    localThreadId,
+    sourceRevisionId: input.revisionId,
+    providerThreadId: result.providerThreadId,
+    providerCommentIds: result.providerCommentIds,
+    publishedAt: published.createdAt,
+    lastSyncedAt: published.createdAt,
+    status: 'active',
+  };
 }
 
 type WorkspaceContextError =

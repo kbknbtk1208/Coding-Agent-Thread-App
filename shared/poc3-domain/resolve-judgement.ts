@@ -81,6 +81,12 @@ export interface ResolveJudgementTarget {
     isResolved: boolean | null;
     status: 'open' | 'dismissed' | 'resolved' | 'unknown';
   };
+  linkedRemoteThreads?: Array<{
+    providerThreadId: string;
+    isResolved: boolean | null;
+    isOutdated: boolean | null;
+    comments: ResolveJudgementReply[];
+  }>;
 }
 
 export interface ResolveJudgementAgentOutputItem {

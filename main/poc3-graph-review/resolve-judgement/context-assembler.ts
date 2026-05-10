@@ -6,11 +6,16 @@ import type {
   ResolveJudgementTarget,
 } from '../../../shared/poc3-domain/resolve-judgement';
 import type {
+  PublishedAgentThreadLink,
+  PublishedRemoteThreadSummary,
+} from '../../../shared/poc3-domain/published-agent-thread';
+import type {
   ReviewRemoteThread,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
 import type { Poc3AgentReviewStore } from '../agent/store';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
+import { buildPublishedThreadVisibility } from '../published-agent-thread/visibility';
 
 interface ContextAssemblerInput {
   reviewWorkspaceId: string;
@@ -18,6 +23,7 @@ interface ContextAssemblerInput {
   record: WorkspaceGraphRecord;
   sourceSnapshot: ReviewSourceSnapshot | null;
   agentReviewStore: Poc3AgentReviewStore;
+  publishedAgentThreadLinks?: PublishedAgentThreadLink[];
 }
 
 export interface ResolveJudgementTargetCollection {
@@ -29,14 +35,29 @@ export class ResolveJudgementContextAssembler {
     const targets: ResolveJudgementTarget[] = [];
     const seen = new Set<string>();
 
-    for (const target of this.collectAgentTargets(input)) {
+    const agentThreads = input.agentReviewStore.listThreadsForWorkspace({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      revisionId: input.revisionId,
+    });
+    const visibility = buildPublishedThreadVisibility({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      agentThreads,
+      remoteThreads: input.sourceSnapshot?.remoteThreads ?? [],
+      links: input.publishedAgentThreadLinks ?? [],
+    });
+
+    for (const target of this.collectAgentTargets(
+      input,
+      agentThreads,
+      visibility.publishedRemoteByLocalThreadId,
+    )) {
       const dedupKey = `${target.key.commentType}:${target.key.commentId}`;
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
       targets.push(target);
     }
 
-    for (const target of this.collectRemoteTargets(input)) {
+    for (const target of this.collectRemoteTargets(input, visibility.suppressedProviderThreadIds)) {
       const dedupKey = `${target.key.commentType}:${target.key.commentId}`;
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
@@ -46,15 +67,21 @@ export class ResolveJudgementContextAssembler {
     return { targets };
   }
 
-  private collectAgentTargets(input: ContextAssemblerInput): ResolveJudgementTarget[] {
-    const threads = input.agentReviewStore.listThreadsForWorkspace({
-      reviewWorkspaceId: input.reviewWorkspaceId,
-      revisionId: input.revisionId,
-    });
+  private collectAgentTargets(
+    input: ContextAssemblerInput,
+    threads: Poc3AgentReviewThread[],
+    publishedRemoteByLocalThreadId: Map<string, PublishedRemoteThreadSummary[]>,
+  ): ResolveJudgementTarget[] {
     const targets: ResolveJudgementTarget[] = [];
     for (const thread of threads) {
       if (thread.status !== 'open') continue;
-      targets.push(this.toAgentTarget(thread, input));
+      targets.push(
+        this.toAgentTarget(
+          thread,
+          input,
+          publishedRemoteByLocalThreadId.get(thread.localThreadId) ?? [],
+        ),
+      );
     }
     return targets;
   }
@@ -62,6 +89,7 @@ export class ResolveJudgementContextAssembler {
   private toAgentTarget(
     thread: Poc3AgentReviewThread,
     input: ContextAssemblerInput,
+    publishedRemoteThreads: PublishedRemoteThreadSummary[],
   ): ResolveJudgementTarget {
     const conversation = input.agentReviewStore.buildConversation(thread.localThreadId);
     const replies: ResolveJudgementReply[] = [];
@@ -95,6 +123,24 @@ export class ResolveJudgementContextAssembler {
         isResolved: null,
         status: thread.status === 'open' ? 'open' : 'dismissed',
       },
+      linkedRemoteThreads: publishedRemoteThreads.flatMap((item) => {
+        const remoteThread = item.remoteThread;
+        if (!remoteThread) {
+          return [];
+        }
+        return [
+          {
+            providerThreadId: remoteThread.providerThreadId,
+            isResolved: remoteThread.isResolved,
+            isOutdated: remoteThread.isOutdated,
+            comments: remoteThread.comments.map((comment) => ({
+              role: 'reviewer' as const,
+              body: comment.body,
+              createdAt: comment.createdAt,
+            })),
+          },
+        ];
+      }),
     };
   }
 
@@ -132,11 +178,15 @@ export class ResolveJudgementContextAssembler {
     };
   }
 
-  private collectRemoteTargets(input: ContextAssemblerInput): ResolveJudgementTarget[] {
+  private collectRemoteTargets(
+    input: ContextAssemblerInput,
+    suppressedProviderThreadIds: Set<string>,
+  ): ResolveJudgementTarget[] {
     const remoteThreads = input.sourceSnapshot?.remoteThreads ?? [];
     const targets: ResolveJudgementTarget[] = [];
     for (const thread of remoteThreads) {
-      if (thread.isResolved !== false) continue;
+      if (suppressedProviderThreadIds.has(thread.providerThreadId)) continue;
+      if (thread.isResolved === true) continue;
       targets.push(this.toRemoteTarget(thread, input));
     }
     return targets;
