@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
+import path from 'path';
 import type {
   AgentReviewRunCommitSnapshot,
   AwaitAgentReviewResultInput,
@@ -26,6 +27,8 @@ import type {
   LoadWorkspaceGraphResult,
   LoadWorkspaceRevisionsInput,
   LoadWorkspaceRevisionsResult,
+  OpenWorkspaceInEditorInput,
+  OpenWorkspaceInEditorResult,
   RemoveReviewWorkspaceInput,
   RemoveReviewWorkspaceResult,
   RefreshWorkspaceRevisionsInput,
@@ -102,6 +105,7 @@ import { RepositoryProviderStore } from './workspace/repository-provider-store';
 import { ReviewWorkspaceCreationCoordinator } from './workspace/review-workspace-creation-coordinator';
 import { resolveReviewWorkspaceTarget } from './workspace/review-workspace-target-resolver';
 import { removeWorktree } from './workspace/worktree-manager';
+import { ExternalEditorLauncher } from './workspace/external-editor-launcher';
 import { AnalysisCoordinator } from './analysis/analysis-coordinator';
 import { Poc3AgentReviewCoordinator } from './agent/coordinator';
 import { Poc3AgentReviewStore } from './agent/store';
@@ -143,6 +147,40 @@ function isForceRecoverableWorktreeRemoveError(message: string): boolean {
   );
 }
 
+function isOpenableDirectory(targetPath: string): boolean {
+  const normalized = targetPath.trim();
+  if (!normalized || !path.isAbsolute(normalized)) {
+    return false;
+  }
+  try {
+    return fs.statSync(normalized).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function resolveOpenableWorktreePath(worktreePath: string): Promise<
+  | { ok: true; path: string }
+  | {
+      ok: false;
+      message: string;
+    }
+> {
+  const normalized = worktreePath.trim();
+  if (!normalized || !path.isAbsolute(normalized)) {
+    return { ok: false, message: 'worktree が見つかりません。' };
+  }
+  try {
+    const stat = await fs.promises.stat(normalized);
+    if (!stat.isDirectory()) {
+      return { ok: false, message: 'worktree が見つかりません。' };
+    }
+    return { ok: true, path: normalized };
+  } catch {
+    return { ok: false, message: 'worktree が見つかりません。' };
+  }
+}
+
 export class GraphReviewGateway {
   private readonly providerStore: RepositoryProviderStore;
   private readonly profileStore: RepositoryProfileStore;
@@ -159,6 +197,7 @@ export class GraphReviewGateway {
   private readonly threadRetentionService: ThreadRetentionService;
   private readonly revisionRefreshCoordinator: RevisionRefreshCoordinator;
   private readonly threadResolveCoordinator: ThreadResolveCoordinator;
+  private readonly externalEditorLauncher: Pick<ExternalEditorLauncher, 'openWorkspace'>;
   private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
   private readonly dbOnlyPurgeAllowedWorkspaceIds = new Set<string>();
   private removingWorkspaceId: string | null = null;
@@ -182,7 +221,12 @@ export class GraphReviewGateway {
     >,
     private readonly emitResolveJudgementEvent: (event: ResolveJudgementEvent) => void = () =>
       undefined,
+    externalEditorLauncher: Pick<
+      ExternalEditorLauncher,
+      'openWorkspace'
+    > = new ExternalEditorLauncher(),
   ) {
+    this.externalEditorLauncher = externalEditorLauncher;
     this.providerStore = new RepositoryProviderStore(userDataPath);
     this.profileStore = new RepositoryProfileStore(userDataPath);
     this.graphStore = new GraphReviewStore(userDataPath);
@@ -508,6 +552,61 @@ export class GraphReviewGateway {
       if (this.removingWorkspaceId === reviewWorkspaceId) {
         this.removingWorkspaceId = null;
       }
+    }
+  }
+
+  async openWorkspaceInEditor(
+    input: OpenWorkspaceInEditorInput,
+  ): Promise<OpenWorkspaceInEditorResult> {
+    if (!input || typeof input.reviewWorkspaceId !== 'string') {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Workspace が見つかりません。',
+      };
+    }
+    const reviewWorkspaceId = input.reviewWorkspaceId.trim();
+    const workspace = this.graphStore.getWorkspace(reviewWorkspaceId);
+    if (!workspace) {
+      return {
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Workspace が見つかりません。',
+      };
+    }
+    if (this.removingWorkspaceId === reviewWorkspaceId) {
+      return {
+        ok: false,
+        reason: 'worktreeUnavailable',
+        message: 'worktree が見つかりません。',
+      };
+    }
+
+    const worktree = await resolveOpenableWorktreePath(workspace.worktreePath);
+    if (!worktree.ok) {
+      return {
+        ok: false,
+        reason: 'worktreeUnavailable',
+        message: worktree.message,
+      };
+    }
+
+    try {
+      const result = await this.externalEditorLauncher.openWorkspace({
+        editor: input.editor ?? 'vscode',
+        mode: input.mode ?? 'newWindow',
+        worktreePath: worktree.path,
+      });
+      if (result.ok) {
+        return { ok: true };
+      }
+      return result;
+    } catch (err) {
+      return {
+        ok: false,
+        reason: 'launchFailed',
+        message: err instanceof Error ? err.message : 'VS Code の起動に失敗しました。',
+      };
     }
   }
 
@@ -1426,6 +1525,7 @@ export class GraphReviewGateway {
       INITIAL_GRAPH_SCOPE_KEY,
     );
     const worktreeExists = fs.existsSync(workspace.worktreePath);
+    const setupStatus = this.toListItemSetupStatus(workspace, worktreeExists);
     return {
       reviewWorkspaceId: workspace.reviewWorkspaceId,
       repositoryLabel: profile
@@ -1436,9 +1536,13 @@ export class GraphReviewGateway {
       title: workspace.title,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
-      setupStatus: this.toListItemSetupStatus(workspace, worktreeExists),
+      setupStatus,
       analysisStatus: this.toListItemAnalysisStatus(record),
       worktreeExists,
+      canOpenInEditor:
+        setupStatus === 'completed' &&
+        this.removingWorkspaceId !== workspace.reviewWorkspaceId &&
+        isOpenableDirectory(workspace.worktreePath),
     };
   }
 

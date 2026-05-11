@@ -38,6 +38,8 @@ import type {
   ResolveReviewWorkspaceTargetResult,
   ReviewWorkspaceListItem,
   ReviewWorkspaceCreationJobSnapshot,
+  WorkspaceEditorKind,
+  WorkspaceEditorLaunchMode,
   WorkspaceCreationEvent,
 } from '../poc3-domain/review-workspace';
 import type { ReviewRemoteThread, ReviewSourceSnapshot } from '../poc3-domain/source-snapshot';
@@ -154,6 +156,8 @@ export type {
   WorkspaceCreationPhase,
   ReviewWorkspaceCreationJobStatus,
   ReviewWorkspaceTarget,
+  WorkspaceEditorKind,
+  WorkspaceEditorLaunchMode,
 } from '../poc3-domain/review-workspace';
 
 export interface AgentReviewRunCommitSnapshot {
@@ -204,6 +208,7 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   createReviewWorkspace: 'poc3:workspace:create',
   listReviewWorkspaces: 'poc3:workspace:list',
   removeReviewWorkspace: 'poc3:workspace:remove',
+  openWorkspaceInEditor: 'poc3:workspace:open-in-editor',
   listWorkspaceCreationJobs: 'poc3:workspace:creation-job:list',
   workspaceCreationEvent: 'poc3:workspace:creation-job:event',
   loadWorkspaceGraph: 'poc3:graph:load',
@@ -320,6 +325,26 @@ export type RemoveReviewWorkspaceResult =
       ok: false;
       reviewWorkspaceId: string;
       reason: 'notFound' | 'forceRequired' | 'lockHeld' | 'gitFailed';
+      message: string;
+    };
+
+export interface OpenWorkspaceInEditorInput {
+  reviewWorkspaceId: string;
+  editor?: WorkspaceEditorKind;
+  mode?: WorkspaceEditorLaunchMode;
+}
+
+export type OpenWorkspaceInEditorFailureReason =
+  | 'workspaceNotFound'
+  | 'worktreeUnavailable'
+  | 'editorUnavailable'
+  | 'launchFailed';
+
+export type OpenWorkspaceInEditorResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: OpenWorkspaceInEditorFailureReason;
       message: string;
     };
 
@@ -727,6 +752,7 @@ export interface Poc3GraphReviewApi {
   createReviewWorkspace(input: CreateReviewWorkspaceInput): Promise<CreateReviewWorkspaceResult>;
   listReviewWorkspaces(): Promise<ListReviewWorkspacesResult>;
   removeReviewWorkspace(input: RemoveReviewWorkspaceInput): Promise<RemoveReviewWorkspaceResult>;
+  openWorkspaceInEditor(input: OpenWorkspaceInEditorInput): Promise<OpenWorkspaceInEditorResult>;
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;

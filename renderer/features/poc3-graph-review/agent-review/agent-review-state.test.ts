@@ -18,6 +18,7 @@ const workspace: ReviewWorkspaceListItem = {
   setupStatus: 'completed',
   analysisStatus: 'completed',
   worktreeExists: true,
+  canOpenInEditor: true,
 };
 
 const graph: GraphRenderSnapshot = {

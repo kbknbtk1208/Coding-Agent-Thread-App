@@ -2,6 +2,10 @@ import type { RepositoryLocator, RepositorySetupScript } from './repository';
 
 export type ReviewProviderKind = 'github' | 'gitlab';
 
+export type WorkspaceEditorKind = 'vscode';
+
+export type WorkspaceEditorLaunchMode = 'newWindow';
+
 export function repositoryLabelFromLocator(locator: RepositoryLocator): string {
   return locator.kind === 'github' ? `${locator.owner}/${locator.repo}` : locator.projectPathOrId;
 }
@@ -43,6 +47,7 @@ export interface ReviewWorkspaceListItem {
   setupStatus: ReviewWorkspaceListItemSetupStatus;
   analysisStatus: ReviewWorkspaceListItemAnalysisStatus;
   worktreeExists: boolean;
+  canOpenInEditor: boolean;
 }
 
 export interface ReviewWorkspaceTarget {

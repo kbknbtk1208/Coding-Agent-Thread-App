@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { ReviewWorkspaceListItem } from './use-review-workspaces';
-import { ForceRemoveDialog, WorkspaceListCard } from './workspace-list-card';
+import { ForceRemoveDialog, WorkspaceActionMenu, WorkspaceListCard } from './workspace-list-card';
 
 function createWorkspace(
   overrides: Partial<ReviewWorkspaceListItem> = {},
@@ -18,6 +18,7 @@ function createWorkspace(
     setupStatus: 'completed',
     analysisStatus: 'completed',
     worktreeExists: true,
+    canOpenInEditor: true,
     ...overrides,
   };
 }
@@ -31,6 +32,9 @@ function renderCard(overrides: Partial<React.ComponentProps<typeof WorkspaceList
       removingWorkspaceId: null,
       removeError: null,
       onRemoveWorkspace: vi.fn(),
+      openingWorkspaceIds: {},
+      openEditorErrorByWorkspaceId: {},
+      onOpenWorkspaceInEditor: vi.fn(),
       ...overrides,
     }),
   );
@@ -55,6 +59,60 @@ describe('WorkspaceListCard', () => {
     const html = renderCard({ removeError: 'git worktree remove が失敗しました。' });
 
     expect(html).toContain('git worktree remove が失敗しました。');
+  });
+
+  it('renders the VS Code action only for openable workspaces', () => {
+    const openMenuHtml = renderToStaticMarkup(
+      React.createElement(WorkspaceActionMenu, {
+        workspace: createWorkspace(),
+        open: true,
+        removing: false,
+        disabled: false,
+        openingInEditor: false,
+        onToggle: vi.fn(),
+        onOpenInEditor: vi.fn(),
+        onRemove: vi.fn(),
+      }),
+    );
+    const closedMenuHtml = renderToStaticMarkup(
+      React.createElement(WorkspaceActionMenu, {
+        workspace: createWorkspace({ canOpenInEditor: false }),
+        open: true,
+        removing: false,
+        disabled: false,
+        openingInEditor: false,
+        onToggle: vi.fn(),
+        onOpenInEditor: vi.fn(),
+        onRemove: vi.fn(),
+      }),
+    );
+
+    expect(openMenuHtml).toContain('VS Codeで開く');
+    expect(closedMenuHtml).not.toContain('VS Codeで開く');
+  });
+
+  it('renders editor pending and inline error state', () => {
+    const menuHtml = renderToStaticMarkup(
+      React.createElement(WorkspaceActionMenu, {
+        workspace: createWorkspace(),
+        open: true,
+        removing: false,
+        disabled: true,
+        openingInEditor: true,
+        onToggle: vi.fn(),
+        onOpenInEditor: vi.fn(),
+        onRemove: vi.fn(),
+      }),
+    );
+    const html = renderCard({
+      openingWorkspaceIds: { 'workspace-1': true },
+      openEditorErrorByWorkspaceId: {
+        'workspace-1': 'code コマンドが見つかりません。',
+      },
+    });
+
+    expect(menuHtml).toContain('起動中');
+    expect(html).toContain('code コマンドが見つかりません。');
   });
 });
 

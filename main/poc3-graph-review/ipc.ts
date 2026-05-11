@@ -17,6 +17,7 @@ import type {
   LoadNodeDetailInput,
   LoadWorkspaceGraphInput,
   LoadWorkspaceRevisionsInput,
+  OpenWorkspaceInEditorInput,
   RemoveReviewWorkspaceInput,
   RefreshWorkspaceRevisionsInput,
   RetryGraphAnalysisInput,
@@ -126,6 +127,13 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.removeReviewWorkspace,
     async (_event, input: RemoveReviewWorkspaceInput) => {
       return gateway.removeReviewWorkspace(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.openWorkspaceInEditor,
+    (_event, input: OpenWorkspaceInEditorInput) => {
+      return gateway.openWorkspaceInEditor(input);
     },
   );
 

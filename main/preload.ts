@@ -79,6 +79,8 @@ import {
   type LoadNodeDetailResult,
   type LoadAgentThreadConversationInput,
   type LoadAgentThreadConversationResult,
+  type OpenWorkspaceInEditorInput,
+  type OpenWorkspaceInEditorResult,
   POC3_GRAPH_REVIEW_IPC_CHANNELS,
   type RemoveReviewWorkspaceInput,
   type RemoveReviewWorkspaceResult,
@@ -274,6 +276,9 @@ const poc3GraphReviewApi = {
   },
   removeReviewWorkspace(input: RemoveReviewWorkspaceInput): Promise<RemoveReviewWorkspaceResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.removeReviewWorkspace, input);
+  },
+  openWorkspaceInEditor(input: OpenWorkspaceInEditorInput): Promise<OpenWorkspaceInEditorResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.openWorkspaceInEditor, input);
   },
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listWorkspaceCreationJobs);

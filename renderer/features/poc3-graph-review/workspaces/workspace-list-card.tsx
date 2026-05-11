@@ -3,6 +3,7 @@
 import { AnimatePresence, motion, MotionConfig, useReducedMotion } from 'framer-motion';
 import {
   ChevronDown,
+  Code2,
   GitPullRequest,
   Layers3,
   Loader2,
@@ -13,6 +14,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   RemoveReviewWorkspaceInput,
+  OpenWorkspaceInEditorResult,
   RemoveReviewWorkspaceResult,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import {
@@ -36,6 +38,9 @@ interface WorkspaceListCardProps {
     reviewWorkspaceId: string,
     options?: Pick<RemoveReviewWorkspaceInput, 'force' | 'purgeDbOnly'>,
   ) => Promise<RemoveReviewWorkspaceResult>;
+  openingWorkspaceIds: Record<string, true>;
+  openEditorErrorByWorkspaceId: Record<string, string>;
+  onOpenWorkspaceInEditor: (reviewWorkspaceId: string) => Promise<OpenWorkspaceInEditorResult>;
 }
 
 interface WorkspaceStatusBadge {
@@ -69,6 +74,9 @@ export function WorkspaceListCard({
   removingWorkspaceId,
   removeError,
   onRemoveWorkspace,
+  openingWorkspaceIds,
+  openEditorErrorByWorkspaceId,
+  onOpenWorkspaceInEditor,
 }: WorkspaceListCardProps) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -91,6 +99,11 @@ export function WorkspaceListCard({
     ? formatReviewSummary(selectedWorkspace)
     : 'Workspace はまだありません';
   const selectedWorkspaceIsRemoving = selectedWorkspace?.reviewWorkspaceId === removingWorkspaceId;
+  const selectedWorkspaceId = selectedWorkspace?.reviewWorkspaceId ?? null;
+  const selectedWorkspaceOpening =
+    selectedWorkspaceId !== null && Boolean(openingWorkspaceIds[selectedWorkspaceId]);
+  const selectedWorkspaceOpenError =
+    selectedWorkspaceId !== null ? openEditorErrorByWorkspaceId[selectedWorkspaceId] : null;
 
   useEffect(() => {
     if (!openMenuWorkspaceId) {
@@ -158,6 +171,19 @@ export function WorkspaceListCard({
     setPurgeDbTarget(null);
   };
 
+  const handleOpenWorkspaceInEditor = async (workspace: ReviewWorkspaceListItem) => {
+    if (
+      workspace.reviewWorkspaceId === removingWorkspaceId ||
+      openingWorkspaceIds[workspace.reviewWorkspaceId]
+    ) {
+      return;
+    }
+    const result = await onOpenWorkspaceInEditor(workspace.reviewWorkspaceId);
+    if (result.ok) {
+      setOpenMenuWorkspaceId(null);
+    }
+  };
+
   return (
     <MotionConfig transition={POC3_LAYOUT_TRANSITION}>
       <motion.div
@@ -165,60 +191,65 @@ export function WorkspaceListCard({
         ref={menuRootRef}
         className="pointer-events-auto w-[320px] rounded-[7px] bg-[linear-gradient(180.9deg,rgba(51,51,57,0.7)_-0.58%,rgba(53,53,56,0.7)_66.34%,rgba(38,38,39,0.7)_101.25%)] p-1 text-white shadow-[4px_16px_36px_rgba(0,0,0,0.24),inset_0.5px_0.5px_0.5px_rgba(255,255,255,0.32),inset_0.5px_-0.5px_0.5px_rgba(255,255,255,0.05)] backdrop-blur-[36px] [background-color:rgba(62,62,62,0.4)]"
       >
-        <div
-          className={`relative flex w-full items-center gap-1 rounded-[5px] transition-colors ${
-            selectedWorkspaceIsRemoving ? 'opacity-60' : 'hover:bg-white/[0.045]'
-          }`}
-        >
-          <motion.button
-            type="button"
-            disabled={selectedWorkspaceIsRemoving}
-            onClick={() => setOpen((current) => !current)}
-            className="group flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
-            aria-expanded={open}
-            aria-controls={listId}
+        <div>
+          <div
+            className={`relative flex w-full items-center gap-1 rounded-[5px] transition-colors ${
+              selectedWorkspaceIsRemoving ? 'opacity-60' : 'hover:bg-white/[0.045]'
+            }`}
           >
-            <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-white/82">
-                <Layers3 className="h-4 w-4" aria-hidden="true" />
-              </span>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
-                    {selectedWorkspace?.repositoryLabel ?? 'Workspace'}
-                  </p>
-                  {selectedWorkspace ? (
-                    <WorkspaceStatusBadgeView badge={statusBadgeFor(selectedWorkspace)} />
-                  ) : null}
-                </div>
-                <p className="truncate text-xs leading-[17px] text-white/42">{subtitle}</p>
-              </div>
-            </div>
-
-            <motion.span
-              animate={{ rotate: open ? 180 : 0 }}
-              className="flex size-5 shrink-0 items-center justify-center text-white/65 transition-colors group-hover:text-white/86"
-            >
-              <ChevronDown className="size-4" aria-hidden="true" />
-            </motion.span>
-          </motion.button>
-          {selectedWorkspace ? (
-            <WorkspaceActionMenu
-              workspace={selectedWorkspace}
-              open={openMenuWorkspaceId === selectedWorkspace.reviewWorkspaceId}
-              removing={selectedWorkspaceIsRemoving}
+            <motion.button
+              type="button"
               disabled={selectedWorkspaceIsRemoving}
-              onToggle={() =>
-                setOpenMenuWorkspaceId((current) =>
-                  current === selectedWorkspace.reviewWorkspaceId
-                    ? null
-                    : selectedWorkspace.reviewWorkspaceId,
-                )
-              }
-              onRemove={() => void handleRemoveWorkspace(selectedWorkspace)}
-            />
-          ) : null}
+              onClick={() => setOpen((current) => !current)}
+              className="group flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
+              aria-expanded={open}
+              aria-controls={listId}
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-white/82">
+                  <Layers3 className="h-4 w-4" aria-hidden="true" />
+                </span>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
+                      {selectedWorkspace?.repositoryLabel ?? 'Workspace'}
+                    </p>
+                    {selectedWorkspace ? (
+                      <WorkspaceStatusBadgeView badge={statusBadgeFor(selectedWorkspace)} />
+                    ) : null}
+                  </div>
+                  <p className="truncate text-xs leading-[17px] text-white/42">{subtitle}</p>
+                </div>
+              </div>
+
+              <motion.span
+                animate={{ rotate: open ? 180 : 0 }}
+                className="flex size-5 shrink-0 items-center justify-center text-white/65 transition-colors group-hover:text-white/86"
+              >
+                <ChevronDown className="size-4" aria-hidden="true" />
+              </motion.span>
+            </motion.button>
+            {selectedWorkspace ? (
+              <WorkspaceActionMenu
+                workspace={selectedWorkspace}
+                open={openMenuWorkspaceId === selectedWorkspace.reviewWorkspaceId}
+                removing={selectedWorkspaceIsRemoving}
+                disabled={selectedWorkspaceIsRemoving || selectedWorkspaceOpening}
+                openingInEditor={selectedWorkspaceOpening}
+                onToggle={() =>
+                  setOpenMenuWorkspaceId((current) =>
+                    current === selectedWorkspace.reviewWorkspaceId
+                      ? null
+                      : selectedWorkspace.reviewWorkspaceId,
+                  )
+                }
+                onOpenInEditor={() => void handleOpenWorkspaceInEditor(selectedWorkspace)}
+                onRemove={() => void handleRemoveWorkspace(selectedWorkspace)}
+              />
+            ) : null}
+          </div>
+          <WorkspaceInlineError message={selectedWorkspaceOpenError ?? null} />
         </div>
 
         {removeError ? (
@@ -267,6 +298,11 @@ export function WorkspaceListCard({
                         )
                       }
                       onRemoveWorkspace={() => void handleRemoveWorkspace(workspace)}
+                      openingInEditor={Boolean(openingWorkspaceIds[workspace.reviewWorkspaceId])}
+                      openEditorError={
+                        openEditorErrorByWorkspaceId[workspace.reviewWorkspaceId] ?? null
+                      }
+                      onOpenWorkspaceInEditor={() => void handleOpenWorkspaceInEditor(workspace)}
                     />
                   ))
                 ) : (
@@ -322,6 +358,9 @@ function WorkspaceListItem({
   menuOpen,
   onToggleMenu,
   onRemoveWorkspace,
+  openingInEditor,
+  openEditorError,
+  onOpenWorkspaceInEditor,
 }: {
   workspace: ReviewWorkspaceListItem;
   index: number;
@@ -332,6 +371,9 @@ function WorkspaceListItem({
   menuOpen: boolean;
   onToggleMenu: () => void;
   onRemoveWorkspace: () => void;
+  openingInEditor: boolean;
+  openEditorError: string | null;
+  onOpenWorkspaceInEditor: () => void;
 }) {
   const reviewSummary = useMemo(() => formatReviewSummary(workspace), [workspace]);
   const shouldReduceMotion = useReducedMotion();
@@ -367,56 +409,65 @@ function WorkspaceListItem({
           ease: POC3_MOTION_EASE.standard,
         },
       }}
-      className={`relative flex w-full min-w-0 items-center gap-1 rounded-[5px] transition-colors ${
+      className={`relative flex w-full min-w-0 flex-col rounded-[5px] transition-colors ${
         removing ? 'opacity-60' : selectDisabled ? '' : 'hover:bg-white/[0.045]'
       } ${separated ? 'border-t border-white/[0.06]' : ''}`}
     >
-      <button
-        type="button"
-        disabled={selectDisabled}
-        onClick={() => onSelectWorkspace(workspace.reviewWorkspaceId)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
-      >
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center text-white/78">
-          <GitPullRequest className="h-4 w-4" aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="block truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
-              {workspace.repositoryLabel}
+      <div className="flex w-full min-w-0 items-center gap-1">
+        <button
+          type="button"
+          disabled={selectDisabled}
+          onClick={() => onSelectWorkspace(workspace.reviewWorkspaceId)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-[5px] px-3 py-[15px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/28 disabled:cursor-wait"
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-white/78">
+            <GitPullRequest className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5">
+              <span className="block truncate text-[13px] font-semibold leading-5 text-[#f2f2f2]">
+                {workspace.repositoryLabel}
+              </span>
+              <WorkspaceStatusBadgeView badge={badge} />
             </span>
-            <WorkspaceStatusBadgeView badge={badge} />
+            <span className="block truncate text-xs leading-[17px] text-white/42">
+              {reviewSummary}
+            </span>
           </span>
-          <span className="block truncate text-xs leading-[17px] text-white/42">
-            {reviewSummary}
-          </span>
-        </span>
-      </button>
-      <WorkspaceActionMenu
-        workspace={workspace}
-        open={menuOpen}
-        removing={removing}
-        disabled={disabled}
-        onToggle={onToggleMenu}
-        onRemove={onRemoveWorkspace}
-      />
+        </button>
+        <WorkspaceActionMenu
+          workspace={workspace}
+          open={menuOpen}
+          removing={removing}
+          disabled={disabled || openingInEditor}
+          openingInEditor={openingInEditor}
+          onToggle={onToggleMenu}
+          onOpenInEditor={onOpenWorkspaceInEditor}
+          onRemove={onRemoveWorkspace}
+        />
+      </div>
+      <WorkspaceInlineError message={openEditorError} />
     </motion.div>
   );
 }
 
-function WorkspaceActionMenu({
+export function WorkspaceActionMenu({
   workspace,
   open,
   removing,
   disabled,
+  openingInEditor,
   onToggle,
+  onOpenInEditor,
   onRemove,
 }: {
   workspace: ReviewWorkspaceListItem;
   open: boolean;
   removing: boolean;
   disabled: boolean;
+  openingInEditor: boolean;
   onToggle: () => void;
+  onOpenInEditor: () => void;
   onRemove: () => void;
 }) {
   if (removing) {
@@ -454,8 +505,30 @@ function WorkspaceActionMenu({
               duration: POC3_MOTION_DURATION.menu,
               ease: POC3_MOTION_EASE.standard,
             }}
-            className="absolute left-full top-0 z-30 ml-2 w-28 rounded-[6px] border border-white/[0.1] bg-[#191919]/95 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.38)] backdrop-blur-[18px]"
+            className="absolute left-full top-0 z-30 ml-2 w-36 rounded-[6px] border border-white/[0.1] bg-[#191919]/95 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.38)] backdrop-blur-[18px]"
           >
+            {workspace.canOpenInEditor ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={openingInEditor}
+                aria-disabled={openingInEditor}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!openingInEditor) {
+                    onOpenInEditor();
+                  }
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-xs font-medium text-[#d8e071] transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#d8e071]/40 disabled:cursor-wait disabled:opacity-60"
+              >
+                {openingInEditor ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Code2 className="size-3.5" aria-hidden="true" />
+                )}
+                {openingInEditor ? '起動中' : 'VS Codeで開く'}
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -463,7 +536,7 @@ function WorkspaceActionMenu({
                 event.stopPropagation();
                 onRemove();
               }}
-              className="flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-xs font-medium text-[#ffb4b4] transition hover:bg-[#ff5c5c]/12 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ffb4b4]/40"
+              className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-xs font-medium text-[#ffb4b4] transition hover:bg-[#ff5c5c]/12 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ffb4b4]/40"
             >
               <Trash2 className="size-3.5" aria-hidden="true" />
               削除
@@ -699,6 +772,17 @@ function WorkspaceStatusBadgeView({ badge }: { badge: WorkspaceStatusBadge | nul
     >
       {badge.label}
     </span>
+  );
+}
+
+function WorkspaceInlineError({ message }: { message: string | null }) {
+  if (!message) {
+    return null;
+  }
+  return (
+    <p className="mx-2 mb-2 w-[calc(100%-1rem)] rounded-[5px] border border-[#ff5c5c]/25 bg-[#ff5c5c]/10 px-2 py-1.5 text-xs leading-5 text-[#ffd1d1]">
+      {message}
+    </p>
   );
 }
 

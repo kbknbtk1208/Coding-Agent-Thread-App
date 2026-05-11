@@ -19,6 +19,7 @@ function createWorkspace(
     setupStatus: 'completed',
     analysisStatus: 'completed',
     worktreeExists: true,
+    canOpenInEditor: true,
     ...overrides,
   };
 }

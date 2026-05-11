@@ -34,6 +34,9 @@ export function GraphReviewPage() {
     removingWorkspaceId,
     removeError,
     removeWorkspace,
+    openingWorkspaceIds,
+    openEditorErrorByWorkspaceId,
+    openWorkspaceInEditor,
   } = useReviewWorkspaces();
   const workspaceRemovalRunning = removingWorkspaceId !== null;
   const revisionTimeline = useCommitRevisions(selectedWorkspace, () =>
@@ -116,6 +119,9 @@ export function GraphReviewPage() {
             removingWorkspaceId={removingWorkspaceId}
             removeError={removeError}
             onRemoveWorkspace={removeWorkspace}
+            openingWorkspaceIds={openingWorkspaceIds}
+            openEditorErrorByWorkspaceId={openEditorErrorByWorkspaceId}
+            onOpenWorkspaceInEditor={openWorkspaceInEditor}
           />
           <WorkspaceCreationStack
             jobs={jobs}

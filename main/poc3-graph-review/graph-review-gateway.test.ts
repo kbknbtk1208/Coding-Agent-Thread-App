@@ -13,6 +13,10 @@ import {
   buildRemoteThreadCountByNode,
   GraphReviewGateway,
 } from './graph-review-gateway';
+import type {
+  ExternalEditorLaunchResult,
+  OpenExternalEditorInput,
+} from './workspace/external-editor-launcher';
 
 const { removeWorktreeMock } = vi.hoisted(() => ({
   removeWorktreeMock: vi.fn(),
@@ -186,6 +190,26 @@ vi.mock('./agent/store', () => ({
   },
 }));
 
+vi.mock('./resolve-judgement/store', () => ({
+  ResolveJudgementStore: class ResolveJudgementStoreMock {
+    deleteWorkspace(): void {}
+
+    close(): void {}
+  },
+}));
+
+vi.mock('./published-agent-thread/store', () => ({
+  PublishedAgentThreadLinkStore: class PublishedAgentThreadLinkStoreMock {
+    deleteWorkspaceLinks(): void {}
+
+    listLinksForWorkspace(): unknown[] {
+      return [];
+    }
+
+    markSyncResult(): void {}
+  },
+}));
+
 function createTempDir(tempDirs: string[]): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-thread-app-'));
   tempDirs.push(tempDir);
@@ -235,8 +259,25 @@ function createWorkspace(overrides: Partial<ReviewWorkspace> = {}): ReviewWorksp
   };
 }
 
-function seedGateway(tempDirs: string[], workspaceOverrides: Partial<ReviewWorkspace> = {}) {
-  const gateway = new GraphReviewGateway(createTempDir(tempDirs), () => undefined);
+function seedGateway(
+  tempDirs: string[],
+  workspaceOverrides: Partial<ReviewWorkspace> = {},
+  launcher: {
+    openWorkspace: (input: OpenExternalEditorInput) => Promise<ExternalEditorLaunchResult>;
+  } = {
+    openWorkspace: vi.fn(),
+  },
+) {
+  const gateway = new GraphReviewGateway(
+    createTempDir(tempDirs),
+    () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    launcher,
+  );
   const stores = gateway as unknown as {
     profileStore: { save: (profile: RepositoryProfile) => RepositoryProfile };
     graphStore: {
@@ -768,6 +809,7 @@ describe('GraphReviewGateway.listReviewWorkspaces', () => {
           setupStatus: 'completed',
           analysisStatus: 'missing',
           worktreeExists: true,
+          canOpenInEditor: true,
         }),
       ]);
     } finally {
@@ -786,8 +828,145 @@ describe('GraphReviewGateway.listReviewWorkspaces', () => {
           reviewWorkspaceId: 'workspace-1',
           setupStatus: 'orphan',
           worktreeExists: false,
+          canOpenInEditor: false,
         }),
       ]);
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('does not expose editor opening for files or unfinished setup workspaces', () => {
+    const tempRoot = createTempDir(tempDirs);
+    const filePath = path.join(tempRoot, 'not-a-directory.txt');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    const { gateway } = seedGateway(tempDirs, {
+      worktreePath: filePath,
+      setupStatus: 'completed',
+    });
+
+    try {
+      expect(gateway.listReviewWorkspaces()[0]).toMatchObject({
+        worktreeExists: true,
+        canOpenInEditor: false,
+      });
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('does not expose editor opening for relative paths', () => {
+    const { gateway } = seedGateway(tempDirs, {
+      worktreePath: '.',
+      setupStatus: 'completed',
+    });
+
+    try {
+      expect(gateway.listReviewWorkspaces()[0]).toMatchObject({
+        canOpenInEditor: false,
+      });
+    } finally {
+      gateway.dispose();
+    }
+  });
+});
+
+describe('GraphReviewGateway.openWorkspaceInEditor', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    removeWorktreeMock.mockReset();
+    for (const tempDir of tempDirs.splice(0)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('opens an existing workspace worktree through the launcher', async () => {
+    const worktreePath = createTempDir(tempDirs);
+    const launcher = { openWorkspace: vi.fn().mockResolvedValue({ ok: true }) };
+    const { gateway } = seedGateway(tempDirs, { worktreePath }, launcher);
+
+    try {
+      await expect(
+        gateway.openWorkspaceInEditor({ reviewWorkspaceId: 'workspace-1' }),
+      ).resolves.toEqual({ ok: true });
+      expect(launcher.openWorkspace).toHaveBeenCalledWith({
+        editor: 'vscode',
+        mode: 'newWindow',
+        worktreePath,
+      });
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('returns workspaceNotFound when the workspace is missing', async () => {
+    const launcher = { openWorkspace: vi.fn() };
+    const gateway = new GraphReviewGateway(
+      createTempDir(tempDirs),
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      launcher,
+    );
+
+    try {
+      await expect(
+        gateway.openWorkspaceInEditor({ reviewWorkspaceId: 'missing' }),
+      ).resolves.toEqual({
+        ok: false,
+        reason: 'workspaceNotFound',
+        message: 'Workspace が見つかりません。',
+      });
+      expect(launcher.openWorkspace).not.toHaveBeenCalled();
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('normalizes invalid IPC input to a result union', async () => {
+    const launcher = { openWorkspace: vi.fn() };
+    const gateway = new GraphReviewGateway(
+      createTempDir(tempDirs),
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      launcher,
+    );
+
+    try {
+      await expect(gateway.openWorkspaceInEditor(undefined as never)).resolves.toMatchObject({
+        ok: false,
+        reason: 'workspaceNotFound',
+      });
+    } finally {
+      gateway.dispose();
+    }
+  });
+
+  it('returns worktreeUnavailable when the path is not an openable directory', async () => {
+    const launcher = { openWorkspace: vi.fn() };
+    const { gateway } = seedGateway(
+      tempDirs,
+      { worktreePath: path.join(createTempDir(tempDirs), 'missing') },
+      launcher,
+    );
+
+    try {
+      await expect(
+        gateway.openWorkspaceInEditor({ reviewWorkspaceId: 'workspace-1' }),
+      ).resolves.toEqual({
+        ok: false,
+        reason: 'worktreeUnavailable',
+        message: 'worktree が見つかりません。',
+      });
+      expect(launcher.openWorkspace).not.toHaveBeenCalled();
     } finally {
       gateway.dispose();
     }

@@ -161,6 +161,23 @@ vi.mock('./agent/store', () => ({
   },
 }));
 
+vi.mock('./resolve-judgement/store', () => ({
+  ResolveJudgementStore: class {
+    deleteWorkspace(): void {}
+    close(): void {}
+  },
+}));
+
+vi.mock('./published-agent-thread/store', () => ({
+  PublishedAgentThreadLinkStore: class {
+    deleteWorkspaceLinks(): void {}
+    listLinksForWorkspace(): unknown[] {
+      return [];
+    }
+    markSyncResult(): void {}
+  },
+}));
+
 function createTempDir(tempDirs: string[]): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-thread-app-ar-'));
   tempDirs.push(dir);
