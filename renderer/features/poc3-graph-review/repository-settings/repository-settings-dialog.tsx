@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { useEffect, useRef, type RefObject } from 'react';
 import { Message } from './_shared/forms';
 import { ConfirmOriginMismatchDialog } from './confirm-origin-mismatch-dialog';
+import { LayersSection } from './layers-section';
 import { ProviderSection } from './provider-section';
 import { RepositorySection } from './repository-section';
 import { SETTINGS_LAYOUT_ID } from './repository-draft-helpers';
@@ -15,12 +16,21 @@ import { useDialogA11y } from '../components/use-dialog-a11y';
 
 interface RepositorySettingsDialogProps {
   open: boolean;
+  reviewWorkspaceId: string | null;
+  initialRepositoryProfileId?: string | null;
+  initialSection?: 'layers' | null;
   onClose: () => void;
 }
 
 export { SETTINGS_LAYOUT_ID };
 
-export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDialogProps) {
+export function RepositorySettingsDialog({
+  open,
+  reviewWorkspaceId,
+  initialRepositoryProfileId = null,
+  initialSection = null,
+  onClose,
+}: RepositorySettingsDialogProps) {
   const { rendered, closing } = useDialogExitTransition(open);
   const settings = useRepositorySettings();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -30,6 +40,18 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
       settings.reload();
     }
   }, [open, settings.reload]);
+
+  useEffect(() => {
+    if (!open || initialSection !== 'layers') {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      document
+        .querySelector('[data-repository-settings-section="layers"]')
+        ?.scrollIntoView({ block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [initialSection, open]);
 
   const closeDialog = () => {
     if (settings.confirmMismatch) {
@@ -117,6 +139,11 @@ export function RepositorySettingsDialog({ open, onClose }: RepositorySettingsDi
                     onBrowse={settings.browseDirectory}
                     onValidate={settings.validateProfile}
                     onSave={settings.saveProfile}
+                  />
+                  <LayersSection
+                    profiles={settings.savedProfileDrafts}
+                    reviewWorkspaceId={reviewWorkspaceId}
+                    initialRepositoryProfileId={initialRepositoryProfileId}
                   />
                 </div>
               </section>

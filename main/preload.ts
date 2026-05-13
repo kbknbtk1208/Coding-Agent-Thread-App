@@ -59,12 +59,19 @@ import {
   type GetAgentReviewRunDetailInput,
   type GetAgentReviewRunDetailResult,
   type GraphAnalysisEvent,
+  type InferRepositoryLayerProfileInput,
+  type InferRepositoryLayerProfileResult,
+  type LayerApplicationEvent,
   type LoadWorkspaceRevisionsInput,
   type LoadWorkspaceRevisionsResult,
   type LoadWorkspaceGraphInput,
   type LoadWorkspaceGraphResult,
+  type LoadRepositoryLayerProfileInput,
+  type LoadRepositoryLayerProfileResult,
   type RefreshWorkspaceRevisionsInput,
   type RefreshWorkspaceRevisionsResult,
+  type RecomputeWorkspaceLayerLayoutInput,
+  type RecomputeWorkspaceLayerLayoutResult,
   type ListRepositoryProfilesResult,
   type ListRepositoryProvidersResult,
   type ListAgentReviewRunsInput,
@@ -95,6 +102,10 @@ import {
   type SaveRepositoryProfileResult,
   type SaveRepositoryProviderInput,
   type SaveRepositoryProviderResult,
+  type SaveRepositoryLayerProfileInput,
+  type SaveRepositoryLayerProfileResult,
+  type PreviewRepositoryLayerProfileInput,
+  type PreviewRepositoryLayerProfileResult,
   type StartAgentReviewInput,
   type StartAgentReviewResult,
   type StartResolveJudgementInput,
@@ -119,6 +130,8 @@ import {
   type TestRepositoryProviderResult,
   type ValidateRepositoryProfileInput,
   type ValidateRepositoryProfileResult,
+  type ValidateRepositoryLayerProfileInput,
+  type ValidateRepositoryLayerProfileResult,
   type WorkspaceCreationEvent,
   type Poc3AgentReviewEvent,
   type ResolveJudgementEvent,
@@ -289,6 +302,36 @@ const poc3GraphReviewApi = {
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis, input);
   },
+  loadRepositoryLayerProfile(
+    input: LoadRepositoryLayerProfileInput,
+  ): Promise<LoadRepositoryLayerProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadRepositoryLayerProfile, input);
+  },
+  inferRepositoryLayerProfile(
+    input: InferRepositoryLayerProfileInput,
+  ): Promise<InferRepositoryLayerProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.inferRepositoryLayerProfile, input);
+  },
+  validateRepositoryLayerProfile(
+    input: ValidateRepositoryLayerProfileInput,
+  ): Promise<ValidateRepositoryLayerProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.validateRepositoryLayerProfile, input);
+  },
+  saveRepositoryLayerProfile(
+    input: SaveRepositoryLayerProfileInput,
+  ): Promise<SaveRepositoryLayerProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.saveRepositoryLayerProfile, input);
+  },
+  previewRepositoryLayerProfile(
+    input: PreviewRepositoryLayerProfileInput,
+  ): Promise<PreviewRepositoryLayerProfileResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.previewRepositoryLayerProfile, input);
+  },
+  recomputeWorkspaceLayerLayout(
+    input: RecomputeWorkspaceLayerLayoutInput,
+  ): Promise<RecomputeWorkspaceLayerLayoutResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.recomputeWorkspaceLayerLayout, input);
+  },
   loadWorkspaceRevisions(
     input: LoadWorkspaceRevisionsInput,
   ): Promise<LoadWorkspaceRevisionsResult> {
@@ -406,6 +449,17 @@ const poc3GraphReviewApi = {
     ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, subscription);
     return () => {
       ipcRenderer.removeListener(POC3_GRAPH_REVIEW_IPC_CHANNELS.graphAnalysisEvent, subscription);
+    };
+  },
+  onLayerApplicationEvent(callback: (event: LayerApplicationEvent) => void) {
+    const subscription = (_event: IpcRendererEvent, payload: LayerApplicationEvent) =>
+      callback(payload);
+    ipcRenderer.on(POC3_GRAPH_REVIEW_IPC_CHANNELS.layerApplicationEvent, subscription);
+    return () => {
+      ipcRenderer.removeListener(
+        POC3_GRAPH_REVIEW_IPC_CHANNELS.layerApplicationEvent,
+        subscription,
+      );
     };
   },
   onRevisionRefreshEvent(callback: (event: RevisionRefreshEvent) => void) {

@@ -1,5 +1,10 @@
 import type { RevisionContext } from './revision';
 import type { ReviewWorkspaceListItem } from './review-workspace';
+import type {
+  GraphEdgeLayerClassification,
+  GraphLayerRenderSnapshot,
+  GraphNodeLayerClassification,
+} from './layer-profile';
 
 export const INITIAL_GRAPH_SCOPE_KEY = 'initial:diff-plus-1-hop:v1';
 
@@ -78,7 +83,10 @@ export type CodeGraphEdgeKind =
   | 'constructs'
   | 'renders'
   | 'reads'
-  | 'typeReferences';
+  | 'typeReferences'
+  | 'apiHttp'
+  | 'apiRpc'
+  | 'apiGraphql';
 
 export interface CodeGraphNode {
   nodeId: string;
@@ -111,6 +119,14 @@ export interface CodeGraphEdge {
     imported: boolean;
     importSource: string | null;
   };
+  transport?: CodeGraphEdgeTransport;
+}
+
+export interface CodeGraphEdgeTransport {
+  kind: 'http' | 'rpc' | 'graphql';
+  routePattern: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  source: 'shared-schema' | 'url-literal' | 'runtime';
 }
 
 export interface SourceRange {
@@ -167,16 +183,19 @@ export interface GraphRenderSnapshot {
   } | null;
   limits: GraphLimitSummary;
   diagnostics: GraphDiagnostic[];
+  layers?: GraphLayerRenderSnapshot | null;
 }
 
 export interface GraphRenderNode extends CodeGraphNode {
   position: { x: number; y: number };
   size: { width: number; height: number };
   extent: 'parent' | null;
+  layer?: GraphNodeLayerClassification | null;
 }
 
 export interface GraphRenderEdge extends CodeGraphEdge {
   label: string | null;
+  layer?: GraphEdgeLayerClassification | null;
 }
 
 export type GraphAnalysisEvent =

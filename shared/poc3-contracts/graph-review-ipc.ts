@@ -15,6 +15,13 @@ import type {
   GraphWorkspaceView,
 } from '../poc3-domain/graph';
 import type {
+  GraphLayerApplicationSnapshot,
+  GraphLayerDiagnostic,
+  GraphLayerUnclassifiedSummary,
+  RepositoryLayerProfile,
+  RepositoryLayerProfileDraft,
+} from '../poc3-domain/layer-profile';
+import type {
   NodeCompanionDetailSnapshot,
   NodeDetailSnapshot,
   NodeDetailViewMode,
@@ -61,7 +68,39 @@ import type {
   ResolveRemoteThreadResult,
 } from '../poc3-domain/thread-resolve';
 
-export type { GraphAnalysisEvent, GraphRenderSnapshot } from '../poc3-domain/graph';
+export type {
+  CodeGraphEdgeKind,
+  CodeGraphEdgeTransport,
+  GraphAnalysisEvent,
+  GraphRenderSnapshot,
+} from '../poc3-domain/graph';
+export type {
+  ApiEdgeCandidate,
+  ApiEndpointNode,
+  GraphEdgeLayerClassification,
+  GraphEdgeLayerDirection,
+  GraphLayerApplicationSnapshot,
+  GraphLayerBounds,
+  GraphLayerDiagnostic,
+  GraphLayerDiagnosticSeverity,
+  GraphLayerGroupRender,
+  GraphLayerIgnoredSummary,
+  GraphLayerLaneRender,
+  GraphLayerRenderSnapshot,
+  GraphLayerUnclassifiedDirectory,
+  GraphLayerUnclassifiedSummary,
+  GraphNodeLayerClassification,
+  LayerClassificationStatus,
+  RepositoryLayerDependencyDirection,
+  RepositoryLayerIgnorePattern,
+  RepositoryLayerIgnorePatternDraft,
+  RepositoryLayerLayoutDirection,
+  RepositoryLayerLayoutStrategy,
+  RepositoryLayerProfile,
+  RepositoryLayerProfileDraft,
+  RepositoryLayerRule,
+  RepositoryLayerRuleDraft,
+} from '../poc3-domain/layer-profile';
 export type {
   OutdatedThreadSummary,
   RevisionCommit,
@@ -214,6 +253,13 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   loadWorkspaceGraph: 'poc3:graph:load',
   retryGraphAnalysis: 'poc3:graph:analysis:retry',
   graphAnalysisEvent: 'poc3:graph:analysis:event',
+  loadRepositoryLayerProfile: 'poc3:layer-profile:load',
+  inferRepositoryLayerProfile: 'poc3:layer-profile:infer',
+  validateRepositoryLayerProfile: 'poc3:layer-profile:validate',
+  saveRepositoryLayerProfile: 'poc3:layer-profile:save',
+  previewRepositoryLayerProfile: 'poc3:layer-profile:preview',
+  recomputeWorkspaceLayerLayout: 'poc3:layer-profile:recompute-layout',
+  layerApplicationEvent: 'poc3:layer-profile:application:event',
   loadWorkspaceRevisions: 'poc3:revision:list',
   refreshWorkspaceRevisions: 'poc3:revision:refresh',
   selectWorkspaceRevision: 'poc3:revision:select',
@@ -355,6 +401,7 @@ export interface ListWorkspaceCreationJobsResult {
 export interface LoadWorkspaceGraphInput {
   reviewWorkspaceId: string;
   scopeKey?: string;
+  includeLayers?: boolean;
 }
 
 export type LoadWorkspaceGraphResult =
@@ -384,6 +431,148 @@ export type RetryGraphAnalysisResult =
       reason: 'workspaceNotFound' | 'revisionNotFound' | 'enqueueFailed';
       message: string;
       analysis: AnalysisRunSnapshot | null;
+    };
+
+export interface LoadRepositoryLayerProfileInput {
+  repositoryProfileId: string;
+}
+
+export type LoadRepositoryLayerProfileResult =
+  | {
+      ok: true;
+      profile: RepositoryLayerProfile | null;
+      reusableProfile: RepositoryLayerProfile | null;
+    }
+  | {
+      ok: false;
+      reason: 'repositoryProfileNotFound' | 'profileReadFailed';
+      message: string;
+      profile: null;
+      reusableProfile: null;
+      diagnostics: GraphLayerDiagnostic[];
+    };
+
+export interface InferRepositoryLayerProfileInput {
+  repositoryProfileId: string;
+}
+
+export type InferRepositoryLayerProfileResult =
+  | {
+      ok: true;
+      draft: RepositoryLayerProfileDraft;
+      source: 'same-repository-copy' | 'heuristic' | 'empty';
+      diagnostics: GraphLayerDiagnostic[];
+    }
+  | {
+      ok: false;
+      reason: 'repositoryProfileNotFound' | 'inferFailed';
+      message: string;
+      draft: null;
+      source: null;
+      diagnostics: GraphLayerDiagnostic[];
+    };
+
+export interface ValidateRepositoryLayerProfileInput {
+  draft: RepositoryLayerProfileDraft;
+}
+
+export type ValidateRepositoryLayerProfileResult =
+  | {
+      ok: true;
+      issues: GraphLayerDiagnostic[];
+    }
+  | {
+      ok: false;
+      reason: 'invalidProfile';
+      message: string;
+      issues: GraphLayerDiagnostic[];
+    };
+
+export interface SaveRepositoryLayerProfileInput {
+  draft: RepositoryLayerProfileDraft;
+}
+
+export type SaveRepositoryLayerProfileResult =
+  | {
+      ok: true;
+      profile: RepositoryLayerProfile;
+      recomputeQueued: boolean;
+    }
+  | {
+      ok: false;
+      reason: 'repositoryProfileNotFound' | 'invalidProfile' | 'saveFailed';
+      message: string;
+      profile: null;
+      recomputeQueued: false;
+      diagnostics: GraphLayerDiagnostic[];
+    };
+
+export interface PreviewRepositoryLayerProfileInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  draft: RepositoryLayerProfileDraft;
+}
+
+export type PreviewRepositoryLayerProfileResult =
+  | {
+      ok: true;
+      summary: GraphLayerUnclassifiedSummary;
+      diagnostics: GraphLayerDiagnostic[];
+      violationEdgeIds: string[];
+    }
+  | {
+      ok: false;
+      reason: 'workspaceNotFound' | 'revisionNotFound' | 'graphNotReady' | 'invalidProfile';
+      message: string;
+      diagnostics: GraphLayerDiagnostic[];
+    };
+
+export interface RecomputeWorkspaceLayerLayoutInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+}
+
+export type RecomputeWorkspaceLayerLayoutResult =
+  | {
+      ok: true;
+      application: GraphLayerApplicationSnapshot;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'workspaceNotFound'
+        | 'revisionNotFound'
+        | 'graphNotReady'
+        | 'layerProfileNotFound'
+        | 'layoutFailed';
+      message: string;
+      diagnostics: GraphLayerDiagnostic[];
+    };
+
+export type LayerApplicationEvent =
+  | {
+      type: 'layer.application.started';
+      reviewWorkspaceId: string;
+      graphSnapshotId: string;
+      layerProfileId: string;
+      profileVersion: number;
+    }
+  | {
+      type: 'layer.application.completed';
+      reviewWorkspaceId: string;
+      graphSnapshotId: string;
+      graphLayerApplicationId: string;
+      layerProfileId: string;
+      profileVersion: number;
+    }
+  | {
+      type: 'layer.application.failed';
+      reviewWorkspaceId: string;
+      graphSnapshotId: string;
+      layerProfileId: string;
+      profileVersion: number;
+      message: string;
+      diagnostics: GraphLayerDiagnostic[];
     };
 
 export interface LoadWorkspaceRevisionsInput {
@@ -756,6 +945,24 @@ export interface Poc3GraphReviewApi {
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;
+  loadRepositoryLayerProfile(
+    input: LoadRepositoryLayerProfileInput,
+  ): Promise<LoadRepositoryLayerProfileResult>;
+  inferRepositoryLayerProfile(
+    input: InferRepositoryLayerProfileInput,
+  ): Promise<InferRepositoryLayerProfileResult>;
+  validateRepositoryLayerProfile(
+    input: ValidateRepositoryLayerProfileInput,
+  ): Promise<ValidateRepositoryLayerProfileResult>;
+  saveRepositoryLayerProfile(
+    input: SaveRepositoryLayerProfileInput,
+  ): Promise<SaveRepositoryLayerProfileResult>;
+  previewRepositoryLayerProfile(
+    input: PreviewRepositoryLayerProfileInput,
+  ): Promise<PreviewRepositoryLayerProfileResult>;
+  recomputeWorkspaceLayerLayout(
+    input: RecomputeWorkspaceLayerLayoutInput,
+  ): Promise<RecomputeWorkspaceLayerLayoutResult>;
   loadWorkspaceRevisions(input: LoadWorkspaceRevisionsInput): Promise<LoadWorkspaceRevisionsResult>;
   refreshWorkspaceRevisions(
     input: RefreshWorkspaceRevisionsInput,
@@ -805,6 +1012,7 @@ export interface Poc3GraphReviewApi {
   ): Promise<ListResolveJudgementResultsResult>;
   onWorkspaceCreationEvent(callback: (event: WorkspaceCreationEvent) => void): () => void;
   onGraphAnalysisEvent(callback: (event: GraphAnalysisEvent) => void): () => void;
+  onLayerApplicationEvent(callback: (event: LayerApplicationEvent) => void): () => void;
   onRevisionRefreshEvent(callback: (event: RevisionRefreshEvent) => void): () => void;
   onAgentReviewEvent(callback: (event: Poc3AgentReviewEvent) => void): () => void;
   onResolveJudgementEvent(callback: (event: ResolveJudgementEvent) => void): () => void;

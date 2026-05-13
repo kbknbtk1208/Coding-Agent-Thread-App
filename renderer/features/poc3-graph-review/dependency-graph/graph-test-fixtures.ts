@@ -61,3 +61,88 @@ export function createGraphSnapshot(): GraphRenderSnapshot {
     ],
   };
 }
+
+export function createLayeredGraphSnapshot(): GraphRenderSnapshot {
+  const snapshot = createGraphSnapshot();
+  return {
+    ...snapshot,
+    layers: {
+      layerProfileId: 'layer-profile-1',
+      profileVersion: 1,
+      appliedAt: '2026-05-12T00:00:00.000Z',
+      status: 'ready',
+      enabled: true,
+      lanes: [
+        {
+          laneId: 'frontend',
+          layerPath: 'frontend',
+          displayName: 'frontend',
+          order: 1,
+          parentLayerPath: null,
+          bounds: { x: -40, y: -40, width: 220, height: 160 },
+          nodeIds: ['node-1'],
+          unclassified: false,
+        },
+        {
+          laneId: 'unclassified',
+          layerPath: 'unclassified',
+          displayName: 'unclassified',
+          order: 999,
+          parentLayerPath: null,
+          bounds: { x: 200, y: -40, width: 220, height: 160 },
+          nodeIds: ['node-2'],
+          unclassified: true,
+        },
+      ],
+      groups: [],
+      unclassifiedSummary: {
+        nodeCount: 1,
+        fileCount: 1,
+        directories: [],
+      },
+      ignoredSummary: {
+        nodeCount: 0,
+        fileCount: 0,
+      },
+      violationEdgeIds: ['edge-1'],
+      diagnostics: [],
+    },
+    nodes: snapshot.nodes.map((node) => ({
+      ...node,
+      layer:
+        node.nodeId === 'node-1'
+          ? {
+              nodeId: node.nodeId,
+              filePath: node.filePath,
+              normalizedFilePath: node.filePath,
+              status: 'classified',
+              layerPath: 'frontend',
+              layerRuleId: 'rule-1',
+              matchedLayerRuleIds: ['rule-1'],
+              conflictingLayerRuleIds: [],
+              ignoredPatternId: null,
+            }
+          : {
+              nodeId: node.nodeId,
+              filePath: node.filePath,
+              normalizedFilePath: node.filePath,
+              status: 'unclassified',
+              layerPath: null,
+              layerRuleId: null,
+              matchedLayerRuleIds: [],
+              conflictingLayerRuleIds: [],
+              ignoredPatternId: null,
+            },
+    })),
+    edges: snapshot.edges.map((edge) => ({
+      ...edge,
+      layer: {
+        edgeId: edge.edgeId,
+        sourceLayerPath: 'frontend',
+        targetLayerPath: 'backend',
+        direction: 'reverse',
+        isArchitectureViolation: true,
+      },
+    })),
+  };
+}

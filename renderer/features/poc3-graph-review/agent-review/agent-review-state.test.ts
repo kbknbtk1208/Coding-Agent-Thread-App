@@ -9,6 +9,7 @@ import {
 
 const workspace: ReviewWorkspaceListItem = {
   reviewWorkspaceId: 'workspace-1',
+  repositoryProfileId: 'profile-1',
   repositoryLabel: 'owner/repo',
   provider: 'github',
   reviewId: '123',

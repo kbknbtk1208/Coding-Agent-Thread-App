@@ -8,6 +8,7 @@ import type {
   GraphRenderSnapshot,
   LayoutSnapshot,
 } from '../../../shared/poc3-domain/graph';
+import type { GraphLayerApplicationSnapshot } from '../../../shared/poc3-domain/layer-profile';
 import type { Poc3PublishedCommentRecord } from '../../../shared/poc3-domain/comment-publish';
 import type { RevisionContext } from '../../../shared/poc3-domain/revision';
 import type {
@@ -111,6 +112,22 @@ interface LayoutSnapshotRow {
   updated_at: string;
 }
 
+interface GraphLayerApplicationRow {
+  graph_layer_application_id: string;
+  graph_snapshot_id: string;
+  layer_profile_id: string;
+  profile_version: number;
+  positions_json: string;
+  lanes_json: string;
+  groups_json: string;
+  node_classifications_json: string;
+  edge_classifications_json: string;
+  diagnostics_json: string;
+  applied_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface RevisionCommitRow {
   revision_commit_id: string;
   review_workspace_id: string;
@@ -181,6 +198,14 @@ export interface WorkspaceGraphRecord {
 
 function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
+}
+
+function parseJsonOrNull<T>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
 }
 
 function nowIso(): string {
@@ -681,6 +706,17 @@ export class GraphReviewStore {
       this.db
         .prepare(
           `
+            DELETE FROM graph_layer_applications
+            WHERE graph_snapshot_id IN (
+              SELECT graph_snapshot_id FROM graph_snapshots
+              WHERE revision_id = ? AND scope_key = ?
+            )
+          `,
+        )
+        .run(graph.revisionId, graph.scopeKey);
+      this.db
+        .prepare(
+          `
             DELETE FROM layout_snapshots
             WHERE graph_snapshot_id IN (
               SELECT graph_snapshot_id FROM graph_snapshots
@@ -739,6 +775,80 @@ export class GraphReviewStore {
     transaction();
   }
 
+  saveGraphLayerApplication(
+    application: GraphLayerApplicationSnapshot,
+  ): GraphLayerApplicationSnapshot {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO graph_layer_applications (
+            graph_layer_application_id, graph_snapshot_id, layer_profile_id, profile_version,
+            positions_json, lanes_json, groups_json, node_classifications_json,
+            edge_classifications_json, diagnostics_json, applied_at, created_at, updated_at
+          ) VALUES (
+            @graph_layer_application_id, @graph_snapshot_id, @layer_profile_id, @profile_version,
+            @positions_json, @lanes_json, @groups_json, @node_classifications_json,
+            @edge_classifications_json, @diagnostics_json, @applied_at, @created_at, @updated_at
+          )
+        `,
+      )
+      .run({
+        graph_layer_application_id: application.graphLayerApplicationId,
+        graph_snapshot_id: application.graphSnapshotId,
+        layer_profile_id: application.layerProfileId,
+        profile_version: application.profileVersion,
+        positions_json: JSON.stringify(application.positions),
+        lanes_json: JSON.stringify(application.lanes),
+        groups_json: JSON.stringify(application.groups),
+        node_classifications_json: JSON.stringify(application.nodeClassifications),
+        edge_classifications_json: JSON.stringify(application.edgeClassifications),
+        diagnostics_json: JSON.stringify(application.diagnostics),
+        applied_at: application.appliedAt,
+        created_at: application.createdAt,
+        updated_at: application.updatedAt,
+      });
+    return application;
+  }
+
+  getGraphLayerApplication(input: {
+    graphSnapshotId: string;
+    layerProfileId: string;
+    profileVersion: number;
+  }): GraphLayerApplicationSnapshot | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT * FROM graph_layer_applications
+          WHERE graph_snapshot_id = ?
+            AND layer_profile_id = ?
+            AND profile_version = ?
+          LIMIT 1
+        `,
+      )
+      .get(input.graphSnapshotId, input.layerProfileId, input.profileVersion) as
+      | GraphLayerApplicationRow
+      | undefined;
+    return row ? this.rowToGraphLayerApplication(row) : null;
+  }
+
+  getLatestGraphLayerApplication(input: {
+    graphSnapshotId: string;
+    layerProfileId: string;
+  }): GraphLayerApplicationSnapshot | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT * FROM graph_layer_applications
+          WHERE graph_snapshot_id = ?
+            AND layer_profile_id = ?
+          ORDER BY profile_version DESC, updated_at DESC
+          LIMIT 1
+        `,
+      )
+      .get(input.graphSnapshotId, input.layerProfileId) as GraphLayerApplicationRow | undefined;
+    return row ? this.rowToGraphLayerApplication(row) : null;
+  }
+
   getGraphSnapshot(revisionId: string, scopeKey: string): CodeGraphSnapshot | null {
     const row = this.db
       .prepare('SELECT * FROM graph_snapshots WHERE revision_id = ? AND scope_key = ?')
@@ -755,6 +865,19 @@ export class GraphReviewStore {
 
   deleteWorkspaceBundle(reviewWorkspaceId: string): void {
     const transaction = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `
+            DELETE FROM graph_layer_applications
+            WHERE graph_snapshot_id IN (
+              SELECT graph_snapshot_id FROM graph_snapshots
+              WHERE revision_id IN (
+                SELECT revision_id FROM revision_contexts WHERE review_workspace_id = ?
+              )
+            )
+          `,
+        )
+        .run(reviewWorkspaceId);
       this.db
         .prepare(
           `
@@ -1106,6 +1229,50 @@ export class GraphReviewStore {
     };
   }
 
+  private rowToGraphLayerApplication(
+    row: GraphLayerApplicationRow,
+  ): GraphLayerApplicationSnapshot | null {
+    const positions = parseJsonOrNull<GraphLayerApplicationSnapshot['positions']>(
+      row.positions_json,
+    );
+    const lanes = parseJsonOrNull<GraphLayerApplicationSnapshot['lanes']>(row.lanes_json);
+    const groups = parseJsonOrNull<GraphLayerApplicationSnapshot['groups']>(row.groups_json);
+    const nodeClassifications = parseJsonOrNull<
+      GraphLayerApplicationSnapshot['nodeClassifications']
+    >(row.node_classifications_json);
+    const edgeClassifications = parseJsonOrNull<
+      GraphLayerApplicationSnapshot['edgeClassifications']
+    >(row.edge_classifications_json);
+    const diagnostics = parseJsonOrNull<GraphLayerApplicationSnapshot['diagnostics']>(
+      row.diagnostics_json,
+    );
+    if (
+      !positions ||
+      !lanes ||
+      !groups ||
+      !nodeClassifications ||
+      !edgeClassifications ||
+      !diagnostics
+    ) {
+      return null;
+    }
+    return {
+      graphLayerApplicationId: row.graph_layer_application_id,
+      graphSnapshotId: row.graph_snapshot_id,
+      layerProfileId: row.layer_profile_id,
+      profileVersion: row.profile_version,
+      positions,
+      lanes,
+      groups,
+      nodeClassifications,
+      edgeClassifications,
+      diagnostics,
+      appliedAt: row.applied_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   private rowToRevisionCommit(row: RevisionCommitRow): RevisionCommit {
     return {
       sha: row.sha,
@@ -1243,6 +1410,51 @@ export class GraphReviewStore {
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_layout_snapshots_graph
         ON layout_snapshots(graph_snapshot_id);
+
+      CREATE TABLE IF NOT EXISTS graph_layer_applications (
+        graph_layer_application_id TEXT PRIMARY KEY,
+        graph_snapshot_id TEXT NOT NULL,
+        layer_profile_id TEXT NOT NULL,
+        profile_version INTEGER NOT NULL,
+        positions_json TEXT NOT NULL,
+        lanes_json TEXT NOT NULL,
+        groups_json TEXT NOT NULL,
+        node_classifications_json TEXT NOT NULL,
+        edge_classifications_json TEXT NOT NULL,
+        diagnostics_json TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_layer_applications_graph_profile_version
+        ON graph_layer_applications(graph_snapshot_id, layer_profile_id, profile_version);
+
+      CREATE INDEX IF NOT EXISTS idx_graph_layer_applications_profile
+        ON graph_layer_applications(layer_profile_id, profile_version);
+
+      CREATE TABLE IF NOT EXISTS repository_layer_profiles (
+        layer_profile_id TEXT PRIMARY KEY,
+        repository_profile_id TEXT NOT NULL,
+        repository_identity_key TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        profile_version INTEGER NOT NULL,
+        display_name TEXT NOT NULL,
+        layout_direction TEXT NOT NULL,
+        dependency_direction TEXT NOT NULL,
+        layout_strategy TEXT NOT NULL,
+        rules_json TEXT NOT NULL,
+        ignored_patterns_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_applied_at TEXT
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_layer_profiles_profile
+        ON repository_layer_profiles(repository_profile_id);
+
+      CREATE INDEX IF NOT EXISTS idx_repository_layer_profiles_identity
+        ON repository_layer_profiles(repository_identity_key, updated_at);
 
       CREATE TABLE IF NOT EXISTS revision_commits (
         revision_commit_id TEXT PRIMARY KEY,

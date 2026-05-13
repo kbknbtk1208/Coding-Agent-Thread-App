@@ -9,6 +9,7 @@ function createWorkspace(
 ): ReviewWorkspaceListItem {
   return {
     reviewWorkspaceId: 'workspace-1',
+    repositoryProfileId: 'profile-1',
     repositoryLabel: 'acme/project',
     provider: 'github',
     reviewId: '123',

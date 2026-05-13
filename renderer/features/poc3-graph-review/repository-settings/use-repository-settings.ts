@@ -26,6 +26,7 @@ export interface RepositorySettingsState {
   providers: PublicRepositoryProvider[];
   providerDrafts: ProviderDraft[];
   profileDrafts: ProfileDraft[];
+  savedProfileDrafts: ProfileDraft[];
   providerById: Map<string, PublicRepositoryProvider>;
   loadError: string | null;
   confirmMismatch: {
@@ -71,6 +72,10 @@ export function useRepositorySettings(
   const providerById = useMemo(
     () => new Map(providers.map((provider) => [provider.repositoryProviderId, provider])),
     [providers],
+  );
+  const savedProfileDrafts = useMemo(
+    () => profileDrafts.filter((draft) => Boolean(draft.repositoryProfileId)),
+    [profileDrafts],
   );
 
   useEffect(() => {
@@ -461,6 +466,7 @@ export function useRepositorySettings(
     providers,
     providerDrafts,
     profileDrafts,
+    savedProfileDrafts,
     providerById,
     loadError,
     confirmMismatch,

@@ -122,6 +122,21 @@ vi.mock('./store/graph-review-store', () => ({
   },
 }));
 
+vi.mock('./layers/layer-profile-store', () => ({
+  LayerProfileStore: class {
+    readByRepositoryProfileId() {
+      return { profile: null, diagnostics: [] };
+    }
+    findLatestReusableProfileForRepository() {
+      return null;
+    }
+    validateDraft() {
+      return [];
+    }
+    close(): void {}
+  },
+}));
+
 vi.mock('./agent/store', () => ({
   Poc3AgentReviewStore: class {
     private readonly runs = new Map<string, Poc3AgentReviewRun>();

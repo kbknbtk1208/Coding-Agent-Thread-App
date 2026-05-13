@@ -23,6 +23,10 @@ import { WorkspaceListCard } from './workspaces/workspace-list-card';
 
 export function GraphReviewPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<'layers' | null>(null);
+  const [settingsInitialRepositoryProfileId, setSettingsInitialRepositoryProfileId] = useState<
+    string | null
+  >(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [graphReloadNonce, setGraphReloadNonce] = useState(0);
   const { jobs, toggleExpanded, dismissJob, retryJob, upsertJobSnapshot } =
@@ -65,7 +69,11 @@ export function GraphReviewPage() {
         title: 'Repository Settings',
         description: 'Provider と local clone を管理',
         layoutId: SETTINGS_LAYOUT_ID,
-        onSelect: () => setSettingsOpen(true),
+        onSelect: () => {
+          setSettingsInitialSection(null);
+          setSettingsInitialRepositoryProfileId(null);
+          setSettingsOpen(true);
+        },
       },
     ],
     [workspaceRemovalRunning],
@@ -92,6 +100,13 @@ export function GraphReviewPage() {
             <DependencyGraphPanel
               selectedWorkspace={selectedWorkspace}
               reloadNonce={graphReloadNonce}
+              onOpenLayerSettings={() => {
+                setSettingsInitialSection('layers');
+                setSettingsInitialRepositoryProfileId(
+                  selectedWorkspace?.repositoryProfileId ?? null,
+                );
+                setSettingsOpen(true);
+              }}
             />
           </AgentThreadConversationProvider>
         </main>
@@ -131,7 +146,17 @@ export function GraphReviewPage() {
           />
         </div>
         <Poc3AnimatedProfileMenu items={menuItems} />
-        <RepositorySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <RepositorySettingsDialog
+          open={settingsOpen}
+          reviewWorkspaceId={selectedWorkspace?.reviewWorkspaceId ?? null}
+          initialRepositoryProfileId={settingsInitialRepositoryProfileId}
+          initialSection={settingsInitialSection}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsInitialSection(null);
+            setSettingsInitialRepositoryProfileId(null);
+          }}
+        />
         <CreateWorkspaceDialog
           open={createOpen && !workspaceRemovalRunning}
           onClose={() => setCreateOpen(false)}

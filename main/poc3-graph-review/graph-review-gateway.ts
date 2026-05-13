@@ -23,6 +23,8 @@ import type {
   LoadNodeDetailResult,
   LoadNodeCompanionDetailInput,
   LoadNodeCompanionDetailResult,
+  LoadRepositoryLayerProfileInput,
+  LoadRepositoryLayerProfileResult,
   LoadWorkspaceGraphInput,
   LoadWorkspaceGraphResult,
   LoadWorkspaceRevisionsInput,
@@ -33,6 +35,8 @@ import type {
   RemoveReviewWorkspaceResult,
   RefreshWorkspaceRevisionsInput,
   RefreshWorkspaceRevisionsResult,
+  RecomputeWorkspaceLayerLayoutInput,
+  RecomputeWorkspaceLayerLayoutResult,
   StartAgentReviewInput,
   StartAgentReviewResult,
   RetryGraphAnalysisInput,
@@ -48,6 +52,15 @@ import type {
   ResolveAgentThreadResult,
   ResolveRemoteThreadInput,
   ResolveRemoteThreadResult,
+  InferRepositoryLayerProfileInput,
+  InferRepositoryLayerProfileResult,
+  LayerApplicationEvent,
+  PreviewRepositoryLayerProfileInput,
+  PreviewRepositoryLayerProfileResult,
+  SaveRepositoryLayerProfileInput,
+  SaveRepositoryLayerProfileResult,
+  ValidateRepositoryLayerProfileInput,
+  ValidateRepositoryLayerProfileResult,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { AgentEventPayload, RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import type {
@@ -60,6 +73,13 @@ import type {
   LayoutSnapshot,
 } from '../../shared/poc3-domain/graph';
 import { INITIAL_GRAPH_SCOPE_KEY } from '../../shared/poc3-domain/graph';
+import type {
+  GraphLayerApplicationSnapshot,
+  GraphLayerDiagnostic,
+  GraphLayerRenderSnapshot,
+  RepositoryLayerProfile,
+  RepositoryLayerProfileDraft,
+} from '../../shared/poc3-domain/layer-profile';
 import type {
   Poc3AgentReviewEvent,
   Poc3AgentReviewRun,
@@ -117,6 +137,10 @@ import { fallbackGridLayout } from './layout/elk-layout-service';
 import { resolveNodeDetail } from './node-detail/node-detail-resolver';
 import { resolveNodeCompanionDetail } from './node-detail/node-companion-detail-resolver';
 import { GraphReviewStore, type WorkspaceGraphRecord } from './store/graph-review-store';
+import { LayerApplicationCoordinator } from './layers/layer-application-coordinator';
+import { LayerPresetInferer } from './layers/layer-preset-inferer';
+import { LayerProfileStore } from './layers/layer-profile-store';
+import { buildUnclassifiedDirectorySuggestions } from './layers/unclassified-directory-suggester';
 import type { AgentGateway } from '../agent-gateway/agent-gateway';
 import { RevisionRefreshCoordinator } from './revision/revision-refresh-coordinator';
 import { RevisionViewBuilder } from './revision/revision-view-builder';
@@ -185,6 +209,7 @@ export class GraphReviewGateway {
   private readonly providerStore: RepositoryProviderStore;
   private readonly profileStore: RepositoryProfileStore;
   private readonly graphStore: GraphReviewStore;
+  private readonly layerProfileStore: LayerProfileStore;
   private readonly agentReviewStore: Poc3AgentReviewStore;
   private readonly resolveJudgementStore: ResolveJudgementStore;
   private readonly publishedAgentThreadLinkStore: PublishedAgentThreadLinkStore;
@@ -197,6 +222,8 @@ export class GraphReviewGateway {
   private readonly threadRetentionService: ThreadRetentionService;
   private readonly revisionRefreshCoordinator: RevisionRefreshCoordinator;
   private readonly threadResolveCoordinator: ThreadResolveCoordinator;
+  private readonly layerApplicationCoordinator: LayerApplicationCoordinator;
+  private readonly layerPresetInferer: LayerPresetInferer;
   private readonly externalEditorLauncher: Pick<ExternalEditorLauncher, 'openWorkspace'>;
   private readonly renderSnapshotCache = new Map<string, GraphRenderSnapshot>();
   private readonly dbOnlyPurgeAllowedWorkspaceIds = new Set<string>();
@@ -225,11 +252,14 @@ export class GraphReviewGateway {
       ExternalEditorLauncher,
       'openWorkspace'
     > = new ExternalEditorLauncher(),
+    private readonly emitLayerApplicationEvent: (event: LayerApplicationEvent) => void = () =>
+      undefined,
   ) {
     this.externalEditorLauncher = externalEditorLauncher;
     this.providerStore = new RepositoryProviderStore(userDataPath);
     this.profileStore = new RepositoryProfileStore(userDataPath);
     this.graphStore = new GraphReviewStore(userDataPath);
+    this.layerProfileStore = new LayerProfileStore(userDataPath);
     this.agentReviewStore = new Poc3AgentReviewStore(userDataPath);
     this.resolveJudgementStore = new ResolveJudgementStore(userDataPath);
     this.publishedAgentThreadLinkStore = new PublishedAgentThreadLinkStore(userDataPath);
@@ -291,6 +321,12 @@ export class GraphReviewGateway {
       providerStore: this.providerStore,
       clearWorkspaceCaches: (reviewWorkspaceId) => this.clearWorkspaceCaches(reviewWorkspaceId),
     });
+    this.layerApplicationCoordinator = new LayerApplicationCoordinator({
+      graphStore: this.graphStore,
+      layerProfileStore: this.layerProfileStore,
+      emit: (event) => this.emitLayerApplicationEvent(event),
+    });
+    this.layerPresetInferer = new LayerPresetInferer(this.layerProfileStore);
     this.creationCoordinator = new ReviewWorkspaceCreationCoordinator({
       emit: (event) => this.emitWorkspaceCreationEvent(event),
       saveInitialWorkspaceBundle: (bundle) => this.graphStore.saveInitialWorkspaceBundle(bundle),
@@ -378,6 +414,156 @@ export class GraphReviewGateway {
 
   listRepositoryProfiles(): RepositoryProfile[] {
     return this.profileStore.list();
+  }
+
+  loadRepositoryLayerProfile(
+    input: LoadRepositoryLayerProfileInput,
+  ): LoadRepositoryLayerProfileResult {
+    const repositoryProfileId = input.repositoryProfileId.trim();
+    const repositoryProfile = this.profileStore.get(repositoryProfileId);
+    if (!repositoryProfile) {
+      return {
+        ok: false,
+        reason: 'repositoryProfileNotFound',
+        message: 'Repository Profile が見つかりません。',
+        profile: null,
+        reusableProfile: null,
+        diagnostics: [],
+      };
+    }
+    try {
+      const current = this.layerProfileStore.readByRepositoryProfileId(repositoryProfileId);
+      return {
+        ok: true,
+        profile: current.profile,
+        reusableProfile:
+          this.layerProfileStore.findLatestReusableProfileForRepository(repositoryProfile),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: 'profileReadFailed',
+        message: err instanceof Error ? err.message : 'Layer profile を読み込めませんでした。',
+        profile: null,
+        reusableProfile: null,
+        diagnostics: [],
+      };
+    }
+  }
+
+  inferRepositoryLayerProfile(
+    input: InferRepositoryLayerProfileInput,
+  ): InferRepositoryLayerProfileResult {
+    const repositoryProfile = this.profileStore.get(input.repositoryProfileId.trim());
+    if (!repositoryProfile) {
+      return {
+        ok: false,
+        reason: 'repositoryProfileNotFound',
+        message: 'Repository Profile が見つかりません。',
+        draft: null,
+        source: null,
+        diagnostics: [],
+      };
+    }
+    try {
+      const inferred = this.layerPresetInferer.infer(repositoryProfile);
+      return { ok: true, ...inferred };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: 'inferFailed',
+        message: err instanceof Error ? err.message : 'Layer preset を推論できませんでした。',
+        draft: null,
+        source: null,
+        diagnostics: [],
+      };
+    }
+  }
+
+  validateRepositoryLayerProfile(
+    input: ValidateRepositoryLayerProfileInput,
+  ): ValidateRepositoryLayerProfileResult {
+    const issues = this.layerProfileStore.validateDraft(input.draft);
+    if (issues.some((issue) => issue.severity === 'error')) {
+      return {
+        ok: false,
+        reason: 'invalidProfile',
+        message: 'Layer profile に修正が必要です。',
+        issues,
+      };
+    }
+    return { ok: true, issues };
+  }
+
+  saveRepositoryLayerProfile(
+    input: SaveRepositoryLayerProfileInput,
+  ): SaveRepositoryLayerProfileResult {
+    const repositoryProfile = this.profileStore.get(input.draft.repositoryProfileId.trim());
+    if (!repositoryProfile) {
+      return {
+        ok: false,
+        reason: 'repositoryProfileNotFound',
+        message: 'Repository Profile が見つかりません。',
+        profile: null,
+        recomputeQueued: false,
+        diagnostics: [],
+      };
+    }
+    const diagnostics = this.layerProfileStore.validateDraft(input.draft);
+    if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+      return {
+        ok: false,
+        reason: 'invalidProfile',
+        message: 'Layer profile に修正が必要です。',
+        profile: null,
+        recomputeQueued: false,
+        diagnostics,
+      };
+    }
+    try {
+      const profile = this.layerProfileStore.save({
+        draft: input.draft,
+        repositoryProfile,
+      });
+      this.clearRepositoryProfileCaches(profile.repositoryProfileId);
+      return { ok: true, profile, recomputeQueued: false };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: 'saveFailed',
+        message: err instanceof Error ? err.message : 'Layer profile を保存できませんでした。',
+        profile: null,
+        recomputeQueued: false,
+        diagnostics,
+      };
+    }
+  }
+
+  previewRepositoryLayerProfile(
+    input: PreviewRepositoryLayerProfileInput,
+  ): PreviewRepositoryLayerProfileResult {
+    const diagnostics = this.layerProfileStore.validateDraft(input.draft);
+    if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+      return {
+        ok: false,
+        reason: 'invalidProfile',
+        message: 'Layer profile に修正が必要です。',
+        diagnostics,
+      };
+    }
+    return this.layerApplicationCoordinator.preview({
+      reviewWorkspaceId: input.reviewWorkspaceId,
+      scopeKey: input.scopeKey,
+      profile: materializeLayerProfileDraft(input.draft),
+    });
+  }
+
+  async recomputeWorkspaceLayerLayout(
+    input: RecomputeWorkspaceLayerLayoutInput,
+  ): Promise<RecomputeWorkspaceLayerLayoutResult> {
+    const result = await this.layerApplicationCoordinator.recompute(input);
+    this.clearWorkspaceCaches(input.reviewWorkspaceId.trim());
+    return result;
   }
 
   resolveRepositoryProvider(originUrl: string): ResolveRepositoryProviderResult {
@@ -617,6 +803,7 @@ export class GraphReviewGateway {
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): LoadWorkspaceGraphResult {
     const reviewWorkspaceId = input.reviewWorkspaceId.trim();
     const scopeKey = input.scopeKey ?? INITIAL_GRAPH_SCOPE_KEY;
+    const includeLayers = input.includeLayers ?? true;
     const record = this.graphStore.getWorkspaceGraphRecord(reviewWorkspaceId, scopeKey);
     if (!record) {
       return {
@@ -667,7 +854,9 @@ export class GraphReviewGateway {
       };
     }
 
-    const renderSnapshot = this.getRenderSnapshot(reviewWorkspaceId, scopeKey, record);
+    const renderSnapshot = this.getRenderSnapshot(reviewWorkspaceId, scopeKey, record, {
+      includeLayers,
+    });
     return {
       ok: true,
       workspace: this.toListItem(record.workspace),
@@ -1514,6 +1703,7 @@ export class GraphReviewGateway {
     this.providerStore.close();
     this.profileStore.close();
     this.graphStore.close();
+    this.layerProfileStore.close();
     this.agentReviewStore.close();
     this.resolveJudgementStore.close();
   }
@@ -1528,6 +1718,7 @@ export class GraphReviewGateway {
     const setupStatus = this.toListItemSetupStatus(workspace, worktreeExists);
     return {
       reviewWorkspaceId: workspace.reviewWorkspaceId,
+      repositoryProfileId: workspace.repositoryProfileId,
       repositoryLabel: profile
         ? repositoryLabelFromLocator(profile.repoLocator)
         : workspace.repositoryProfileId,
@@ -1572,6 +1763,7 @@ export class GraphReviewGateway {
     reviewWorkspaceId: string,
     scopeKey: string,
     record: WorkspaceGraphRecord,
+    options: { includeLayers?: boolean } = {},
   ): GraphRenderSnapshot {
     if (!record.graph) {
       throw new Error('Graph snapshot が存在しないため render snapshot を作成できません。');
@@ -1589,7 +1781,30 @@ export class GraphReviewGateway {
     const companionKey = (record.graph.companionFiles ?? [])
       .map((item) => `${item.relationId}:${item.existsInWorkspaceHead}:${item.existsInDiff}`)
       .join('|');
-    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}::${outdatedAgentThreadsKey}::${companionKey}`;
+    const includeLayers = options.includeLayers ?? true;
+    const layerProfileRead = includeLayers
+      ? this.layerProfileStore.readByRepositoryProfileId(record.workspace.repositoryProfileId)
+      : { profile: null, diagnostics: [] };
+    const layerProfile = layerProfileRead.profile;
+    const layerApplication =
+      includeLayers && layerProfile
+        ? this.graphStore.getGraphLayerApplication({
+            graphSnapshotId,
+            layerProfileId: layerProfile.layerProfileId,
+            profileVersion: layerProfile.profileVersion,
+          })
+        : null;
+    const staleLayerApplication =
+      includeLayers && layerProfile && !layerApplication
+        ? this.graphStore.getLatestGraphLayerApplication({
+            graphSnapshotId,
+            layerProfileId: layerProfile.layerProfileId,
+          })
+        : null;
+    const layerCacheKey = layerProfile
+      ? `${layerProfile.layerProfileId}:${layerProfile.profileVersion}:${layerProfile.updatedAt}:${layerApplication?.updatedAt ?? staleLayerApplication?.updatedAt ?? 'pending'}:${layerProfileRead.diagnostics.map((diagnostic) => diagnostic.code).join(',')}`
+      : 'no-layer-profile';
+    const cacheKey = `${reviewWorkspaceId}::${scopeKey}::${graphSnapshotId}::${sourceSnapshot?.updatedAt ?? ''}::${outdatedAgentThreadsKey}::${companionKey}::${includeLayers ? 'layers-on' : 'layers-off'}::${layerCacheKey}`;
     const cached = this.renderSnapshotCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -1686,6 +1901,13 @@ export class GraphReviewGateway {
       agentFindingCounts,
       remoteThreadCounts,
       companionOwnerNodeIds,
+      buildLayerRenderSnapshot({
+        profile: layerProfile,
+        application: layerApplication,
+        staleApplication: staleLayerApplication,
+        diagnostics: layerProfileRead.diagnostics,
+      }),
+      layerApplication,
     );
     this.renderSnapshotCache.set(cacheKey, renderSnapshot);
     return renderSnapshot;
@@ -1778,6 +2000,40 @@ export class GraphReviewGateway {
       }
     }
   }
+
+  private clearRepositoryProfileCaches(repositoryProfileId: string): void {
+    for (const workspace of this.graphStore.listWorkspaces()) {
+      if (workspace.repositoryProfileId === repositoryProfileId) {
+        this.clearWorkspaceCaches(workspace.reviewWorkspaceId);
+      }
+    }
+  }
+}
+
+function materializeLayerProfileDraft(draft: RepositoryLayerProfileDraft): RepositoryLayerProfile {
+  const timestamp = new Date().toISOString();
+  return {
+    layerProfileId: draft.layerProfileId ?? `preview:${randomUUID()}`,
+    repositoryProfileId: draft.repositoryProfileId,
+    repositoryIdentityKey: draft.repositoryIdentityKey ?? draft.repositoryProfileId,
+    schemaVersion: draft.schemaVersion ?? 1,
+    profileVersion: draft.profileVersion ?? 0,
+    displayName: draft.displayName,
+    layoutDirection: draft.layoutDirection,
+    dependencyDirection: draft.dependencyDirection,
+    layoutStrategy: draft.layoutStrategy,
+    rules: draft.rules.map((rule) => ({
+      ...rule,
+      layerRuleId: rule.layerRuleId ?? `preview-rule:${randomUUID()}`,
+    })),
+    ignoredPatterns: draft.ignoredPatterns.map((pattern) => ({
+      ...pattern,
+      ignorePatternId: pattern.ignorePatternId ?? `preview-ignore:${randomUUID()}`,
+    })),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastAppliedAt: null,
+  };
 }
 
 function nodeSize(node: CodeGraphSnapshot['nodes'][number]): { width: number; height: number } {
@@ -1790,15 +2046,114 @@ function nodeSize(node: CodeGraphSnapshot['nodes'][number]): { width: number; he
   return { width: 260, height: 60 };
 }
 
+function emptyLayerSummary(): GraphLayerRenderSnapshot['unclassifiedSummary'] {
+  return { nodeCount: 0, fileCount: 0, directories: [] };
+}
+
+function buildLayerRenderSnapshot(input: {
+  profile: RepositoryLayerProfile | null;
+  application: GraphLayerApplicationSnapshot | null;
+  staleApplication: GraphLayerApplicationSnapshot | null;
+  diagnostics: GraphLayerDiagnostic[];
+}): GraphLayerRenderSnapshot | null {
+  if (!input.profile) {
+    return null;
+  }
+  const base = {
+    layerProfileId: input.profile.layerProfileId,
+    profileVersion: input.profile.profileVersion,
+    enabled: true,
+  };
+  if (input.application) {
+    const ignoredNodeIds = new Set(
+      Object.values(input.application.nodeClassifications)
+        .filter((classification) => classification.status === 'ignored')
+        .map((classification) => classification.nodeId),
+    );
+    const ignoredFiles = new Set(
+      Object.values(input.application.nodeClassifications)
+        .filter(
+          (classification) =>
+            classification.status === 'ignored' && classification.normalizedFilePath,
+        )
+        .map((classification) => classification.normalizedFilePath as string),
+    );
+    return {
+      ...base,
+      appliedAt: input.application.appliedAt,
+      status: 'ready',
+      lanes: input.application.lanes,
+      groups: input.application.groups,
+      unclassifiedSummary: buildUnclassifiedDirectorySuggestions({
+        classifications: Object.values(input.application.nodeClassifications),
+      }),
+      ignoredSummary: {
+        nodeCount: ignoredNodeIds.size,
+        fileCount: ignoredFiles.size,
+      },
+      violationEdgeIds: Object.values(input.application.edgeClassifications)
+        .filter((classification) => classification.isArchitectureViolation)
+        .map((classification) => classification.edgeId),
+      diagnostics: input.application.diagnostics,
+    };
+  }
+  if (input.staleApplication) {
+    return {
+      ...base,
+      appliedAt: input.staleApplication.appliedAt,
+      status: 'stale',
+      lanes: [],
+      groups: [],
+      unclassifiedSummary: emptyLayerSummary(),
+      ignoredSummary: { nodeCount: 0, fileCount: 0 },
+      violationEdgeIds: [],
+      diagnostics: [
+        ...input.diagnostics,
+        {
+          code: 'LAYER_APPLICATION_STALE',
+          severity: 'warning',
+          message: 'Layer application is stale for the current profile version.',
+        },
+      ],
+    };
+  }
+  return {
+    ...base,
+    appliedAt: input.profile.lastAppliedAt ?? input.profile.updatedAt,
+    status: input.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+      ? 'failed'
+      : 'pending',
+    lanes: [],
+    groups: [],
+    unclassifiedSummary: emptyLayerSummary(),
+    ignoredSummary: { nodeCount: 0, fileCount: 0 },
+    violationEdgeIds: [],
+    diagnostics: input.diagnostics.length
+      ? input.diagnostics
+      : [
+          {
+            code: 'LAYER_APPLICATION_PENDING',
+            severity: 'info',
+            message: 'Layer application has not been generated yet.',
+          },
+        ],
+  };
+}
+
 function toRenderSnapshot(
   graph: CodeGraphSnapshot,
   layout: LayoutSnapshot | null,
   agentFindingCounts: Map<string, number> = new Map(),
   remoteThreadCounts: Map<string, number> = new Map(),
   companionOwnerNodeIds: Set<string> = new Set(),
+  layers: GraphLayerRenderSnapshot | null = null,
+  layerApplication: GraphLayerApplicationSnapshot | null = null,
 ): GraphRenderSnapshot {
   const diagnostics: GraphDiagnostic[] = [...graph.diagnostics];
-  const positions: Record<string, GraphNodeLayout> = layout?.positions ?? fallbackGridLayout(graph);
+  const positions: Record<string, GraphNodeLayout> =
+    layers?.status === 'ready' && layerApplication
+      ? layerApplication.positions
+      : (layout?.positions ?? fallbackGridLayout(graph));
   if (!layout) {
     diagnostics.push({
       code: 'LAYOUT_MISSING_FALLBACK_GRID',
@@ -1828,15 +2183,18 @@ function toRenderSnapshot(
         position: { x: position.x, y: position.y },
         size: { width: position.width, height: position.height },
         extent: null,
+        layer: layerApplication?.nodeClassifications[node.nodeId] ?? null,
       };
     }),
     edges: graph.edges.map((edge) => ({
       ...edge,
       label: edge.kind === 'calls' ? null : edge.kind,
+      layer: layerApplication?.edgeClassifications[edge.edgeId] ?? null,
     })),
     viewport: layout?.viewport ?? null,
     limits: graph.limits,
     diagnostics,
+    layers,
   };
 }
 

@@ -15,17 +15,21 @@ import {
 export interface Poc3GraphViewState {
   selectedNodeId: string | null;
   highlightedFilePath: string | null;
+  includeLayers?: boolean;
+  isViewportInteracting?: boolean;
 }
 
 interface CachedFlowNode {
   signature: string;
   selected: boolean;
   highlighted: boolean;
+  interacting: boolean;
   flowNode: Poc3FlowNode;
 }
 
 interface CachedFlowEdge {
   signature: string;
+  interacting: boolean;
   flowEdge: Poc3FlowEdge;
 }
 
@@ -54,23 +58,24 @@ export function reconcileReactFlowElements(
   const nextCache = createStableFlowElementCache();
 
   const nodes = nextRaw.nodes.map((flowNode) => {
-    const graphNode = flowNode.data.graphNode;
-    const signature = buildNodeSignature(graphNode);
+    const signature = buildCodeNodeSignature(flowNode.data.graphNode);
     const selected = flowNode.selected === true;
     const highlighted = flowNode.data.isFileHighlighted;
+    const interacting = flowNode.data.isViewportInteracting;
     const cached = previous.nodesById.get(flowNode.id);
 
     if (
       cached &&
       cached.signature === signature &&
       cached.selected === selected &&
-      cached.highlighted === highlighted
+      cached.highlighted === highlighted &&
+      cached.interacting === interacting
     ) {
       nextCache.nodesById.set(flowNode.id, cached);
       return cached.flowNode;
     }
 
-    const nextCached = { signature, selected, highlighted, flowNode };
+    const nextCached = { signature, selected, highlighted, interacting, flowNode };
     nextCache.nodesById.set(flowNode.id, nextCached);
     return flowNode;
   });
@@ -81,14 +86,15 @@ export function reconcileReactFlowElements(
       return flowEdge;
     }
     const signature = buildEdgeSignature(graphEdge);
+    const interacting = viewState.isViewportInteracting === true;
     const cached = previous.edgesById.get(flowEdge.id);
 
-    if (cached && cached.signature === signature) {
+    if (cached && cached.signature === signature && cached.interacting === interacting) {
       nextCache.edgesById.set(flowEdge.id, cached);
       return cached.flowEdge;
     }
 
-    const nextCached = { signature, flowEdge };
+    const nextCached = { signature, interacting, flowEdge };
     nextCache.edgesById.set(flowEdge.id, nextCached);
     return flowEdge;
   });
@@ -112,7 +118,7 @@ export function useStableReactFlowElements(
   }, [graph, viewState]);
 }
 
-function buildNodeSignature(node: GraphRenderNode): string {
+function buildCodeNodeSignature(node: GraphRenderNode): string {
   return [
     node.nodeId,
     node.kind,
@@ -123,6 +129,9 @@ function buildNodeSignature(node: GraphRenderNode): string {
     node.badges.changedLines,
     node.badges.findingCount,
     node.badges.remoteThreadCount,
+    node.layer?.status ?? '',
+    node.layer?.layerPath ?? '',
+    node.layer?.ignoredPatternId ?? '',
     node.position.x,
     node.position.y,
     node.size.width,
@@ -131,7 +140,13 @@ function buildNodeSignature(node: GraphRenderNode): string {
 }
 
 function buildEdgeSignature(edge: GraphRenderEdge): string {
-  return [edge.edgeId, edge.sourceNodeId, edge.targetNodeId, edge.kind, edge.label ?? ''].join(
-    '\0',
-  );
+  return [
+    edge.edgeId,
+    edge.sourceNodeId,
+    edge.targetNodeId,
+    edge.kind,
+    edge.label ?? '',
+    edge.layer?.direction ?? '',
+    edge.layer?.isArchitectureViolation ? '1' : '0',
+  ].join('\0');
 }

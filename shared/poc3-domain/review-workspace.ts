@@ -38,6 +38,7 @@ export type ReviewWorkspaceListItemAnalysisStatus =
 
 export interface ReviewWorkspaceListItem {
   reviewWorkspaceId: string;
+  repositoryProfileId: string;
   repositoryLabel: string;
   provider: ReviewProviderKind;
   reviewId: string;

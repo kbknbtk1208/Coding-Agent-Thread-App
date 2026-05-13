@@ -23,11 +23,18 @@ import { useWorkspaceGraph } from './use-workspace-graph';
 export function DependencyGraphPanel({
   reloadNonce = 0,
   selectedWorkspace,
+  onOpenLayerSettings,
 }: {
   reloadNonce?: number;
   selectedWorkspace: ReviewWorkspaceListItem | null;
+  onOpenLayerSettings?: () => void;
 }) {
-  const { state, reload, retry } = useWorkspaceGraph(selectedWorkspace, reloadNonce);
+  const [layerDisplayEnabled, setLayerDisplayEnabled] = useState(true);
+  const { state, reload, retry, layerWarningMessage } = useWorkspaceGraph(
+    selectedWorkspace,
+    reloadNonce,
+    { includeLayers: layerDisplayEnabled },
+  );
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [scrollTarget, setScrollTarget] = useState<NodeDetailScrollTarget | null>(null);
@@ -116,7 +123,11 @@ export function DependencyGraphPanel({
           highlightedFilePath={highlightedFilePath}
           selectedNodeId={selectedNodeId}
           scrollTarget={scrollTarget}
+          layerDisplayEnabled={layerDisplayEnabled}
+          layerWarningMessage={layerWarningMessage}
           onSelectNode={handleSelectNode}
+          onLayerDisplayChange={setLayerDisplayEnabled}
+          onOpenLayerSettings={onOpenLayerSettings}
           onSelectComment={handleSelectComment}
           onFileSelect={setHighlightedFilePath}
           onCompleted={handleCompleted}
@@ -133,7 +144,11 @@ function ReadyGraphContent({
   highlightedFilePath,
   selectedNodeId,
   scrollTarget,
+  layerDisplayEnabled,
+  layerWarningMessage,
   onSelectNode,
+  onLayerDisplayChange,
+  onOpenLayerSettings,
   onSelectComment,
   onFileSelect,
   onCompleted,
@@ -144,7 +159,11 @@ function ReadyGraphContent({
   highlightedFilePath: string | null;
   selectedNodeId: string | null;
   scrollTarget: NodeDetailScrollTarget | null;
+  layerDisplayEnabled: boolean;
+  layerWarningMessage: string | null;
   onSelectNode: (id: string | null) => void;
+  onLayerDisplayChange: (enabled: boolean) => void;
+  onOpenLayerSettings?: () => void;
   onSelectComment: (item: CommentListItem) => void;
   onFileSelect: (filePath: string | null) => void;
   onCompleted: () => void;
@@ -178,6 +197,15 @@ function ReadyGraphContent({
       edges: graph.edges.filter(
         (edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId),
       ),
+      layers: graph.layers
+        ? {
+            ...graph.layers,
+            lanes: graph.layers.lanes.map((lane) => ({
+              ...lane,
+              nodeIds: lane.nodeIds.filter((nodeId) => visibleNodeIds.has(nodeId)),
+            })),
+          }
+        : graph.layers,
       viewport: null,
     };
   }, [graph, revealedNodeIds]);
@@ -213,7 +241,11 @@ function ReadyGraphContent({
         highlightedFilePath={highlightedFilePath}
         selectedNodeId={selectedNodeId}
         scrollTarget={scrollTarget}
+        layerDisplayEnabled={layerDisplayEnabled}
+        layerWarningMessage={layerWarningMessage}
         onSelectNode={onSelectNode}
+        onLayerDisplayChange={onLayerDisplayChange}
+        onOpenLayerSettings={onOpenLayerSettings}
         onThreadResolved={handleThreadResolved}
       />
       <AgentControlCenter

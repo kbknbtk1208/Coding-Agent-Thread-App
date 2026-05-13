@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   GraphAnalysisEvent,
   LoadWorkspaceGraphResult,
@@ -21,6 +21,7 @@ export type WorkspaceGraphLoadState =
 export function useWorkspaceGraph(
   selectedWorkspace: ReviewWorkspaceListItem | null,
   reloadNonce = 0,
+  options: { includeLayers?: boolean } = {},
 ) {
   const [state, setState] = useState<WorkspaceGraphLoadState>({
     status: 'idle',
@@ -28,18 +29,40 @@ export function useWorkspaceGraph(
     message: null,
   });
   const selectedWorkspaceId = selectedWorkspace?.reviewWorkspaceId ?? null;
+  const includeLayers = options.includeLayers ?? true;
+  const [layerWarningMessage, setLayerWarningMessage] = useState<string | null>(null);
+  const loadSeqRef = useRef(0);
+  const loadedWorkspaceIdRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!selectedWorkspaceId) {
+      loadSeqRef.current += 1;
+      loadedWorkspaceIdRef.current = null;
       setState({ status: 'idle', result: null, message: null });
+      setLayerWarningMessage(null);
       return;
     }
-    setState({ status: 'loading', result: null, message: null });
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
+    const workspaceChanged = loadedWorkspaceIdRef.current !== selectedWorkspaceId;
+    if (workspaceChanged) {
+      setState({ status: 'loading', result: null, message: null });
+    } else {
+      setState((current) =>
+        current.status === 'ready' ? current : { status: 'loading', result: null, message: null },
+      );
+    }
     const result = await window.poc3GraphReviewApi.loadWorkspaceGraph({
       reviewWorkspaceId: selectedWorkspaceId,
+      includeLayers,
     });
+    if (seq !== loadSeqRef.current) {
+      return;
+    }
     if (result.ok) {
+      loadedWorkspaceIdRef.current = selectedWorkspaceId;
       setState({ status: 'ready', result, message: null });
+      setLayerWarningMessage(null);
       return;
     }
     if (result.reason === 'analysisFailed') {
@@ -51,10 +74,13 @@ export function useWorkspaceGraph(
       return;
     }
     setState({ status: 'missing', result, message: result.message });
-  }, [selectedWorkspaceId]);
+  }, [includeLayers, selectedWorkspaceId]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadSeqRef.current += 1;
+    };
   }, [load, reloadNonce]);
 
   useEffect(() => {
@@ -90,6 +116,28 @@ export function useWorkspaceGraph(
     return unsubscribe;
   }, [load, selectedWorkspaceId]);
 
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      return;
+    }
+    const unsubscribe = window.poc3GraphReviewApi.onLayerApplicationEvent((event) => {
+      if (event.reviewWorkspaceId !== selectedWorkspaceId) {
+        return;
+      }
+      if (event.type === 'layer.application.completed') {
+        setLayerWarningMessage(null);
+        if (includeLayers) {
+          void load();
+        }
+        return;
+      }
+      if (event.type === 'layer.application.failed') {
+        setLayerWarningMessage(event.message);
+      }
+    });
+    return unsubscribe;
+  }, [includeLayers, load, selectedWorkspaceId]);
+
   const retry = useCallback(async (): Promise<RetryGraphAnalysisResult | null> => {
     if (!selectedWorkspaceId) {
       return null;
@@ -105,20 +153,28 @@ export function useWorkspaceGraph(
 
   const reload = useCallback(async () => {
     if (!selectedWorkspaceId) return;
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
     const result = await window.poc3GraphReviewApi.loadWorkspaceGraph({
       reviewWorkspaceId: selectedWorkspaceId,
+      includeLayers,
     });
+    if (seq !== loadSeqRef.current) {
+      return;
+    }
     if (result.ok) {
       setState({ status: 'ready', result, message: null });
+      setLayerWarningMessage(null);
     }
-  }, [selectedWorkspaceId]);
+  }, [includeLayers, selectedWorkspaceId]);
 
   return useMemo(
     () => ({
       state,
       reload,
       retry,
+      layerWarningMessage,
     }),
-    [reload, retry, state],
+    [layerWarningMessage, reload, retry, state],
   );
 }

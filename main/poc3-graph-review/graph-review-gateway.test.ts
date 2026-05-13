@@ -130,6 +130,14 @@ vi.mock('./store/graph-review-store', () => ({
       return null;
     }
 
+    getGraphLayerApplication(): null {
+      return null;
+    }
+
+    getLatestGraphLayerApplication(): null {
+      return null;
+    }
+
     updateAnalysisRun(): null {
       return null;
     }
@@ -145,6 +153,24 @@ vi.mock('./store/graph-review-store', () => ({
     }
 
     saveGraphAndLayout(): void {}
+
+    close(): void {}
+  },
+}));
+
+vi.mock('./layers/layer-profile-store', () => ({
+  LayerProfileStore: class LayerProfileStoreMock {
+    readByRepositoryProfileId() {
+      return { profile: null, diagnostics: [] };
+    }
+
+    findLatestReusableProfileForRepository() {
+      return null;
+    }
+
+    validateDraft() {
+      return [];
+    }
 
     close(): void {}
   },
@@ -806,6 +832,7 @@ describe('GraphReviewGateway.listReviewWorkspaces', () => {
       expect(gateway.listReviewWorkspaces()).toEqual([
         expect.objectContaining({
           reviewWorkspaceId: 'workspace-1',
+          repositoryProfileId: 'profile-1',
           setupStatus: 'completed',
           analysisStatus: 'missing',
           worktreeExists: true,

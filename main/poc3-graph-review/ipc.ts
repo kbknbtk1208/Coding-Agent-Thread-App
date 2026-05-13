@@ -15,11 +15,13 @@ import type {
   LoadAgentThreadConversationInput,
   LoadNodeCompanionDetailInput,
   LoadNodeDetailInput,
+  LoadRepositoryLayerProfileInput,
   LoadWorkspaceGraphInput,
   LoadWorkspaceRevisionsInput,
   OpenWorkspaceInEditorInput,
   RemoveReviewWorkspaceInput,
   RefreshWorkspaceRevisionsInput,
+  RecomputeWorkspaceLayerLayoutInput,
   RetryGraphAnalysisInput,
   ResolveReviewWorkspaceTargetInput,
   SaveRepositoryProfileInput,
@@ -33,6 +35,10 @@ import type {
   ReplyRemoteCommentInput,
   ResolveAgentThreadInput,
   ResolveRemoteThreadInput,
+  InferRepositoryLayerProfileInput,
+  PreviewRepositoryLayerProfileInput,
+  SaveRepositoryLayerProfileInput,
+  ValidateRepositoryLayerProfileInput,
 } from '../../shared/poc3-contracts/graph-review-ipc';
 import type { RespondPermissionInput } from '../../shared/contracts/agent-ipc';
 import { POC3_GRAPH_REVIEW_IPC_CHANNELS } from '../../shared/poc3-contracts/graph-review-ipc';
@@ -152,6 +158,48 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis,
     (_event, input: RetryGraphAnalysisInput) => {
       return gateway.retryGraphAnalysis(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadRepositoryLayerProfile,
+    (_event, input: LoadRepositoryLayerProfileInput) => {
+      return gateway.loadRepositoryLayerProfile(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.inferRepositoryLayerProfile,
+    (_event, input: InferRepositoryLayerProfileInput) => {
+      return gateway.inferRepositoryLayerProfile(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.validateRepositoryLayerProfile,
+    (_event, input: ValidateRepositoryLayerProfileInput) => {
+      return gateway.validateRepositoryLayerProfile(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.saveRepositoryLayerProfile,
+    (_event, input: SaveRepositoryLayerProfileInput) => {
+      return gateway.saveRepositoryLayerProfile(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.previewRepositoryLayerProfile,
+    (_event, input: PreviewRepositoryLayerProfileInput) => {
+      return gateway.previewRepositoryLayerProfile(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.recomputeWorkspaceLayerLayout,
+    (_event, input: RecomputeWorkspaceLayerLayoutInput) => {
+      return gateway.recomputeWorkspaceLayerLayout(input);
     },
   );
 
