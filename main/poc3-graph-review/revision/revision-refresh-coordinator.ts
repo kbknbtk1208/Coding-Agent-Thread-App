@@ -162,6 +162,7 @@ export class RevisionRefreshCoordinator {
             changedFiles: snapshot.changedFiles,
             remoteThreads: snapshot.remoteThreads,
             remoteThreadsSummary: buildRemoteThreadSummary(snapshot.remoteThreads),
+            diagnostics: snapshot.diagnostics,
             updatedAt: syncedAt,
           });
           if (hasReliableRemoteThreadSnapshot(snapshot)) {
@@ -255,6 +256,7 @@ export class RevisionRefreshCoordinator {
         changedFiles: snapshot.changedFiles,
         remoteThreads: snapshot.remoteThreads,
         remoteThreadsSummary: buildRemoteThreadSummary(snapshot.remoteThreads),
+        diagnostics: snapshot.diagnostics,
         createdAt: persistedAt,
         updatedAt: persistedAt,
       };

@@ -70,13 +70,5 @@ export function validateInlineCommentAnchor(
     };
   }
 
-  if (sourceSnapshot.provider === 'gitlab' && !sourceSnapshot.startSha) {
-    return {
-      ok: false,
-      message:
-        'GitLab inline コメントには start_sha が必要です。revision を refresh してください。',
-    };
-  }
-
   return { ok: true, message: '' };
 }

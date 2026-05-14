@@ -3,7 +3,9 @@ import type {
   ReviewRemoteThread,
   ReviewSourceSnapshot,
 } from '../../../shared/poc3-domain/source-snapshot';
+import { resolveGitLabDiffRefs, type GitLabDiffRefs } from '../../helpers/gitlab-diff-refs';
 import { apiEndpointForProvider } from './repository-url';
+import type { FetchLike } from './review-source-gateway';
 
 export interface PostInlineCommentGitHubInput {
   kind: 'github';
@@ -15,6 +17,7 @@ export interface PostInlineCommentGitHubInput {
   body: string;
   anchor: Poc3InlineCommentAnchor;
   sourceSnapshot: ReviewSourceSnapshot;
+  fetchImpl?: FetchLike;
 }
 
 export interface PostInlineCommentGitLabInput {
@@ -26,6 +29,7 @@ export interface PostInlineCommentGitLabInput {
   body: string;
   anchor: Poc3InlineCommentAnchor;
   sourceSnapshot: ReviewSourceSnapshot;
+  fetchImpl?: FetchLike;
 }
 
 export interface PostReplyGitHubInput {
@@ -198,58 +202,94 @@ export async function postGitLabInlineComment(
   const url = `${endpoint}/projects/${encodedProject}/merge_requests/${input.mergeRequestIid}/discussions`;
 
   const { sourceSnapshot, anchor } = input;
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  let refs: GitLabDiffRefs = {
+    baseSha: sourceSnapshot.baseSha,
+    headSha: sourceSnapshot.headSha,
+    startSha: sourceSnapshot.startSha,
+  };
+  if (!refs.baseSha || !refs.headSha || !refs.startSha) {
+    refs = await fetchLatestGitLabDiffRefs({
+      endpoint,
+      projectPathOrId: input.projectPathOrId,
+      mergeRequestIid: input.mergeRequestIid,
+      token: input.token,
+      fetchImpl,
+      fallbackRefs: refs,
+    });
+  }
 
-  const position: Record<string, unknown> = {
-    position_type: 'text',
-    base_sha: sourceSnapshot.baseSha,
-    head_sha: sourceSnapshot.headSha,
-    start_sha: sourceSnapshot.startSha ?? sourceSnapshot.baseSha,
-    old_path: anchor.oldPath ?? anchor.filePath,
-    new_path: anchor.filePath,
+  const buildPosition = (nextRefs: GitLabDiffRefs): Record<string, unknown> => {
+    if (!nextRefs.baseSha || !nextRefs.headSha || !nextRefs.startSha) {
+      throw new ProviderRejectedError(
+        'GitLab inline コメントに必要な diff refs を取得できませんでした。',
+      );
+    }
+    const position: Record<string, unknown> = {
+      position_type: 'text',
+      base_sha: nextRefs.baseSha,
+      head_sha: nextRefs.headSha,
+      start_sha: nextRefs.startSha,
+      old_path: anchor.oldPath ?? anchor.filePath,
+      new_path: anchor.filePath,
+    };
+
+    if (anchor.side === 'RIGHT') {
+      position.new_line = anchor.endLine;
+    } else {
+      position.old_line = anchor.endLine;
+    }
+
+    if (anchor.startLine !== null && anchor.startLine !== anchor.endLine) {
+      const startType = anchor.side === 'RIGHT' ? 'new' : 'old';
+      const endType = startType;
+      const startLineCode = buildGitLabLineCode(
+        anchor.oldPath ?? anchor.filePath,
+        anchor.filePath,
+        anchor.startLine,
+        anchor.side,
+      );
+      const endLineCode = buildGitLabLineCode(
+        anchor.oldPath ?? anchor.filePath,
+        anchor.filePath,
+        anchor.endLine,
+        anchor.side,
+      );
+      position.line_range = {
+        start: { line_code: startLineCode, type: startType },
+        end: { line_code: endLineCode, type: endType },
+      };
+    }
+    return position;
   };
 
-  if (anchor.side === 'RIGHT') {
-    position.new_line = anchor.endLine;
-  } else {
-    position.old_line = anchor.endLine;
-  }
+  let response = await postGitLabDiscussion(
+    fetchImpl,
+    url,
+    input.token,
+    input.body,
+    buildPosition(refs),
+  );
 
-  if (anchor.startLine !== null && anchor.startLine !== anchor.endLine) {
-    const startType = anchor.side === 'RIGHT' ? 'new' : 'old';
-    const endType = startType;
-    const startLineCode = buildGitLabLineCode(
-      anchor.oldPath ?? anchor.filePath,
-      anchor.filePath,
-      anchor.startLine,
-      anchor.side,
-    );
-    const endLineCode = buildGitLabLineCode(
-      anchor.oldPath ?? anchor.filePath,
-      anchor.filePath,
-      anchor.endLine,
-      anchor.side,
-    );
-    position.line_range = {
-      start: { line_code: startLineCode, type: startType },
-      end: { line_code: endLineCode, type: endType },
-    };
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'PRIVATE-TOKEN': input.token,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ body: input.body, position }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new ProviderRejectedError(
-      `GitLab が HTTP ${response.status} を返しました。${text ? ` ${text}` : ''}`,
+  if (!response.ok && (response.status === 400 || response.status === 422)) {
+    refs = await fetchLatestGitLabDiffRefs({
+      endpoint,
+      projectPathOrId: input.projectPathOrId,
+      mergeRequestIid: input.mergeRequestIid,
+      token: input.token,
+      fetchImpl,
+      fallbackRefs: refs,
+    });
+    response = await postGitLabDiscussion(
+      fetchImpl,
+      url,
+      input.token,
+      input.body,
+      buildPosition(refs),
     );
   }
+
+  await ensureGitLabOk(response);
 
   const data = (await response.json()) as { id: string; notes: Array<{ id: number }> };
   const discussionId = data.id;
@@ -258,6 +298,80 @@ export async function postGitLabInlineComment(
     providerThreadId: `gitlab-discussion:${discussionId}`,
     providerCommentIds: commentId ? [commentId] : [],
   };
+}
+
+async function postGitLabDiscussion(
+  fetchImpl: FetchLike,
+  url: string,
+  token: string,
+  body: string,
+  position: Record<string, unknown>,
+): Promise<Response> {
+  return fetchImpl(url, {
+    method: 'POST',
+    headers: {
+      'PRIVATE-TOKEN': token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ body, position }),
+  });
+}
+
+async function ensureGitLabOk(response: Response): Promise<void> {
+  if (response.ok) {
+    return;
+  }
+  const text = await response.text().catch(() => '');
+  throw new ProviderRejectedError(
+    `GitLab が HTTP ${response.status} を返しました。${text ? ` ${text}` : ''}`,
+  );
+}
+
+async function fetchLatestGitLabDiffRefs(input: {
+  endpoint: string;
+  projectPathOrId: string;
+  mergeRequestIid: string;
+  token: string;
+  fetchImpl: FetchLike;
+  fallbackRefs: GitLabDiffRefs;
+}): Promise<GitLabDiffRefs> {
+  try {
+    const result = await resolveGitLabDiffRefs({
+      endpoint: input.endpoint,
+      projectPathOrId: input.projectPathOrId,
+      mergeRequestIid: input.mergeRequestIid,
+      mrDiffRefs: {
+        base_sha: input.fallbackRefs.baseSha,
+        head_sha: input.fallbackRefs.headSha,
+        start_sha: input.fallbackRefs.startSha,
+      },
+      transport: {
+        fetchPagedJson: async <T>(url: string): Promise<T[]> => {
+          const separator = url.includes('?') ? '&' : '?';
+          const response = await input.fetchImpl(`${url}${separator}per_page=1&page=1`, {
+            headers: { 'PRIVATE-TOKEN': input.token },
+          });
+          if (!response.ok) {
+            throw new GitLabPostHttpError(response.status);
+          }
+          return (await response.json()) as T[];
+        },
+        getHttpStatus: (err) => (err instanceof GitLabPostHttpError ? err.status : null),
+      },
+    });
+    return result.refs;
+  } catch (err) {
+    if (err instanceof GitLabPostHttpError) {
+      throw new ProviderRejectedError(`GitLab が HTTP ${err.status} を返しました。`);
+    }
+    throw err;
+  }
+}
+
+class GitLabPostHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`GitLab HTTP ${status}`);
+  }
 }
 
 export async function postGitLabReply(input: PostReplyGitLabInput): Promise<PostCommentResult> {

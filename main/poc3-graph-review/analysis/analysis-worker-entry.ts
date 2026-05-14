@@ -29,7 +29,15 @@ export async function runInitialGraphAnalysis(
   options: RunInitialGraphAnalysisOptions = {},
 ): Promise<InitialGraphAnalysisOutput> {
   const diffScope = resolveDiffScope(input.sourceSnapshot);
-  const diagnostics: GraphDiagnostic[] = [...diffScope.diagnostics];
+  const sourceDiagnostics: GraphDiagnostic[] = (input.sourceSnapshot.diagnostics ?? []).map(
+    (diagnostic) => ({
+      code: diagnostic.code,
+      message: diagnostic.message,
+      severity: diagnostic.severity,
+      filePath: diagnostic.filePath ?? null,
+    }),
+  );
+  const diagnostics: GraphDiagnostic[] = [...sourceDiagnostics, ...diffScope.diagnostics];
 
   if (diffScope.files.length === 0) {
     options.onProgress?.({

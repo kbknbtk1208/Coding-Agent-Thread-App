@@ -70,6 +70,7 @@ interface ReviewSourceSnapshotRow {
   changed_files_json: string;
   remote_threads_summary_json: string;
   remote_threads_json: string | null;
+  diagnostics_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -1099,11 +1100,11 @@ export class GraphReviewStore {
           INSERT OR REPLACE INTO review_source_snapshots (
             source_snapshot_id, revision_id, provider, review_id, title, description, base_sha,
             head_sha, start_sha, diff_version, changed_files_json, remote_threads_summary_json,
-            remote_threads_json, created_at, updated_at
+            remote_threads_json, diagnostics_json, created_at, updated_at
           ) VALUES (
             @source_snapshot_id, @revision_id, @provider, @review_id, @title, @description, @base_sha,
             @head_sha, @start_sha, @diff_version, @changed_files_json, @remote_threads_summary_json,
-            @remote_threads_json, @created_at, @updated_at
+            @remote_threads_json, @diagnostics_json, @created_at, @updated_at
           )
         `,
       )
@@ -1121,6 +1122,7 @@ export class GraphReviewStore {
         changed_files_json: JSON.stringify(snapshot.changedFiles),
         remote_threads_summary_json: JSON.stringify(snapshot.remoteThreadsSummary),
         remote_threads_json: JSON.stringify(snapshot.remoteThreads ?? []),
+        diagnostics_json: JSON.stringify(snapshot.diagnostics ?? []),
         created_at: snapshot.createdAt,
         updated_at: snapshot.updatedAt,
       });
@@ -1178,6 +1180,7 @@ export class GraphReviewStore {
       changedFiles: parseJson(row.changed_files_json),
       remoteThreads: parseJson(row.remote_threads_json ?? '[]'),
       remoteThreadsSummary: parseJson(row.remote_threads_summary_json),
+      diagnostics: parseJson(row.diagnostics_json ?? '[]'),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1357,6 +1360,7 @@ export class GraphReviewStore {
         changed_files_json TEXT NOT NULL,
         remote_threads_summary_json TEXT NOT NULL,
         remote_threads_json TEXT NOT NULL DEFAULT '[]',
+        diagnostics_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -1521,6 +1525,13 @@ export class GraphReviewStore {
     `);
     try {
       this.db.exec(`ALTER TABLE review_source_snapshots ADD COLUMN remote_threads_json TEXT`);
+    } catch {
+      // column already exists
+    }
+    try {
+      this.db.exec(
+        `ALTER TABLE review_source_snapshots ADD COLUMN diagnostics_json TEXT NOT NULL DEFAULT '[]'`,
+      );
     } catch {
       // column already exists
     }

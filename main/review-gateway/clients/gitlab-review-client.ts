@@ -1,6 +1,11 @@
 import type { GitLabDiscussion, GitLabMRDiff } from '../../../shared/domain/review-provider';
 import type { ReviewProvider } from '../../../shared/domain/review';
-import { requestJson, requestPagedJson, type FetchLike } from '../request-json';
+import {
+  fetchGitLabMergeRequestDiffsWithFallback,
+  type GitLabNormalizedMergeRequestDiff,
+} from '../../helpers/gitlab-merge-request-diffs';
+import { requestJson, requestPagedJson, requestText, type FetchLike } from '../request-json';
+import { isReviewGatewayError } from '../review-gateway-error';
 
 export interface GitLabMergeRequestDetail {
   iid: number;
@@ -81,6 +86,21 @@ function createUrl(baseUrl: string, pathname: string): URL {
   return new URL(pathname, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
 }
 
+function toLegacyGitLabDiff(diff: GitLabNormalizedMergeRequestDiff): GitLabMRDiff {
+  return {
+    old_path: diff.old_path,
+    new_path: diff.new_path,
+    a_mode: diff.a_mode ?? '',
+    b_mode: diff.b_mode ?? '',
+    diff: diff.diff ?? '',
+    new_file: diff.new_file,
+    renamed_file: diff.renamed_file,
+    deleted_file: diff.deleted_file,
+    collapsed: diff.collapsed,
+    too_large: diff.too_large,
+  };
+}
+
 export function createGitLabReviewClient(args: {
   baseUrl: string;
   token: string;
@@ -102,14 +122,20 @@ export function createGitLabReviewClient(args: {
       );
     },
     async fetchMergeRequestDiffs(projectPathOrId, mergeRequestIid) {
-      return requestPagedJson<GitLabMRDiff>(
-        () =>
-          createUrl(
-            args.baseUrl,
-            `/api/v4/projects/${encodePathSegment(projectPathOrId)}/merge_requests/${mergeRequestIid}/diffs`,
-          ),
-        { fetchImpl: args.fetchImpl, headers },
-      );
+      const result = await fetchGitLabMergeRequestDiffsWithFallback({
+        endpoint: createUrl(args.baseUrl, '/api/v4').toString().replace(/\/$/, ''),
+        projectPathOrId,
+        mergeRequestIid,
+        maxChangedFiles: 300,
+        transport: {
+          fetchJson: (url) => requestJson(url, { fetchImpl: args.fetchImpl, headers }),
+          fetchPagedJson: (url) =>
+            requestPagedJson(() => url, { fetchImpl: args.fetchImpl, headers }),
+          fetchText: (url) => requestText(url, { fetchImpl: args.fetchImpl, headers }),
+          getHttpStatus: (err) => (isReviewGatewayError(err) ? (err.status ?? null) : null),
+        },
+      });
+      return result.diffs.map(toLegacyGitLabDiff);
     },
     async fetchMergeRequestDiscussions(projectPathOrId, mergeRequestIid) {
       return requestPagedJson<GitLabDiscussion>(

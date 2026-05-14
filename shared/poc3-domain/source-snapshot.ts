@@ -54,6 +54,13 @@ export interface ReviewRemoteThread {
   };
 }
 
+export interface ReviewSourceDiagnostic {
+  code: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+  filePath?: string | null;
+}
+
 export interface ReviewSourceSnapshot {
   sourceSnapshotId: string;
   revisionId: string;
@@ -68,6 +75,7 @@ export interface ReviewSourceSnapshot {
   changedFiles: ReviewChangedFile[];
   remoteThreads: ReviewRemoteThread[];
   remoteThreadsSummary: ReviewRemoteThreadSummary[];
+  diagnostics?: ReviewSourceDiagnostic[];
   createdAt: string;
   updatedAt: string;
 }
