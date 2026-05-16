@@ -129,8 +129,13 @@ export function createGitLabReviewClient(args: {
         maxChangedFiles: 300,
         transport: {
           fetchJson: (url) => requestJson(url, { fetchImpl: args.fetchImpl, headers }),
-          fetchPagedJson: (url) =>
-            requestPagedJson(() => url, { fetchImpl: args.fetchImpl, headers }),
+          fetchPagedJson: (url, limit, pageSize) =>
+            requestPagedJson(() => url, {
+              fetchImpl: args.fetchImpl,
+              headers,
+              pageSize,
+              maxPages: Math.max(1, Math.ceil(limit / (pageSize ?? 100))),
+            }),
           fetchText: (url) => requestText(url, { fetchImpl: args.fetchImpl, headers }),
           getHttpStatus: (err) => (isReviewGatewayError(err) ? (err.status ?? null) : null),
         },

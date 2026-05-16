@@ -51,4 +51,20 @@ describe('parseGitLabRawDiff', () => {
   it('returns an empty list for input without diff headers', () => {
     expect(parseGitLabRawDiff('@@ -1 +1 @@\n-old\n+new')).toEqual([]);
   });
+
+  it('decodes Git C-style octal quoted paths as UTF-8', () => {
+    const raw = [
+      'diff --git "a/docs/\\346\\227\\245\\346\\234\\254\\350\\252\\236.md" "b/docs/\\346\\227\\245\\346\\234\\254\\350\\252\\236.md"',
+      '--- "a/docs/\\346\\227\\245\\346\\234\\254\\350\\252\\236.md"',
+      '+++ "b/docs/\\346\\227\\245\\346\\234\\254\\350\\252\\236.md"',
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+    ].join('\n');
+
+    expect(parseGitLabRawDiff(raw)[0]).toMatchObject({
+      oldPath: 'docs/日本語.md',
+      newPath: 'docs/日本語.md',
+    });
+  });
 });

@@ -17,7 +17,10 @@ import type {
   RevisionCommitView,
   RevisionRefreshSnapshot,
 } from '../../../shared/poc3-domain/revision-commit';
-import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
+import type {
+  ReviewSourceDiagnostic,
+  ReviewSourceSnapshot,
+} from '../../../shared/poc3-domain/source-snapshot';
 import type {
   ReviewProviderKind,
   ReviewWorkspace,
@@ -211,6 +214,29 @@ function parseJsonOrNull<T>(value: string): T | null {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+const SOURCE_DIAGNOSTIC_CODES = new Set([
+  'CHANGED_FILES_LIMIT_EXCEEDED',
+  'DIFF_TRUNCATED',
+  'REMOTE_COMMENTS_FETCH_FAILED',
+  'GITHUB_REVIEW_THREAD_STATE_FETCH_FAILED',
+  'GITLAB_DIFFS_ENDPOINT_UNAVAILABLE',
+  'GITLAB_CHANGES_FALLBACK_USED',
+  'GITLAB_CHANGES_OVERFLOW',
+  'GITLAB_RAW_DIFFS_FALLBACK_USED',
+  'GITLAB_RAW_DIFFS_PARTIAL_METADATA',
+  'GITLAB_DIFF_REFS_FALLBACK_USED',
+  'GITLAB_DIFF_REFS_INCOMPLETE',
+]);
+
+function sourceDiagnosticToGraphDiagnostic(diagnostic: ReviewSourceDiagnostic): GraphDiagnostic {
+  return {
+    code: diagnostic.code,
+    message: diagnostic.message,
+    severity: diagnostic.severity,
+    filePath: diagnostic.filePath ?? null,
+  };
 }
 
 export class GraphReviewStore {
@@ -855,6 +881,31 @@ export class GraphReviewStore {
       .prepare('SELECT * FROM graph_snapshots WHERE revision_id = ? AND scope_key = ?')
       .get(revisionId, scopeKey) as GraphSnapshotRow | undefined;
     return row ? this.rowToGraphSnapshot(row) : null;
+  }
+
+  replaceGraphSourceDiagnostics(
+    revisionId: string,
+    diagnostics: ReviewSourceDiagnostic[],
+    updatedAt = nowIso(),
+  ): void {
+    const rows = this.db
+      .prepare('SELECT * FROM graph_snapshots WHERE revision_id = ?')
+      .all(revisionId) as GraphSnapshotRow[];
+    const sourceDiagnostics = diagnostics.map(sourceDiagnosticToGraphDiagnostic);
+    const update = this.db.prepare(
+      'UPDATE graph_snapshots SET diagnostics_json = ?, updated_at = ? WHERE graph_snapshot_id = ?',
+    );
+    const transaction = this.db.transaction(() => {
+      for (const row of rows) {
+        const graphDiagnostics = parseJson<GraphDiagnostic[]>(row.diagnostics_json);
+        const nextDiagnostics = [
+          ...sourceDiagnostics,
+          ...graphDiagnostics.filter((diagnostic) => !SOURCE_DIAGNOSTIC_CODES.has(diagnostic.code)),
+        ];
+        update.run(JSON.stringify(nextDiagnostics), updatedAt, row.graph_snapshot_id);
+      }
+    });
+    transaction();
   }
 
   getLayoutSnapshot(graphSnapshotId: string): LayoutSnapshot | null {

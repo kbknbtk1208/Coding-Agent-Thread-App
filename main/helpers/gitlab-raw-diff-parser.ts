@@ -27,11 +27,66 @@ function unquotePath(value: string): string {
   if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
     return trimmed;
   }
-  try {
-    return JSON.parse(trimmed) as string;
-  } catch {
-    return trimmed.slice(1, -1).replace(/\\"/g, '"');
+  return decodeGitQuotedPath(trimmed.slice(1, -1));
+}
+
+function decodeGitQuotedPath(value: string): string {
+  const decoder = new TextDecoder();
+  const bytes: number[] = [];
+  let decoded = '';
+  const flushBytes = () => {
+    if (bytes.length === 0) {
+      return;
+    }
+    decoded += decoder.decode(new Uint8Array(bytes));
+    bytes.length = 0;
+  };
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char !== '\\') {
+      flushBytes();
+      decoded += char;
+      continue;
+    }
+
+    const next = value[index + 1];
+    if (!next) {
+      flushBytes();
+      decoded += char;
+      continue;
+    }
+
+    if (/[0-7]/.test(next)) {
+      let octal = next;
+      let consumed = 1;
+      while (consumed < 3 && /[0-7]/.test(value[index + 1 + consumed] ?? '')) {
+        octal += value[index + 1 + consumed];
+        consumed += 1;
+      }
+      bytes.push(Number.parseInt(octal, 8));
+      index += consumed;
+      continue;
+    }
+
+    flushBytes();
+    const escaped: Record<string, string> = {
+      a: '\x07',
+      b: '\b',
+      f: '\f',
+      n: '\n',
+      r: '\r',
+      t: '\t',
+      v: '\v',
+      '\\': '\\',
+      '"': '"',
+    };
+    decoded += escaped[next] ?? next;
+    index += 1;
   }
+
+  flushBytes();
+  return decoded;
 }
 
 function stripDiffPrefix(value: string): string {

@@ -149,15 +149,19 @@ async function fetchPaginatedJson<T>(
   headers: Record<string, string>,
   limit: number,
   fetchImpl?: FetchLike,
+  pageSize = 100,
 ): Promise<T[]> {
   const rows: T[] = [];
   let page = 1;
   while (rows.length <= limit) {
     const separator = url.includes('?') ? '&' : '?';
-    const pageUrl = `${url}${separator}per_page=100&page=${page}`;
+    const pageUrl = `${url}${separator}per_page=${pageSize}&page=${page}`;
     const body = await fetchJson<T[]>(pageUrl, headers, fetchImpl);
     rows.push(...body);
-    if (body.length < 100) {
+    if (pageSize === 1 && limit === 1) {
+      break;
+    }
+    if (body.length < pageSize) {
       break;
     }
     page += 1;
@@ -479,8 +483,8 @@ export async function fetchReviewSourceSnapshot(
   );
   const transport = {
     fetchJson: <T>(url: string) => fetchJson<T>(url, headers, input.fetchImpl),
-    fetchPagedJson: <T>(url: string, limit: number) =>
-      fetchPaginatedJson<T>(url, headers, limit, input.fetchImpl),
+    fetchPagedJson: <T>(url: string, limit: number, pageSize?: number) =>
+      fetchPaginatedJson<T>(url, headers, limit, input.fetchImpl, pageSize),
     fetchText: (url: string) => fetchText(url, headers, input.fetchImpl),
     getHttpStatus: (err: unknown) => (isProviderApiError(err) ? err.status : null),
   };

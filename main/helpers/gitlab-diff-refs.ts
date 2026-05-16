@@ -15,6 +15,7 @@ export interface ResolveGitLabDiffRefsInput {
     | null
     | undefined;
   mrSha?: string | null;
+  forceRefresh?: boolean;
   transport: Pick<GitLabDiffTransport, 'fetchPagedJson' | 'getHttpStatus'>;
 }
 
@@ -36,7 +37,7 @@ export async function resolveGitLabDiffRefs(
   let startSha = input.mrDiffRefs?.start_sha ?? null;
   const diagnostics: GitLabSourceDiagnostic[] = [];
 
-  if (baseSha && headSha && startSha) {
+  if (!input.forceRefresh && baseSha && headSha && startSha) {
     return { refs: { baseSha, headSha, startSha }, diagnostics };
   }
 
@@ -46,12 +47,19 @@ export async function resolveGitLabDiffRefs(
         String(input.mergeRequestIid),
       )}/versions`,
       1,
+      1,
     );
     const latest = versions[0];
     if (latest) {
-      baseSha ||= latest.base_commit_sha ?? '';
-      headSha ||= latest.head_commit_sha ?? '';
-      startSha ||= latest.start_commit_sha ?? null;
+      if (input.forceRefresh) {
+        baseSha = latest.base_commit_sha ?? baseSha;
+        headSha = latest.head_commit_sha ?? headSha;
+        startSha = latest.start_commit_sha ?? startSha;
+      } else {
+        baseSha ||= latest.base_commit_sha ?? '';
+        headSha ||= latest.head_commit_sha ?? '';
+        startSha ||= latest.start_commit_sha ?? null;
+      }
       diagnostics.push(
         warning(
           'GITLAB_DIFF_REFS_FALLBACK_USED',

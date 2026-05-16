@@ -24,7 +24,7 @@ export interface GitLabSourceDiagnostic {
 
 export interface GitLabDiffTransport {
   fetchJson<T>(url: string): Promise<T>;
-  fetchPagedJson<T>(url: string, limit: number): Promise<T[]>;
+  fetchPagedJson<T>(url: string, limit: number, pageSize?: number): Promise<T[]>;
   fetchText(url: string): Promise<string>;
   getHttpStatus(err: unknown): number | null;
 }

@@ -216,6 +216,7 @@ export async function postGitLabInlineComment(
       token: input.token,
       fetchImpl,
       fallbackRefs: refs,
+      forceRefresh: false,
     });
   }
 
@@ -279,6 +280,7 @@ export async function postGitLabInlineComment(
       token: input.token,
       fetchImpl,
       fallbackRefs: refs,
+      forceRefresh: true,
     });
     response = await postGitLabDiscussion(
       fetchImpl,
@@ -334,6 +336,7 @@ async function fetchLatestGitLabDiffRefs(input: {
   token: string;
   fetchImpl: FetchLike;
   fallbackRefs: GitLabDiffRefs;
+  forceRefresh: boolean;
 }): Promise<GitLabDiffRefs> {
   try {
     const result = await resolveGitLabDiffRefs({
@@ -345,6 +348,7 @@ async function fetchLatestGitLabDiffRefs(input: {
         head_sha: input.fallbackRefs.headSha,
         start_sha: input.fallbackRefs.startSha,
       },
+      forceRefresh: input.forceRefresh,
       transport: {
         fetchPagedJson: async <T>(url: string): Promise<T[]> => {
           const separator = url.includes('?') ? '&' : '?';

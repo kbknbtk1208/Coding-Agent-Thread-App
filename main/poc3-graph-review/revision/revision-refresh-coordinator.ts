@@ -165,6 +165,11 @@ export class RevisionRefreshCoordinator {
             diagnostics: snapshot.diagnostics,
             updatedAt: syncedAt,
           });
+          this.deps.graphStore.replaceGraphSourceDiagnostics(
+            existing.revisionId,
+            snapshot.diagnostics,
+            syncedAt,
+          );
           if (hasReliableRemoteThreadSnapshot(snapshot)) {
             this.markPublishedAgentThreadSyncResult(
               reviewWorkspaceId,
