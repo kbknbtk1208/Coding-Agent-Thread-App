@@ -1,7 +1,7 @@
 'use client';
 
 import { useViewport } from '@xyflow/react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { GraphLayerLaneRender } from '../../../../shared/poc3-domain/layer-profile';
 
@@ -17,14 +17,20 @@ const MIN_VISIBLE_WIDTH = 72;
 const MIN_VISIBLE_HEIGHT = HEADER_HEIGHT + HEADER_TOP_OFFSET * 2;
 const MIN_OUTLINE_SIZE = 2;
 
+const LANE_HEADER_LANE_COUNT_THRESHOLD = 80;
+const LANE_HEADER_ZOOM_THRESHOLD = 0.35;
+const LANE_OVERLAY_LANE_COUNT_THRESHOLD = 150;
+
 interface LayerLanesOverlayProps {
   lanes: readonly GraphLayerLaneRender[];
   hidden?: boolean;
+  dense?: boolean;
 }
 
 export const LayerLanesOverlay = memo(function LayerLanesOverlay({
   lanes,
   hidden = false,
+  dense = false,
 }: LayerLanesOverlayProps) {
   const viewport = useViewport();
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -50,11 +56,19 @@ export const LayerLanesOverlay = memo(function LayerLanesOverlay({
     return () => observer.disconnect();
   }, [hidden, lanes.length]);
 
+  const headerVisible = useMemo(
+    () => isLaneHeaderVisible(lanes.length, viewport.zoom, dense),
+    [dense, lanes.length, viewport.zoom],
+  );
+
+  const overlays = useMemo(
+    () => createLayerLaneOverlays(lanes, viewport, canvasSize),
+    [canvasSize, lanes, viewport],
+  );
+
   if (!shouldRenderLayerLanesOverlay(lanes, hidden)) {
     return null;
   }
-
-  const overlays = createLayerLaneOverlays(lanes, viewport, canvasSize);
 
   return (
     <div
@@ -63,9 +77,11 @@ export const LayerLanesOverlay = memo(function LayerLanesOverlay({
       data-poc3-layer-lanes-overlay="screen"
       data-poc3-layer-lanes-count={lanes.length}
       data-poc3-layer-lanes-visible-count={overlays.length}
+      data-poc3-layer-lanes-dense={dense ? 'true' : 'false'}
+      data-poc3-layer-lanes-header={headerVisible ? 'visible' : 'hidden'}
     >
       {overlays.map((overlay) => (
-        <LayerLaneOverlay key={overlay.laneId} overlay={overlay} />
+        <LayerLaneOverlay key={overlay.laneId} overlay={overlay} headerVisible={headerVisible} />
       ))}
     </div>
   );
@@ -75,7 +91,26 @@ export function shouldRenderLayerLanesOverlay(
   lanes: readonly GraphLayerLaneRender[],
   hidden: boolean,
 ) {
-  return !hidden && lanes.length > 0;
+  if (hidden || lanes.length === 0) {
+    return false;
+  }
+  if (lanes.length > LANE_OVERLAY_LANE_COUNT_THRESHOLD) {
+    return false;
+  }
+  return true;
+}
+
+export function isLaneHeaderVisible(laneCount: number, zoom: number, dense: boolean): boolean {
+  if (dense) {
+    return false;
+  }
+  if (laneCount > LANE_HEADER_LANE_COUNT_THRESHOLD) {
+    return false;
+  }
+  if (zoom < LANE_HEADER_ZOOM_THRESHOLD) {
+    return false;
+  }
+  return true;
 }
 
 export function shouldUseCompactLayerLane(lane: GraphLayerLaneRender, zoom: number) {
@@ -199,8 +234,10 @@ export function createLayerLaneOverlays(
 
 const LayerLaneOverlay = memo(function LayerLaneOverlay({
   overlay,
+  headerVisible,
 }: {
   overlay: LayerLaneScreenOverlay;
+  headerVisible: boolean;
 }) {
   return (
     <>
@@ -218,22 +255,28 @@ const LayerLaneOverlay = memo(function LayerLaneOverlay({
         } ${overlay.unclassified ? 'border-white/[0.1]' : 'border-[#58d7ff]/16'}`}
         style={getLayerLaneOutlineStyle(overlay)}
       />
-      <div
-        data-poc3-layer-lane={overlay.laneId}
-        data-poc3-layer-lane-mode="header"
-        className={`absolute h-[34px] rounded-[8px] border px-3 py-2 shadow-[0_8px_22px_rgba(0,0,0,0.22)] ${
-          overlay.unclassified
-            ? 'border-white/[0.12] bg-[#090909]/88 text-white/54'
-            : 'border-[#58d7ff]/24 bg-[#061015]/90 text-[#dff7ff]/72'
-        }`}
-        style={{
-          left: overlay.header.left,
-          top: overlay.header.top,
-          width: overlay.header.width,
-        }}
-      >
-        <LayerLaneLabel title={overlay.title} layerPath={overlay.layerPath} count={overlay.count} />
-      </div>
+      {headerVisible ? (
+        <div
+          data-poc3-layer-lane={overlay.laneId}
+          data-poc3-layer-lane-mode="header"
+          className={`absolute h-[34px] rounded-[8px] border px-3 py-2 shadow-[0_8px_22px_rgba(0,0,0,0.22)] ${
+            overlay.unclassified
+              ? 'border-white/[0.12] bg-[#090909]/88 text-white/54'
+              : 'border-[#58d7ff]/24 bg-[#061015]/90 text-[#dff7ff]/72'
+          }`}
+          style={{
+            left: overlay.header.left,
+            top: overlay.header.top,
+            width: overlay.header.width,
+          }}
+        >
+          <LayerLaneLabel
+            title={overlay.title}
+            layerPath={overlay.layerPath}
+            count={overlay.count}
+          />
+        </div>
+      ) : null}
     </>
   );
 });

@@ -7,6 +7,11 @@ import type {
   GraphRenderSnapshot,
 } from '../../../../shared/poc3-domain/graph';
 import {
+  DEFAULT_GRAPH_RENDER_QUALITY,
+  buildGraphRenderQualitySignature,
+  type GraphRenderQuality,
+} from './graph-render-quality';
+import {
   toReactFlowElements,
   type Poc3FlowEdge,
   type Poc3FlowNode,
@@ -16,20 +21,20 @@ export interface Poc3GraphViewState {
   selectedNodeId: string | null;
   highlightedFilePath: string | null;
   includeLayers?: boolean;
-  isViewportInteracting?: boolean;
+  renderQuality?: GraphRenderQuality;
 }
 
 interface CachedFlowNode {
   signature: string;
   selected: boolean;
   highlighted: boolean;
-  interacting: boolean;
+  qualitySignature: string;
   flowNode: Poc3FlowNode;
 }
 
 interface CachedFlowEdge {
   signature: string;
-  interacting: boolean;
+  animated: boolean;
   flowEdge: Poc3FlowEdge;
 }
 
@@ -54,14 +59,15 @@ export function reconcileReactFlowElements(
   edges: Poc3FlowEdge[];
   cache: StableFlowElementCache;
 } {
-  const nextRaw = toReactFlowElements(graph, viewState);
+  const renderQuality = viewState.renderQuality ?? DEFAULT_GRAPH_RENDER_QUALITY;
+  const qualitySignature = buildGraphRenderQualitySignature(renderQuality);
+  const nextRaw = toReactFlowElements(graph, { ...viewState, renderQuality });
   const nextCache = createStableFlowElementCache();
 
   const nodes = nextRaw.nodes.map((flowNode) => {
     const signature = buildCodeNodeSignature(flowNode.data.graphNode);
     const selected = flowNode.selected === true;
     const highlighted = flowNode.data.isFileHighlighted;
-    const interacting = flowNode.data.isViewportInteracting;
     const cached = previous.nodesById.get(flowNode.id);
 
     if (
@@ -69,13 +75,13 @@ export function reconcileReactFlowElements(
       cached.signature === signature &&
       cached.selected === selected &&
       cached.highlighted === highlighted &&
-      cached.interacting === interacting
+      cached.qualitySignature === qualitySignature
     ) {
       nextCache.nodesById.set(flowNode.id, cached);
       return cached.flowNode;
     }
 
-    const nextCached = { signature, selected, highlighted, interacting, flowNode };
+    const nextCached = { signature, selected, highlighted, qualitySignature, flowNode };
     nextCache.nodesById.set(flowNode.id, nextCached);
     return flowNode;
   });
@@ -86,15 +92,15 @@ export function reconcileReactFlowElements(
       return flowEdge;
     }
     const signature = buildEdgeSignature(graphEdge);
-    const interacting = viewState.isViewportInteracting === true;
+    const animated = flowEdge.animated === true;
     const cached = previous.edgesById.get(flowEdge.id);
 
-    if (cached && cached.signature === signature && cached.interacting === interacting) {
+    if (cached && cached.signature === signature && cached.animated === animated) {
       nextCache.edgesById.set(flowEdge.id, cached);
       return cached.flowEdge;
     }
 
-    const nextCached = { signature, interacting, flowEdge };
+    const nextCached = { signature, animated, flowEdge };
     nextCache.edgesById.set(flowEdge.id, nextCached);
     return flowEdge;
   });

@@ -17,9 +17,26 @@ import { resolveCompanionFiles } from './companion-file-resolver';
 import { normalizeRepoPath } from './graph-id';
 import { snapshotEdgeId, snapshotNodeId, stableSymbolId } from './graph-id';
 
-const INITIAL_GRAPH_NODE_LIMIT = 150;
-const INITIAL_GRAPH_EDGE_LIMIT = 400;
+const DEFAULT_GRAPH_NODE_LIMIT = 250;
+const DEFAULT_GRAPH_EDGE_LIMIT = 700;
+const INITIAL_GRAPH_NODE_LIMIT = clampGraphLimit(
+  Number(process.env.POC3_GRAPH_NODE_LIMIT ?? DEFAULT_GRAPH_NODE_LIMIT),
+  50,
+  600,
+);
+const INITIAL_GRAPH_EDGE_LIMIT = clampGraphLimit(
+  Number(process.env.POC3_GRAPH_EDGE_LIMIT ?? DEFAULT_GRAPH_EDGE_LIMIT),
+  100,
+  1800,
+);
 const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
+
+function clampGraphLimit(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(value)));
+}
 
 function nowIso(): string {
   return new Date().toISOString();

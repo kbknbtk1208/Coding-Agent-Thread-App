@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGraphSnapshot, createLayeredGraphSnapshot } from './graph-test-fixtures';
+import { resolveGraphRenderQuality } from './graph-render-quality';
 import {
   createStableFlowElementCache,
   reconcileReactFlowElements,
@@ -71,7 +72,7 @@ describe('reconcileReactFlowElements', () => {
     expect(second.edges[0]).toBe(first.edges[0]);
   });
 
-  it('refreshes node and edge references when viewport interaction mode changes', () => {
+  it('keeps node and edge references when viewport interaction mode changes outside data', () => {
     const graph = createLayeredGraphSnapshot();
     const first = reconcileReactFlowElements(
       graph,
@@ -80,12 +81,55 @@ describe('reconcileReactFlowElements', () => {
     );
     const second = reconcileReactFlowElements(
       graph,
-      { ...emptyViewState(), isViewportInteracting: true },
+      { ...emptyViewState(), isViewportInteracting: true } as ReturnType<typeof emptyViewState>,
+      first.cache,
+    );
+
+    expect(second.nodes[0]).toBe(first.nodes[0]);
+    expect(second.edges[0]).toBe(first.edges[0]);
+  });
+
+  it('reuses node references when render quality stays the same', () => {
+    const graph = createGraphSnapshot();
+    const quality = resolveGraphRenderQuality({ renderedNodeCount: 30, renderedEdgeCount: 30 });
+    const first = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), renderQuality: quality },
+      createStableFlowElementCache(),
+    );
+    const second = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), renderQuality: quality },
+      first.cache,
+    );
+
+    expect(second.nodes[0]).toBe(first.nodes[0]);
+    expect(second.edges[0]).toBe(first.edges[0]);
+  });
+
+  it('invalidates node references when render quality changes', () => {
+    const graph = createGraphSnapshot();
+    const lowQuality = resolveGraphRenderQuality({
+      renderedNodeCount: 30,
+      renderedEdgeCount: 30,
+    });
+    const highQuality = resolveGraphRenderQuality({
+      renderedNodeCount: 200,
+      renderedEdgeCount: 600,
+    });
+    const first = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), renderQuality: lowQuality },
+      createStableFlowElementCache(),
+    );
+    const second = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), renderQuality: highQuality },
       first.cache,
     );
 
     expect(second.nodes[0]).not.toBe(first.nodes[0]);
-    expect(second.nodes[0].data.isViewportInteracting).toBe(true);
+    expect(second.nodes[0].data.renderQuality).toBe(highQuality);
     expect(second.edges[0]).not.toBe(first.edges[0]);
     expect(second.edges[0].animated).toBe(false);
   });

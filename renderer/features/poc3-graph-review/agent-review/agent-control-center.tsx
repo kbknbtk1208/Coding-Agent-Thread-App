@@ -3,7 +3,6 @@
 import { Bot, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { ArchivedRemoteThreadSection } from '../provider-comments/archived-remote-thread-section';
 import { useArchivedRemoteThreads } from '../provider-comments/use-archived-remote-threads';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
@@ -15,7 +14,13 @@ import { isAgentReviewRunActive } from './agent-review-state';
 import { AgentReviewHistoryList } from './agent-review-history-list';
 import { AgentReviewNewRunPanel } from './agent-review-new-run-panel';
 import { AgentReviewRunDetailPanel } from './agent-review-run-detail-panel';
-import type { AgentReviewDockView, AgentReviewRun, SlideDirection } from './agent-review-types';
+import type {
+  AgentReviewDockView,
+  AgentReviewGraphMeta,
+  AgentReviewRun,
+  LoadFullGraphFn,
+  SlideDirection,
+} from './agent-review-types';
 import { OutdatedThreadSection } from './outdated-thread-section';
 import { useAgentReview } from './use-agent-review';
 import { useOutdatedAgentThreads } from './use-outdated-agent-threads';
@@ -44,14 +49,16 @@ const slideVariants = {
 };
 
 export interface AgentControlCenterProps {
-  graph: GraphRenderSnapshot;
+  graphMeta: AgentReviewGraphMeta;
   selectedWorkspace: ReviewWorkspaceListItem;
+  loadFullGraph?: LoadFullGraphFn;
   onCompleted?(): void;
 }
 
 export function AgentControlCenter({
-  graph,
+  graphMeta,
   selectedWorkspace,
+  loadFullGraph,
   onCompleted,
 }: AgentControlCenterProps) {
   const review = useAgentReview(selectedWorkspace.reviewWorkspaceId);
@@ -253,8 +260,9 @@ export function AgentControlCenter({
               >
                 <AgentReviewNewRunPanel
                   review={review}
-                  graph={graph}
+                  graphMeta={graphMeta}
                   selectedWorkspace={selectedWorkspace}
+                  loadFullGraph={loadFullGraph}
                   onBack={() => navigate({ kind: 'history' }, 'back')}
                   onStarted={(runId) => navigate({ kind: 'run-detail', runId }, 'forward')}
                 />

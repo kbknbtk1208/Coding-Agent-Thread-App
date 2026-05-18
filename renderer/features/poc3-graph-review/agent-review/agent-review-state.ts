@@ -44,6 +44,18 @@ export function buildAgentReviewStartRequest(input: {
   };
 }
 
+export function buildAgentReviewGraphMeta(input: {
+  scopeKey: string;
+  graphSnapshotId: string;
+  totalNodeCount: number;
+}): import('./agent-review-types').AgentReviewGraphMeta {
+  return {
+    scopeKey: input.scopeKey,
+    graphSnapshotId: input.graphSnapshotId,
+    totalNodeCount: input.totalNodeCount,
+  };
+}
+
 export function buildAgentReviewPrompt({ graph, workspace }: AgentReviewPromptContext): string {
   const diffNodes = graph.nodes.filter((node) => node.isDiffNode);
   const findingNodes = graph.nodes.filter((node) => node.badges.findingCount > 0);

@@ -10,13 +10,17 @@ import type {
   ListAgentThreadConversationsInput,
   ListAgentReviewRunsInput,
   ListArchivedRemoteThreadsInput,
+  ListGraphCommentSummariesInput,
   ListOutdatedAgentThreadsInput,
   ListResolveJudgementResultsInput,
   LoadAgentThreadConversationInput,
   LoadNodeCompanionDetailInput,
   LoadNodeDetailInput,
   LoadRepositoryLayerProfileInput,
+  LoadWorkspaceGraphFullInput,
   LoadWorkspaceGraphInput,
+  LoadWorkspaceGraphSummaryInput,
+  LoadWorkspaceGraphViewInput,
   LoadWorkspaceRevisionsInput,
   OpenWorkspaceInEditorInput,
   RemoveReviewWorkspaceInput,
@@ -151,6 +155,34 @@ export function registerPoc3GraphReviewIpc(
     POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraph,
     (_event, input: LoadWorkspaceGraphInput) => {
       return gateway.loadWorkspaceGraph(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraphView,
+    (_event, input: LoadWorkspaceGraphViewInput) => {
+      return gateway.loadWorkspaceGraphView(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraphSummary,
+    (_event, input: LoadWorkspaceGraphSummaryInput) => {
+      return gateway.loadWorkspaceGraphSummary(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraphFull,
+    (_event, input: LoadWorkspaceGraphFullInput) => {
+      return gateway.loadWorkspaceGraphFull(input);
+    },
+  );
+
+  ipcMain.handle(
+    POC3_GRAPH_REVIEW_IPC_CHANNELS.listGraphCommentSummaries,
+    (_event, input: ListGraphCommentSummariesInput) => {
+      return gateway.listGraphCommentSummaries(input);
     },
   );
 

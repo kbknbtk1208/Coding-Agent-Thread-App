@@ -5,15 +5,20 @@ import { useEffect, useRef, useState } from 'react';
 import { FaGithub } from 'react-icons/fa6';
 import { SiOpenai } from 'react-icons/si';
 import type { AgentKind } from '../../../../shared/domain/agent';
-import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { AgentReviewGlassSelect } from './agent-review-glass-select';
 import type { UseAgentReviewResult } from './use-agent-review';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
+import type {
+  AgentReviewGraphMeta,
+  LoadFullGraphFn,
+  LoadFullGraphState,
+} from './agent-review-types';
 
 export interface AgentReviewNewRunPanelProps {
   review: UseAgentReviewResult;
-  graph: GraphRenderSnapshot;
+  graphMeta: AgentReviewGraphMeta;
   selectedWorkspace: ReviewWorkspaceListItem;
+  loadFullGraph?: LoadFullGraphFn;
   onBack(): void;
   onStarted(runId: string): void;
 }
@@ -25,12 +30,15 @@ const AGENT_OPTIONS: { value: AgentKind; label: string; provider: string }[] = [
 
 export function AgentReviewNewRunPanel({
   review,
-  graph,
+  graphMeta,
   selectedWorkspace,
+  loadFullGraph,
   onBack,
   onStarted,
 }: AgentReviewNewRunPanelProps) {
-  const disabled = !review.canStart || graph.nodes.length === 0;
+  const [fullGraphState, setFullGraphState] = useState<LoadFullGraphState>({ status: 'idle' });
+  const disabled =
+    !review.canStart || graphMeta.totalNodeCount === 0 || fullGraphState.status === 'loading';
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const selectedAgentOption =
@@ -82,8 +90,29 @@ export function AgentReviewNewRunPanel({
       : (selectedCodexModel?.supportedReasoningEfforts ?? []);
 
   const handleRunReview = async () => {
+    if (loadFullGraph) {
+      setFullGraphState({ status: 'loading' });
+      try {
+        const fullGraph = await loadFullGraph();
+        if (!fullGraph) {
+          setFullGraphState({
+            status: 'failed',
+            message: 'Full graph snapshot の取得に失敗しました。',
+          });
+          return;
+        }
+      } catch (err) {
+        setFullGraphState({
+          status: 'failed',
+          message:
+            err instanceof Error ? err.message : 'Full graph snapshot の取得に失敗しました。',
+        });
+        return;
+      }
+    }
+    setFullGraphState({ status: 'idle' });
     const started = await review.startReview({
-      target: { workspace: selectedWorkspace, graph },
+      target: { workspace: selectedWorkspace, graph: graphMeta },
     });
     if (started) {
       onStarted(started.runId);
@@ -262,13 +291,26 @@ export function AgentReviewNewRunPanel({
         className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[7px] bg-[#d8e071] px-3 text-[12px] font-semibold text-black transition hover:bg-[#edf58a] disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/28"
         onClick={() => void handleRunReview()}
       >
-        {review.activeRun ? (
+        {review.activeRun || fullGraphState.status === 'loading' ? (
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
         ) : (
           <Play className="size-4" aria-hidden="true" />
         )}
-        {review.activeRun ? 'Running' : 'Run Review'}
+        {review.activeRun
+          ? 'Running'
+          : fullGraphState.status === 'loading'
+            ? 'Loading graph'
+            : 'Run Review'}
       </button>
+
+      {fullGraphState.status === 'failed' ? (
+        <p
+          role="alert"
+          className="rounded-[6px] border border-[#ff7d7d]/25 bg-[#ff7d7d]/10 px-2 py-1.5 text-[11px] text-[#ffd4d4]"
+        >
+          {fullGraphState.message}
+        </p>
+      ) : null}
     </div>
   );
 }

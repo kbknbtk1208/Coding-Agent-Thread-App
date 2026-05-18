@@ -4,12 +4,13 @@ import type {
   GraphRenderNode,
   GraphRenderSnapshot,
 } from '../../../../shared/poc3-domain/graph';
+import { DEFAULT_GRAPH_RENDER_QUALITY, type GraphRenderQuality } from './graph-render-quality';
 
 export interface Poc3CodeFlowNodeData extends Record<string, unknown> {
   kind: 'code';
   graphNode: GraphRenderNode;
   isFileHighlighted: boolean;
-  isViewportInteracting: boolean;
+  renderQuality: GraphRenderQuality;
 }
 
 export interface Poc3FlowEdgeData extends Record<string, unknown> {
@@ -24,7 +25,7 @@ export interface ToReactFlowElementsOptions {
   selectedNodeId?: string | null;
   highlightedFilePath?: string | null;
   includeLayers?: boolean;
-  isViewportInteracting?: boolean;
+  renderQuality?: GraphRenderQuality;
 }
 
 export function toReactFlowElements(
@@ -37,7 +38,7 @@ export function toReactFlowElements(
   const selectedNodeId = options.selectedNodeId ?? null;
   const highlightedFilePath = options.highlightedFilePath ?? null;
   const includeLayers = options.includeLayers ?? true;
-  const isViewportInteracting = options.isViewportInteracting ?? false;
+  const renderQuality = options.renderQuality ?? DEFAULT_GRAPH_RENDER_QUALITY;
 
   return {
     nodes: snapshot.nodes.map(
@@ -53,7 +54,7 @@ export function toReactFlowElements(
           kind: 'code',
           graphNode: node,
           isFileHighlighted: highlightedFilePath != null && node.filePath === highlightedFilePath,
-          isViewportInteracting,
+          renderQuality,
         },
       }),
     ),
@@ -65,7 +66,7 @@ export function toReactFlowElements(
       label: edge.label ?? undefined,
       data: { graphEdge: edge },
       animated:
-        !isViewportInteracting &&
+        !renderQuality.disableEdgeAnimation &&
         (edge.kind === 'calls' || edge.kind === 'constructs' || edge.kind === 'renders'),
       style:
         includeLayers && edge.layer?.isArchitectureViolation

@@ -35,10 +35,23 @@ export interface AgentReviewRun {
   serverRun?: Poc3AgentReviewRun;
 }
 
+export interface AgentReviewGraphMeta {
+  scopeKey: string;
+  graphSnapshotId: string;
+  totalNodeCount: number;
+}
+
 export interface AgentReviewTarget {
   workspace: ReviewWorkspaceListItem;
-  graph: GraphRenderSnapshot;
+  graph: AgentReviewGraphMeta;
 }
+
+export type LoadFullGraphState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'failed'; message: string };
+
+export type LoadFullGraphFn = () => Promise<GraphRenderSnapshot | null>;
 
 export interface AgentReviewStartInput {
   agent: AgentKind;

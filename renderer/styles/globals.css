@@ -285,4 +285,14 @@
   .animate-test-case-flash {
     animation: test-case-flash 1.5s ease-out;
   }
+
+  [data-poc3-viewport-interacting="true"] .poc3-graph-node-card {
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  [data-poc3-viewport-interacting="true"] .poc3-selected-node-sweep,
+  [data-poc3-viewport-interacting="true"] .poc3-liquid-metal-node-border-shader {
+    display: none;
+  }
 }
