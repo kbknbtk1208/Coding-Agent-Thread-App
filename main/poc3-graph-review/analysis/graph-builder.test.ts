@@ -4,7 +4,7 @@ import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ReviewSourceSnapshot } from '../../../shared/poc3-domain/source-snapshot';
 import type { DependencyExtractionResult } from './dependency-extractor';
-import { buildInitialGraph } from './graph-builder';
+import { buildInitialGraph, parseGraphLimit } from './graph-builder';
 
 const tempDirs: string[] = [];
 
@@ -342,5 +342,19 @@ describe('buildInitialGraph', () => {
         existsInDiff: false,
       }),
     ]);
+  });
+});
+
+describe('parseGraphLimit', () => {
+  it('uses the default for missing, empty, and invalid values', () => {
+    expect(parseGraphLimit(undefined, 250, 50, 600)).toBe(250);
+    expect(parseGraphLimit('', 250, 50, 600)).toBe(250);
+    expect(parseGraphLimit('not-a-number', 250, 50, 600)).toBe(250);
+  });
+
+  it('clamps only numeric values outside the supported range', () => {
+    expect(parseGraphLimit('20', 250, 50, 600)).toBe(50);
+    expect(parseGraphLimit('900', 250, 50, 600)).toBe(600);
+    expect(parseGraphLimit('123.9', 250, 50, 600)).toBe(123);
   });
 });

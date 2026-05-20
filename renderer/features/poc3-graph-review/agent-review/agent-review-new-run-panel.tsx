@@ -8,17 +8,12 @@ import type { AgentKind } from '../../../../shared/domain/agent';
 import { AgentReviewGlassSelect } from './agent-review-glass-select';
 import type { UseAgentReviewResult } from './use-agent-review';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
-import type {
-  AgentReviewGraphMeta,
-  LoadFullGraphFn,
-  LoadFullGraphState,
-} from './agent-review-types';
+import type { AgentReviewGraphMeta } from './agent-review-types';
 
 export interface AgentReviewNewRunPanelProps {
   review: UseAgentReviewResult;
   graphMeta: AgentReviewGraphMeta;
   selectedWorkspace: ReviewWorkspaceListItem;
-  loadFullGraph?: LoadFullGraphFn;
   onBack(): void;
   onStarted(runId: string): void;
 }
@@ -32,13 +27,10 @@ export function AgentReviewNewRunPanel({
   review,
   graphMeta,
   selectedWorkspace,
-  loadFullGraph,
   onBack,
   onStarted,
 }: AgentReviewNewRunPanelProps) {
-  const [fullGraphState, setFullGraphState] = useState<LoadFullGraphState>({ status: 'idle' });
-  const disabled =
-    !review.canStart || graphMeta.totalNodeCount === 0 || fullGraphState.status === 'loading';
+  const disabled = !review.canStart || graphMeta.totalNodeCount === 0;
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const selectedAgentOption =
@@ -90,27 +82,6 @@ export function AgentReviewNewRunPanel({
       : (selectedCodexModel?.supportedReasoningEfforts ?? []);
 
   const handleRunReview = async () => {
-    if (loadFullGraph) {
-      setFullGraphState({ status: 'loading' });
-      try {
-        const fullGraph = await loadFullGraph();
-        if (!fullGraph) {
-          setFullGraphState({
-            status: 'failed',
-            message: 'Full graph snapshot の取得に失敗しました。',
-          });
-          return;
-        }
-      } catch (err) {
-        setFullGraphState({
-          status: 'failed',
-          message:
-            err instanceof Error ? err.message : 'Full graph snapshot の取得に失敗しました。',
-        });
-        return;
-      }
-    }
-    setFullGraphState({ status: 'idle' });
     const started = await review.startReview({
       target: { workspace: selectedWorkspace, graph: graphMeta },
     });
@@ -291,26 +262,13 @@ export function AgentReviewNewRunPanel({
         className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[7px] bg-[#d8e071] px-3 text-[12px] font-semibold text-black transition hover:bg-[#edf58a] disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/28"
         onClick={() => void handleRunReview()}
       >
-        {review.activeRun || fullGraphState.status === 'loading' ? (
+        {review.activeRun ? (
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
         ) : (
           <Play className="size-4" aria-hidden="true" />
         )}
-        {review.activeRun
-          ? 'Running'
-          : fullGraphState.status === 'loading'
-            ? 'Loading graph'
-            : 'Run Review'}
+        {review.activeRun ? 'Running' : 'Run Review'}
       </button>
-
-      {fullGraphState.status === 'failed' ? (
-        <p
-          role="alert"
-          className="rounded-[6px] border border-[#ff7d7d]/25 bg-[#ff7d7d]/10 px-2 py-1.5 text-[11px] text-[#ffd4d4]"
-        >
-          {fullGraphState.message}
-        </p>
-      ) : null}
     </div>
   );
 }

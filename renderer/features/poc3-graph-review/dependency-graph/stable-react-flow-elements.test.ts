@@ -89,6 +89,42 @@ describe('reconcileReactFlowElements', () => {
     expect(second.edges[0]).toBe(first.edges[0]);
   });
 
+  it('invalidates edge references when layer edge styling is toggled off', () => {
+    const graph = createLayeredGraphSnapshot();
+    const first = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), includeLayers: true },
+      createStableFlowElementCache(),
+    );
+    const second = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), includeLayers: false },
+      first.cache,
+    );
+
+    expect(first.edges[0].style).toMatchObject({ stroke: '#ff8a4c' });
+    expect(second.edges[0]).not.toBe(first.edges[0]);
+    expect(second.edges[0].style).toBeUndefined();
+  });
+
+  it('invalidates edge references when layer edge styling is toggled on', () => {
+    const graph = createLayeredGraphSnapshot();
+    const first = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), includeLayers: false },
+      createStableFlowElementCache(),
+    );
+    const second = reconcileReactFlowElements(
+      graph,
+      { ...emptyViewState(), includeLayers: true },
+      first.cache,
+    );
+
+    expect(first.edges[0].style).toBeUndefined();
+    expect(second.edges[0]).not.toBe(first.edges[0]);
+    expect(second.edges[0].style).toMatchObject({ stroke: '#ff8a4c' });
+  });
+
   it('reuses node references when render quality stays the same', () => {
     const graph = createGraphSnapshot();
     const quality = resolveGraphRenderQuality({ renderedNodeCount: 30, renderedEdgeCount: 30 });

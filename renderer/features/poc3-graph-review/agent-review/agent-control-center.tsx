@@ -18,7 +18,6 @@ import type {
   AgentReviewDockView,
   AgentReviewGraphMeta,
   AgentReviewRun,
-  LoadFullGraphFn,
   SlideDirection,
 } from './agent-review-types';
 import { OutdatedThreadSection } from './outdated-thread-section';
@@ -51,14 +50,12 @@ const slideVariants = {
 export interface AgentControlCenterProps {
   graphMeta: AgentReviewGraphMeta;
   selectedWorkspace: ReviewWorkspaceListItem;
-  loadFullGraph?: LoadFullGraphFn;
   onCompleted?(): void;
 }
 
 export function AgentControlCenter({
   graphMeta,
   selectedWorkspace,
-  loadFullGraph,
   onCompleted,
 }: AgentControlCenterProps) {
   const review = useAgentReview(selectedWorkspace.reviewWorkspaceId);
@@ -262,7 +259,6 @@ export function AgentControlCenter({
                   review={review}
                   graphMeta={graphMeta}
                   selectedWorkspace={selectedWorkspace}
-                  loadFullGraph={loadFullGraph}
                   onBack={() => navigate({ kind: 'history' }, 'back')}
                   onStarted={(runId) => navigate({ kind: 'run-detail', runId }, 'forward')}
                 />

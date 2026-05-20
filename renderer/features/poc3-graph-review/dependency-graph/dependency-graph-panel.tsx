@@ -236,14 +236,6 @@ function ReadyGraphContent({
           totalNodeCount: summary.totalNodeCount,
         }}
         selectedWorkspace={selectedWorkspace}
-        loadFullGraph={async () => {
-          const result = await window.poc3GraphReviewApi.loadWorkspaceGraphFull({
-            reviewWorkspaceId: selectedWorkspace.reviewWorkspaceId,
-            scopeKey: summary.scopeKey,
-            includeLayers: layerDisplayEnabled,
-          });
-          return result.ok ? (result.graph ?? null) : null;
-        }}
         onCompleted={onCompleted}
       />
     </ResolveJudgementContext.Provider>

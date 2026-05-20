@@ -35,6 +35,7 @@ interface CachedFlowNode {
 interface CachedFlowEdge {
   signature: string;
   animated: boolean;
+  styleSignature: string;
   flowEdge: Poc3FlowEdge;
 }
 
@@ -93,14 +94,20 @@ export function reconcileReactFlowElements(
     }
     const signature = buildEdgeSignature(graphEdge);
     const animated = flowEdge.animated === true;
+    const styleSignature = buildFlowEdgeStyleSignature(flowEdge.style);
     const cached = previous.edgesById.get(flowEdge.id);
 
-    if (cached && cached.signature === signature && cached.animated === animated) {
+    if (
+      cached &&
+      cached.signature === signature &&
+      cached.animated === animated &&
+      cached.styleSignature === styleSignature
+    ) {
       nextCache.edgesById.set(flowEdge.id, cached);
       return cached.flowEdge;
     }
 
-    const nextCached = { signature, animated, flowEdge };
+    const nextCached = { signature, animated, styleSignature, flowEdge };
     nextCache.edgesById.set(flowEdge.id, nextCached);
     return flowEdge;
   });
@@ -155,4 +162,15 @@ function buildEdgeSignature(edge: GraphRenderEdge): string {
     edge.layer?.direction ?? '',
     edge.layer?.isArchitectureViolation ? '1' : '0',
   ].join('\0');
+}
+
+function buildFlowEdgeStyleSignature(style: Poc3FlowEdge['style']): string {
+  if (!style) {
+    return '';
+  }
+  const entries = style as Record<string, unknown>;
+  return Object.keys(entries)
+    .sort()
+    .map((key) => `${key}:${String(entries[key])}`)
+    .join('\0');
 }

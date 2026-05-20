@@ -46,13 +46,6 @@ export interface AgentReviewTarget {
   graph: AgentReviewGraphMeta;
 }
 
-export type LoadFullGraphState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'failed'; message: string };
-
-export type LoadFullGraphFn = () => Promise<GraphRenderSnapshot | null>;
-
 export interface AgentReviewStartInput {
   agent: AgentKind;
   instructions: string;

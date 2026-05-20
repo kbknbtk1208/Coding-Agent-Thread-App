@@ -2481,7 +2481,7 @@ function toRenderSnapshot(
   };
 }
 
-function buildGraphViewSnapshot(
+export function buildGraphViewSnapshot(
   fullGraph: GraphRenderSnapshot,
   options: { mode: 'initial' | 'revealed'; revealedNodeIds: string[] },
 ): GraphRenderSnapshot {
@@ -2496,22 +2496,130 @@ function buildGraphViewSnapshot(
       visibleNodeIds.add(nodeId);
     }
   }
+  const nodes = fullGraph.nodes.filter((node) => visibleNodeIds.has(node.nodeId));
+  const edges = fullGraph.edges.filter(
+    (edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId),
+  );
+
   return {
     ...fullGraph,
-    nodes: fullGraph.nodes.filter((node) => visibleNodeIds.has(node.nodeId)),
-    edges: fullGraph.edges.filter(
-      (edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId),
-    ),
-    layers: fullGraph.layers
-      ? {
-          ...fullGraph.layers,
-          lanes: fullGraph.layers.lanes.map((lane) => ({
-            ...lane,
-            nodeIds: lane.nodeIds.filter((nodeId) => visibleNodeIds.has(nodeId)),
-          })),
-        }
-      : fullGraph.layers,
+    nodes,
+    edges,
+    layers: buildGraphViewLayerSnapshot(fullGraph.layers, nodes, edges),
     viewport: null,
+  };
+}
+
+function buildGraphViewLayerSnapshot(
+  layers: GraphLayerRenderSnapshot | null | undefined,
+  nodes: GraphRenderSnapshot['nodes'],
+  edges: GraphRenderSnapshot['edges'],
+): GraphLayerRenderSnapshot | null | undefined {
+  if (!layers) {
+    return layers;
+  }
+
+  const nodeById = new Map(nodes.map((node) => [node.nodeId, node]));
+  const visibleEdgeIds = new Set(edges.map((edge) => edge.edgeId));
+  const nodeClassifications = nodes
+    .map((node) => node.layer)
+    .filter((classification) => classification != null);
+  const lanes = layers.lanes
+    .map((lane) => {
+      const nodeIds = lane.nodeIds.filter((nodeId) => nodeById.has(nodeId));
+      if (nodeIds.length === 0) {
+        return null;
+      }
+      const laneNodes = nodeIds.map((nodeId) => nodeById.get(nodeId)!);
+      return {
+        ...lane,
+        nodeIds,
+        bounds: buildLayerBounds(laneNodes),
+      };
+    })
+    .filter((lane): lane is GraphLayerRenderSnapshot['lanes'][number] => lane != null);
+  const laneById = new Map(lanes.map((lane) => [lane.laneId, lane]));
+  const groups = layers.groups
+    .map((group) => {
+      const childLaneIds = group.childLaneIds.filter((laneId) => laneById.has(laneId));
+      if (childLaneIds.length === 0) {
+        return null;
+      }
+      return {
+        ...group,
+        childLaneIds,
+        bounds: buildBoundsFromLayerBounds(
+          childLaneIds.map((laneId) => laneById.get(laneId)!.bounds),
+        ),
+      };
+    })
+    .filter((group): group is GraphLayerRenderSnapshot['groups'][number] => group != null);
+
+  return {
+    ...layers,
+    lanes,
+    groups,
+    unclassifiedSummary: buildUnclassifiedDirectorySuggestions({
+      classifications: nodeClassifications,
+    }),
+    ignoredSummary: buildLayerIgnoredSummary(nodeClassifications),
+    violationEdgeIds: layers.violationEdgeIds.filter((edgeId) => visibleEdgeIds.has(edgeId)),
+  };
+}
+
+function buildLayerIgnoredSummary(
+  classifications: NonNullable<GraphRenderSnapshot['nodes'][number]['layer']>[],
+): GraphLayerRenderSnapshot['ignoredSummary'] {
+  const ignored = classifications.filter((classification) => classification.status === 'ignored');
+  return {
+    nodeCount: ignored.length,
+    fileCount: new Set(
+      ignored
+        .map((classification) => classification.normalizedFilePath)
+        .filter((filePath): filePath is string => filePath != null),
+    ).size,
+  };
+}
+
+function buildLayerBounds(
+  nodes: GraphRenderSnapshot['nodes'],
+): GraphLayerRenderSnapshot['lanes'][number]['bounds'] {
+  const nodeBounds = nodes.map((node) => ({
+    x: node.position.x,
+    y: node.position.y,
+    width: node.size.width,
+    height: node.size.height,
+  }));
+  return padLayerBounds(buildBoundsFromLayerBounds(nodeBounds));
+}
+
+function buildBoundsFromLayerBounds(
+  bounds: GraphLayerRenderSnapshot['lanes'][number]['bounds'][],
+): GraphLayerRenderSnapshot['lanes'][number]['bounds'] {
+  const minX = Math.min(...bounds.map((item) => item.x));
+  const minY = Math.min(...bounds.map((item) => item.y));
+  const maxX = Math.max(...bounds.map((item) => item.x + item.width));
+  const maxY = Math.max(...bounds.map((item) => item.y + item.height));
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function padLayerBounds(
+  bounds: GraphLayerRenderSnapshot['lanes'][number]['bounds'],
+): GraphLayerRenderSnapshot['lanes'][number]['bounds'] {
+  const paddingX = 64;
+  const paddingY = 72;
+  const width = Math.max(360, bounds.width + paddingX * 2);
+  const height = Math.max(240, bounds.height + paddingY * 2);
+  return {
+    x: bounds.x - paddingX,
+    y: bounds.y - paddingY,
+    width,
+    height,
   };
 }
 
