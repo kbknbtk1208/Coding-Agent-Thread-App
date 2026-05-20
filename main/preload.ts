@@ -62,10 +62,17 @@ import {
   type InferRepositoryLayerProfileInput,
   type InferRepositoryLayerProfileResult,
   type LayerApplicationEvent,
+  type ListGraphCommentSummariesInput,
+  type ListGraphCommentSummariesResult,
   type LoadWorkspaceRevisionsInput,
   type LoadWorkspaceRevisionsResult,
+  type LoadWorkspaceGraphFullInput,
   type LoadWorkspaceGraphInput,
   type LoadWorkspaceGraphResult,
+  type LoadWorkspaceGraphSummaryInput,
+  type LoadWorkspaceGraphSummaryResult,
+  type LoadWorkspaceGraphViewInput,
+  type LoadWorkspaceGraphViewResult,
   type LoadRepositoryLayerProfileInput,
   type LoadRepositoryLayerProfileResult,
   type RefreshWorkspaceRevisionsInput,
@@ -298,6 +305,24 @@ const poc3GraphReviewApi = {
   },
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraph, input);
+  },
+  loadWorkspaceGraphView(
+    input: LoadWorkspaceGraphViewInput,
+  ): Promise<LoadWorkspaceGraphViewResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraphView, input);
+  },
+  loadWorkspaceGraphSummary(
+    input: LoadWorkspaceGraphSummaryInput,
+  ): Promise<LoadWorkspaceGraphSummaryResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraphSummary, input);
+  },
+  loadWorkspaceGraphFull(input: LoadWorkspaceGraphFullInput): Promise<LoadWorkspaceGraphResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.loadWorkspaceGraphFull, input);
+  },
+  listGraphCommentSummaries(
+    input: ListGraphCommentSummariesInput,
+  ): Promise<ListGraphCommentSummariesResult> {
+    return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.listGraphCommentSummaries, input);
   },
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult> {
     return ipcRenderer.invoke(POC3_GRAPH_REVIEW_IPC_CHANNELS.retryGraphAnalysis, input);

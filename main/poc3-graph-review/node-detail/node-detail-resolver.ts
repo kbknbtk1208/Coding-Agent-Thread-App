@@ -47,6 +47,7 @@ import { fallbackGridLayout } from '../layout/elk-layout-service';
 import type { WorkspaceGraphRecord } from '../store/graph-review-store';
 import { isUnitOrIntegrationTestFile } from '../analysis/test-file-classifier';
 import { buildPublishedThreadVisibility } from '../published-agent-thread/visibility';
+import { buildGraphRelationIndex, type GraphRelationIndex } from './graph-relation-index';
 
 export interface ResolveNodeDetailContext {
   workspace: ReviewWorkspace;
@@ -61,6 +62,7 @@ export interface ResolveNodeDetailContext {
   outdatedAgentThreads?: Poc3OutdatedAgentThread[];
   runById?: Map<string, Poc3AgentReviewRun>;
   publishedAgentThreadLinks?: PublishedAgentThreadLink[];
+  relationIndex?: GraphRelationIndex;
 }
 
 export interface ResolveNodeDetailResult {
@@ -111,7 +113,10 @@ export function resolveNodeDetail(context: ResolveNodeDetailContext): ResolveNod
   const functionCode = resolveFunctionCode(renderNode, workspace, diagnostics);
   const fileContext = resolveFileContext(renderNode, workspace, diagnostics, viewMode);
   const codeExcerpt = toLegacyCodeExcerpt(functionCode, fileContext);
-  const relations = resolveRelations(renderNode, renderSnapshot);
+  const relations = resolveRelations(
+    renderNode,
+    context.relationIndex ?? buildGraphRelationIndex(renderSnapshot),
+  );
   const agentThreads = context.agentThreads ?? [];
   const outdatedAgentThreads = resolveOutdatedAgentThreadsForNode(
     renderNode,
@@ -628,27 +633,19 @@ function detectLanguage(filePath: string): NodeCodeExcerptLanguage {
   return 'text';
 }
 
-function resolveRelations(
-  node: GraphRenderNode,
-  snapshot: GraphRenderSnapshot,
-): NodeRelationSummary {
-  const byNodeId = new Map<string, GraphRenderNode>(
-    snapshot.nodes.map((value) => [value.nodeId, value] as const),
-  );
+function resolveRelations(node: GraphRenderNode, index: GraphRelationIndex): NodeRelationSummary {
   const incoming: NodeRelationItem[] = [];
   const outgoing: NodeRelationItem[] = [];
-  for (const edge of snapshot.edges) {
-    if (edge.targetNodeId === node.nodeId) {
-      const other = byNodeId.get(edge.sourceNodeId);
-      if (other) {
-        incoming.push(toRelationItem(edge, other));
-      }
+  for (const edge of index.incomingByNodeId.get(node.nodeId) ?? []) {
+    const other = index.nodeById.get(edge.sourceNodeId);
+    if (other) {
+      incoming.push(toRelationItem(edge, other));
     }
-    if (edge.sourceNodeId === node.nodeId) {
-      const other = byNodeId.get(edge.targetNodeId);
-      if (other) {
-        outgoing.push(toRelationItem(edge, other));
-      }
+  }
+  for (const edge of index.outgoingByNodeId.get(node.nodeId) ?? []) {
+    const other = index.nodeById.get(edge.targetNodeId);
+    if (other) {
+      outgoing.push(toRelationItem(edge, other));
     }
   }
   const incomingOverflowCount = Math.max(incoming.length - RELATION_LIMIT, 0);

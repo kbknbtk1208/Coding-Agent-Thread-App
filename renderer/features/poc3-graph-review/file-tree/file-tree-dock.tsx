@@ -2,19 +2,19 @@
 
 import { Files, X } from 'lucide-react';
 import { AnimatePresence, motion, useDragControls, useMotionValue } from 'motion/react';
-import { useCallback, useRef, useState } from 'react';
-import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { GraphFileSummary } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import {
   DOCK_GLASS_STYLE,
   DOCK_SHEEN_STYLE,
   useDockAnimationStage,
 } from '../components/use-dock-animation-stage';
 import {
-  buildDiffFileTree,
+  buildDiffFileTreeFromSummaries,
   collectDefaultExpanded,
   type DiffFileTreeItem,
 } from './build-diff-file-tree';
-import { Poc3FolderTree } from './poc3-folder-tree';
+import { VirtualizedFileTree } from './virtualized-file-tree';
 
 const DOCK_WIDTH = 272;
 const DOCK_HEIGHT = 'min(72vh, 480px)';
@@ -24,11 +24,12 @@ const MIN_EXPANDED_WIDTH = 240;
 const MAX_EXPANDED_WIDTH = 640;
 
 interface FileTreeDockProps {
-  graph: GraphRenderSnapshot;
+  files: GraphFileSummary[];
+  graphSnapshotId: string;
   onFileSelect?: (filePath: string) => void;
 }
 
-export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
+export function FileTreeDock({ files, graphSnapshotId, onFileSelect }: FileTreeDockProps) {
   const { stage, isCollapsed, isExpanded, expand, collapse } = useDockAnimationStage();
   const dragControls = useDragControls();
   const x = useMotionValue(0);
@@ -37,10 +38,15 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
   const [expandedWidth, setExpandedWidth] = useState(DOCK_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
 
-  const treeItems = buildDiffFileTree(graph.nodes);
+  const treeModel = useMemo(() => {
+    const treeItems = buildDiffFileTreeFromSummaries(files);
+    return {
+      treeItems,
+      defaultExpanded: collectDefaultExpanded(treeItems),
+    };
+  }, [files, graphSnapshotId]);
+  const { treeItems, defaultExpanded } = treeModel;
   if (treeItems.length === 0) return null;
-
-  const defaultExpanded = collectDefaultExpanded(treeItems);
 
   const handleTreeSelect = useCallback(
     (id: string) => {
@@ -50,6 +56,13 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
       }
     },
     [treeItems, onFileSelect],
+  );
+
+  const renderAccessory = useCallback(
+    (item: DiffFileTreeItem) => (
+      <CountBadges finding={item.findingCount} remote={item.remoteCount} />
+    ),
+    [],
   );
 
   const handleResizePointerDown = useCallback(
@@ -184,24 +197,23 @@ export function FileTreeDock({ graph, onFileSelect }: FileTreeDockProps) {
       </AnimatePresence>
 
       {/* tree content */}
-      <motion.div
-        className="relative z-10 flex-1 overflow-hidden"
-        animate={{ opacity: isExpanded ? 1 : 0 }}
-        transition={{ duration: 0.25 }}
-      >
-        <div
-          className="overflow-y-auto py-1.5"
-          style={{ maxHeight: `calc(${DOCK_HEIGHT} - 44px)` }}
+      {!isCollapsed ? (
+        <motion.div
+          className="relative z-10 flex-1 overflow-hidden"
+          animate={{ opacity: isExpanded ? 1 : 0 }}
+          transition={{ duration: 0.25 }}
         >
-          <Poc3FolderTree.Root
-            id="file-tree-dock"
-            defaultExpanded={defaultExpanded}
-            onSelect={handleTreeSelect}
-          >
-            {renderItems(treeItems)}
-          </Poc3FolderTree.Root>
-        </div>
-      </motion.div>
+          <div className="py-1.5" style={{ height: `calc(${DOCK_HEIGHT} - 44px)` }}>
+            <VirtualizedFileTree
+              id="file-tree-dock"
+              items={treeItems}
+              defaultExpanded={defaultExpanded}
+              onSelect={handleTreeSelect}
+              renderAccessory={renderAccessory}
+            />
+          </div>
+        </motion.div>
+      ) : null}
 
       {/* resize handle — only when fully expanded */}
       {isExpanded && (
@@ -230,24 +242,6 @@ function findItem(items: DiffFileTreeItem[], id: string): DiffFileTreeItem | nul
     }
   }
   return null;
-}
-
-function renderItems(items: DiffFileTreeItem[]) {
-  return items.map((item) => {
-    const accessory = <CountBadges finding={item.findingCount} remote={item.remoteCount} />;
-    if (item.kind === 'file') {
-      return (
-        <Poc3FolderTree.Item key={item.id} id={item.id} label={item.name} accessory={accessory} />
-      );
-    }
-    return (
-      <Poc3FolderTree.Item key={item.id} id={item.id} label={item.name} accessory={accessory}>
-        {item.children.length > 0 && (
-          <Poc3FolderTree.Content>{renderItems(item.children)}</Poc3FolderTree.Content>
-        )}
-      </Poc3FolderTree.Item>
-    );
-  });
 }
 
 function CountBadges({ finding, remote }: { finding: number; remote: number }) {

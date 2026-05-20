@@ -83,7 +83,14 @@ describe('agent-review-state', () => {
   it('includes Codex model and effort only for Codex review starts', () => {
     expect(
       buildAgentReviewStartRequest({
-        target: { workspace, graph },
+        target: {
+          workspace,
+          graph: {
+            scopeKey: graph.scopeKey,
+            graphSnapshotId: graph.graphSnapshotId,
+            totalNodeCount: graph.nodes.length,
+          },
+        },
         selectedAgent: 'codex',
         instructions: 'Focus.',
         codexModel: 'gpt-5.4',
@@ -97,7 +104,14 @@ describe('agent-review-state', () => {
 
     expect(
       buildAgentReviewStartRequest({
-        target: { workspace, graph },
+        target: {
+          workspace,
+          graph: {
+            scopeKey: graph.scopeKey,
+            graphSnapshotId: graph.graphSnapshotId,
+            totalNodeCount: graph.nodes.length,
+          },
+        },
         selectedAgent: 'copilot',
         instructions: 'Focus.',
         codexModel: 'gpt-5.4',

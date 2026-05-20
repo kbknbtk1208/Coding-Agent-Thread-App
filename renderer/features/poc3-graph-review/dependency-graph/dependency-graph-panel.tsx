@@ -2,6 +2,7 @@
 
 import { Network } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { GraphViewSummary } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { AgentControlCenter } from '../agent-review/agent-control-center';
 import { CommentListDock } from '../comment-list/comment-list-dock';
@@ -18,6 +19,7 @@ import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspace
 import { DependencyGraphCanvas } from './dependency-graph-canvas';
 import { GraphAnalysisState } from './graph-analysis-state';
 import { GraphEmptyState } from './graph-empty-state';
+import { resolveGraphRenderQualityFromSummary } from './graph-render-quality';
 import { useWorkspaceGraph } from './use-workspace-graph';
 
 export function DependencyGraphPanel({
@@ -30,21 +32,21 @@ export function DependencyGraphPanel({
   onOpenLayerSettings?: () => void;
 }) {
   const [layerDisplayEnabled, setLayerDisplayEnabled] = useState(true);
+  const [revealedNodeIds, setRevealedNodeIds] = useState<Set<string>>(() => new Set());
   const { state, reload, retry, layerWarningMessage } = useWorkspaceGraph(
     selectedWorkspace,
     reloadNonce,
-    { includeLayers: layerDisplayEnabled },
+    { includeLayers: layerDisplayEnabled, revealedNodeIds: Array.from(revealedNodeIds) },
   );
   const [highlightedFilePath, setHighlightedFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [scrollTarget, setScrollTarget] = useState<NodeDetailScrollTarget | null>(null);
-  const [revealedNodeIds, setRevealedNodeIds] = useState<Set<string>>(() => new Set());
   const graph = state.status === 'ready' ? state.result.graph : null;
   const revealIfHidden = useCallback(
     (id: string | null) => {
       if (!id || !graph) return;
       const node = graph.nodes.find((n) => n.nodeId === id);
-      if (!node || node.isDiffNode) return;
+      if (node?.isDiffNode) return;
       setRevealedNodeIds((current) => {
         if (current.has(id)) return current;
         const next = new Set(current);
@@ -118,7 +120,7 @@ export function DependencyGraphPanel({
       {state.status === 'ready' && state.result.graph && state.result.graph.nodes.length > 0 ? (
         <ReadyGraphContent
           graph={state.result.graph}
-          revealedNodeIds={revealedNodeIds}
+          summary={state.result.summary}
           selectedWorkspace={selectedWorkspace}
           highlightedFilePath={highlightedFilePath}
           selectedNodeId={selectedNodeId}
@@ -139,7 +141,7 @@ export function DependencyGraphPanel({
 
 function ReadyGraphContent({
   graph,
-  revealedNodeIds,
+  summary,
   selectedWorkspace,
   highlightedFilePath,
   selectedNodeId,
@@ -154,7 +156,7 @@ function ReadyGraphContent({
   onCompleted,
 }: {
   graph: GraphRenderSnapshot;
-  revealedNodeIds: Set<string>;
+  summary: GraphViewSummary;
   selectedWorkspace: ReviewWorkspaceListItem;
   highlightedFilePath: string | null;
   selectedNodeId: string | null;
@@ -170,8 +172,9 @@ function ReadyGraphContent({
 }) {
   const [commentListRefreshKey, setCommentListRefreshKey] = useState(0);
   const { items, revisionId } = useCommentList(
-    graph,
     selectedWorkspace.reviewWorkspaceId,
+    graph.scopeKey,
+    graph.graphSnapshotId,
     commentListRefreshKey,
   );
   const judgements = useResolveJudgements({
@@ -180,35 +183,6 @@ function ReadyGraphContent({
     scopeKey: graph.scopeKey,
     agent: 'codex',
   });
-
-  const canvasGraph = useMemo<GraphRenderSnapshot>(() => {
-    const visibleNodeIds = new Set<string>();
-    for (const node of graph.nodes) {
-      if (node.isDiffNode) {
-        visibleNodeIds.add(node.nodeId);
-      }
-    }
-    for (const id of Array.from(revealedNodeIds)) {
-      visibleNodeIds.add(id);
-    }
-    return {
-      ...graph,
-      nodes: graph.nodes.filter((node) => visibleNodeIds.has(node.nodeId)),
-      edges: graph.edges.filter(
-        (edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId),
-      ),
-      layers: graph.layers
-        ? {
-            ...graph.layers,
-            lanes: graph.layers.lanes.map((lane) => ({
-              ...lane,
-              nodeIds: lane.nodeIds.filter((nodeId) => visibleNodeIds.has(nodeId)),
-            })),
-          }
-        : graph.layers,
-      viewport: null,
-    };
-  }, [graph, revealedNodeIds]);
 
   const toResolveKey = useCallback(
     (item: CommentListItem) => buildResolveJudgementMapKey(item.commentKey),
@@ -220,9 +194,15 @@ function ReadyGraphContent({
     onCompleted();
   }, [judgements, onCompleted]);
 
+  const renderQuality = useMemo(() => resolveGraphRenderQualityFromSummary(summary), [summary]);
+
   return (
     <ResolveJudgementContext.Provider value={judgements}>
-      <FileTreeDock graph={graph} onFileSelect={onFileSelect} />
+      <FileTreeDock
+        files={summary.files}
+        graphSnapshotId={summary.graphSnapshotId}
+        onFileSelect={onFileSelect}
+      />
       <CommentListDock
         items={items}
         resultsByKey={judgements.resultsByKey}
@@ -235,7 +215,7 @@ function ReadyGraphContent({
         onThreadResolved={handleThreadResolved}
       />
       <DependencyGraphCanvas
-        graph={canvasGraph}
+        graph={graph}
         reviewWorkspaceId={selectedWorkspace.reviewWorkspaceId}
         providerKind={selectedWorkspace.provider}
         highlightedFilePath={highlightedFilePath}
@@ -243,13 +223,18 @@ function ReadyGraphContent({
         scrollTarget={scrollTarget}
         layerDisplayEnabled={layerDisplayEnabled}
         layerWarningMessage={layerWarningMessage}
+        renderQuality={renderQuality}
         onSelectNode={onSelectNode}
         onLayerDisplayChange={onLayerDisplayChange}
         onOpenLayerSettings={onOpenLayerSettings}
         onThreadResolved={handleThreadResolved}
       />
       <AgentControlCenter
-        graph={graph}
+        graphMeta={{
+          scopeKey: summary.scopeKey,
+          graphSnapshotId: summary.graphSnapshotId,
+          totalNodeCount: summary.totalNodeCount,
+        }}
         selectedWorkspace={selectedWorkspace}
         onCompleted={onCompleted}
       />

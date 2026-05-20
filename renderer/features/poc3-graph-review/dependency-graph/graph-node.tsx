@@ -16,7 +16,10 @@ export const Poc3GraphNode = memo(function Poc3GraphNode({
   const shouldReduceMotion = useReducedMotion();
   const graphNode = data.graphNode;
   const isFileHighlighted = data.isFileHighlighted;
-  const isViewportInteracting = data.isViewportInteracting;
+  const quality = data.renderQuality;
+  const enableShader = !quality.disableNodeShader;
+  const enableBlur = !quality.disableNodeBlur;
+  const enableShadow = !quality.disableNodeShadow;
   const layerStatus = graphNode.layer?.status ?? null;
   const layerLabel = graphNode.layer?.layerPath?.split('/').filter(Boolean).at(-1) ?? null;
   const Icon =
@@ -81,10 +84,10 @@ export const Poc3GraphNode = memo(function Poc3GraphNode({
           ) : null}
         </span>
       ) : null}
-      {selected && !shouldReduceMotion && !isViewportInteracting ? (
+      {selected && !shouldReduceMotion ? (
         <motion.span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 rounded-[8px]"
+          className="poc3-selected-node-sweep pointer-events-none absolute inset-0 rounded-[8px]"
           style={{
             backgroundImage:
               'linear-gradient(115deg, rgba(88,215,255,0.15) 0%, rgba(216,224,113,0.88) 25%, rgba(255,255,255,0.92) 50%, rgba(88,215,255,0.35) 70%, rgba(216,224,113,0.18) 100%)',
@@ -108,16 +111,18 @@ export const Poc3GraphNode = memo(function Poc3GraphNode({
        * Badges and the selected-animation span intentionally live outside this wrapper so they
        * are not clipped by the wrapper's overflow:hidden.
        */}
-      <Poc3LiquidMetalNodeBorder active={!selected && isFileHighlighted && !isViewportInteracting}>
+      <Poc3LiquidMetalNodeBorder active={enableShader && !selected && isFileHighlighted}>
         <div
-          className={`relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 ${isViewportInteracting ? '' : 'backdrop-blur-[12px]'} ${tone} ${
+          className={`poc3-graph-node-card relative flex h-full w-full items-center gap-2 rounded-[7px] border px-3 ${
+            enableBlur ? 'backdrop-blur-[12px]' : ''
+          } ${tone} ${
             selected
-              ? isViewportInteracting
-                ? 'border-white/35'
-                : 'border-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.3)]'
-              : isViewportInteracting
-                ? ''
-                : 'shadow-[0_14px_36px_rgba(0,0,0,0.25)]'
+              ? enableShadow
+                ? 'border-white/35 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_14px_36px_rgba(0,0,0,0.3)]'
+                : 'border-white/35'
+              : enableShadow
+                ? 'shadow-[0_14px_36px_rgba(0,0,0,0.25)]'
+                : ''
           }`}
         >
           {layerAccent ? (

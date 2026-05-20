@@ -7,8 +7,9 @@ import {
   useDragControls,
   useMotionValue,
 } from 'motion/react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, Wand2 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { CommentListItem } from './use-comment-list';
 import { ResolveThreadButton } from '../thread-resolve/resolve-thread-button';
 import type {
@@ -46,18 +47,25 @@ export function CommentListDock({
   const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const dragControls = useDragControls();
+  const listParentRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const isDraggingRef = useRef(false);
 
-  if (items.length === 0) return null;
-
   const visibleItems = items.filter((item) => !resolvedKeys.has(item.key));
-  if (visibleItems.length === 0 && !notice) return null;
-
   const agentCount = visibleItems.filter((i) => i.type === 'agent').length;
   const remoteCount = visibleItems.filter((i) => i.type === 'remote').length;
   const isRunning = runState.status === 'running';
+  const useVirtualList = visibleItems.length > 50;
+  const rowVirtualizer = useVirtualizer({
+    count: visibleItems.length,
+    getScrollElement: () => listParentRef.current,
+    estimateSize: () => 64,
+    enabled: useVirtualList,
+  });
+
+  if (items.length === 0) return null;
+  if (visibleItems.length === 0 && !notice) return null;
 
   const headerLabel =
     runState.status === 'empty'
@@ -128,117 +136,71 @@ export function CommentListDock({
               transition={{ duration: 0.5, ease: EASE, height: { duration: 0.5, ease: EASE } }}
               className="origin-top overflow-hidden border-t border-white/[0.06]"
             >
-              <div className="max-h-[400px] overflow-y-auto py-1">
-                {visibleItems.map((item) => {
-                  const judgement = resultsByKey.get(toResolveKey(item)) ?? null;
-                  return (
-                    <div
+              <div ref={listParentRef} className="max-h-[400px] overflow-y-auto py-1">
+                {useVirtualList ? (
+                  <div
+                    className="relative"
+                    style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const item = visibleItems[virtualRow.index];
+                      return (
+                        <div
+                          key={item.key}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className="absolute left-0 top-0 w-full"
+                          style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
+                        >
+                          <CommentListRow
+                            item={item}
+                            judgement={resultsByKey.get(toResolveKey(item)) ?? null}
+                            error={errorByKey[item.key] ?? null}
+                            inFlight={inFlightKey === item.key}
+                            onSelectComment={onSelectComment}
+                            onResolve={async () => {
+                              setInFlightKey(item.key);
+                              setErrorByKey((current) => ({ ...current, [item.key]: '' }));
+                              setNotice(null);
+                              await resolveCommentItem({
+                                item,
+                                setInFlightKey,
+                                setNotice,
+                                setResolvedKeys,
+                                setErrorByKey,
+                                onThreadResolved,
+                              });
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  visibleItems.map((item) => (
+                    <CommentListRow
                       key={item.key}
-                      onClick={() => onSelectComment(item)}
-                      className="flex w-full cursor-pointer items-start gap-2 rounded-[5px] px-3 py-2 text-left transition-colors hover:bg-white/[0.045]"
-                    >
-                      {judgement ? <CommentRowDecisionDot decision={judgement.decision} /> : null}
-                      <span
-                        className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
-                        style={
-                          item.type === 'agent'
-                            ? { color: '#ffbf6b', background: '#1a1000' }
-                            : { color: '#58d7ff', background: '#001a22' }
-                        }
-                      >
-                        {item.type === 'agent' ? 'Agent' : 'Remote'}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <span className="min-w-0 flex-1 truncate text-[12px] text-white/80">
-                            {item.title}
-                          </span>
-                          {item.publishedRemoteCount ? (
-                            <span className="shrink-0 rounded-full border border-[#4EBE96]/18 bg-[#4EBE96]/08 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#d7f5e8]/70">
-                              posted {item.publishedRemoteCount}
-                            </span>
-                          ) : null}
-                        </span>
-                        {item.filePath !== null || item.line !== null ? (
-                          <span className="mt-0.5 block truncate text-[10px] text-white/38">
-                            {item.filePath !== null
-                              ? (item.filePath.split('/').pop() ?? item.filePath)
-                              : null}
-                            {item.line !== null ? `:${String(item.line)}` : null}
-                          </span>
-                        ) : null}
-                        {errorByKey[item.key] ? (
-                          <span className="mt-1 block text-[10px] leading-4 text-[#ffd0d0]">
-                            {errorByKey[item.key]}
-                          </span>
-                        ) : null}
-                      </span>
-                      <ResolveThreadButton
-                        inFlight={inFlightKey === item.key}
-                        onClick={async () => {
-                          setInFlightKey(item.key);
-                          setErrorByKey((current) => ({ ...current, [item.key]: '' }));
-                          setNotice(null);
-                          if (item.type === 'agent') {
-                            const result = await window.poc3GraphReviewApi.resolveAgentThread({
-                              reviewWorkspaceId: item.commentKey.reviewWorkspaceId,
-                              revisionId: item.commentKey.revisionId,
-                              localThreadId: item.commentKey.commentId,
-                            });
-                            setInFlightKey(null);
-                            if (result.ok) {
-                              if (
-                                result.remoteResults.some((remote) => remote.status === 'failed')
-                              ) {
-                                setNotice('一部の Remote Comment を resolve できませんでした。');
-                              }
-                              setResolvedKeys((current) => {
-                                const next = new Set(current);
-                                next.add(item.key);
-                                return next;
-                              });
-                              onThreadResolved?.();
-                            } else {
-                              setErrorByKey((current) => ({
-                                ...current,
-                                [item.key]: result.message,
-                              }));
-                            }
-                            return;
-                          }
-                          const result = await window.poc3GraphReviewApi.resolveRemoteThread({
-                            reviewWorkspaceId: item.commentKey.reviewWorkspaceId,
-                            revisionId: item.commentKey.revisionId,
-                            providerThreadId: item.commentKey.commentId,
-                          });
-                          setInFlightKey(null);
-                          if (result.ok) {
-                            setResolvedKeys((current) => {
-                              const next = new Set(current);
-                              next.add(item.key);
-                              return next;
-                            });
-                            onThreadResolved?.();
-                          } else {
-                            if (result.reason === 'localPersistenceFailed') {
-                              setNotice(result.message);
-                              setResolvedKeys((current) => {
-                                const next = new Set(current);
-                                next.add(item.key);
-                                return next;
-                              });
-                              return;
-                            }
-                            setErrorByKey((current) => ({
-                              ...current,
-                              [item.key]: result.message,
-                            }));
-                          }
-                        }}
-                      />
-                    </div>
-                  );
-                })}
+                      item={item}
+                      judgement={resultsByKey.get(toResolveKey(item)) ?? null}
+                      error={errorByKey[item.key] ?? null}
+                      inFlight={inFlightKey === item.key}
+                      onSelectComment={onSelectComment}
+                      onResolve={async () => {
+                        setInFlightKey(item.key);
+                        setErrorByKey((current) => ({ ...current, [item.key]: '' }));
+                        setNotice(null);
+                        await resolveCommentItem({
+                          item,
+                          setInFlightKey,
+                          setNotice,
+                          setResolvedKeys,
+                          setErrorByKey,
+                          onThreadResolved,
+                        });
+                      }}
+                    />
+                  ))
+                )}
               </div>
             </motion.div>
           ) : null}
@@ -293,6 +255,124 @@ function ResolveJudgementHeaderAction({
 
 function ResolveJudgementShimmerText() {
   return <span className="poc3-resolve-shimmer-text">resolve 判定中…</span>;
+}
+
+function CommentListRow({
+  item,
+  judgement,
+  error,
+  inFlight,
+  onSelectComment,
+  onResolve,
+}: {
+  item: CommentListItem;
+  judgement: ResolveJudgementViewModel | null;
+  error: string | null;
+  inFlight: boolean;
+  onSelectComment: (item: CommentListItem) => void;
+  onResolve: () => Promise<void>;
+}) {
+  return (
+    <div
+      onClick={() => onSelectComment(item)}
+      className="flex w-full cursor-pointer items-start gap-2 rounded-[5px] px-3 py-2 text-left transition-colors hover:bg-white/[0.045]"
+    >
+      {judgement ? <CommentRowDecisionDot decision={judgement.decision} /> : null}
+      <span
+        className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+        style={
+          item.type === 'agent'
+            ? { color: '#ffbf6b', background: '#1a1000' }
+            : { color: '#58d7ff', background: '#001a22' }
+        }
+      >
+        {item.type === 'agent' ? 'Agent' : 'Remote'}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-white/80">{item.title}</span>
+          {item.publishedRemoteCount ? (
+            <span className="shrink-0 rounded-full border border-[#4EBE96]/18 bg-[#4EBE96]/08 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#d7f5e8]/70">
+              posted {item.publishedRemoteCount}
+            </span>
+          ) : null}
+        </span>
+        {item.filePath !== null || item.line !== null ? (
+          <span className="mt-0.5 block truncate text-[10px] text-white/38">
+            {item.filePath !== null ? (item.filePath.split('/').pop() ?? item.filePath) : null}
+            {item.line !== null ? `:${String(item.line)}` : null}
+          </span>
+        ) : null}
+        {error ? (
+          <span className="mt-1 block text-[10px] leading-4 text-[#ffd0d0]">{error}</span>
+        ) : null}
+      </span>
+      <ResolveThreadButton inFlight={inFlight} onClick={onResolve} />
+    </div>
+  );
+}
+
+async function resolveCommentItem({
+  item,
+  setInFlightKey,
+  setNotice,
+  setResolvedKeys,
+  setErrorByKey,
+  onThreadResolved,
+}: {
+  item: CommentListItem;
+  setInFlightKey: (key: string | null) => void;
+  setNotice: (notice: string | null) => void;
+  setResolvedKeys: Dispatch<SetStateAction<ReadonlySet<string>>>;
+  setErrorByKey: Dispatch<SetStateAction<Record<string, string>>>;
+  onThreadResolved?: () => void;
+}) {
+  if (item.type === 'agent') {
+    const result = await window.poc3GraphReviewApi.resolveAgentThread({
+      reviewWorkspaceId: item.commentKey.reviewWorkspaceId,
+      revisionId: item.commentKey.revisionId,
+      localThreadId: item.commentKey.commentId,
+    });
+    setInFlightKey(null);
+    if (result.ok) {
+      if (result.remoteResults.some((remote) => remote.status === 'failed')) {
+        setNotice('一部の Remote Comment を resolve できませんでした。');
+      }
+      markCommentResolved(item.key, setResolvedKeys);
+      onThreadResolved?.();
+    } else {
+      setErrorByKey((current) => ({ ...current, [item.key]: result.message }));
+    }
+    return;
+  }
+  const result = await window.poc3GraphReviewApi.resolveRemoteThread({
+    reviewWorkspaceId: item.commentKey.reviewWorkspaceId,
+    revisionId: item.commentKey.revisionId,
+    providerThreadId: item.commentKey.commentId,
+  });
+  setInFlightKey(null);
+  if (result.ok) {
+    markCommentResolved(item.key, setResolvedKeys);
+    onThreadResolved?.();
+    return;
+  }
+  if (result.reason === 'localPersistenceFailed') {
+    setNotice(result.message);
+    markCommentResolved(item.key, setResolvedKeys);
+    return;
+  }
+  setErrorByKey((current) => ({ ...current, [item.key]: result.message }));
+}
+
+function markCommentResolved(
+  key: string,
+  setResolvedKeys: Dispatch<SetStateAction<ReadonlySet<string>>>,
+) {
+  setResolvedKeys((current) => {
+    const next = new Set(current);
+    next.add(key);
+    return next;
+  });
 }
 
 function CommentRowDecisionDot({ decision }: { decision: 'resolvable' | 'unresolvable' }) {

@@ -35,9 +35,15 @@ export interface AgentReviewRun {
   serverRun?: Poc3AgentReviewRun;
 }
 
+export interface AgentReviewGraphMeta {
+  scopeKey: string;
+  graphSnapshotId: string;
+  totalNodeCount: number;
+}
+
 export interface AgentReviewTarget {
   workspace: ReviewWorkspaceListItem;
-  graph: GraphRenderSnapshot;
+  graph: AgentReviewGraphMeta;
 }
 
 export interface AgentReviewStartInput {

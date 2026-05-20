@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   GraphAnalysisEvent,
-  LoadWorkspaceGraphResult,
+  LoadWorkspaceGraphViewResult,
   RetryGraphAnalysisResult,
 } from '../../../../shared/poc3-contracts/graph-review-ipc';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
@@ -11,17 +11,17 @@ import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspace
 export type WorkspaceGraphLoadState =
   | { status: 'idle'; result: null; message: null }
   | { status: 'loading'; result: null; message: string | null }
-  | { status: 'ready'; result: Extract<LoadWorkspaceGraphResult, { ok: true }>; message: null }
+  | { status: 'ready'; result: Extract<LoadWorkspaceGraphViewResult, { ok: true }>; message: null }
   | {
       status: 'notReady' | 'failed' | 'missing';
-      result: Extract<LoadWorkspaceGraphResult, { ok: false }>;
+      result: Extract<LoadWorkspaceGraphViewResult, { ok: false }>;
       message: string;
     };
 
 export function useWorkspaceGraph(
   selectedWorkspace: ReviewWorkspaceListItem | null,
   reloadNonce = 0,
-  options: { includeLayers?: boolean } = {},
+  options: { includeLayers?: boolean; revealedNodeIds?: string[] } = {},
 ) {
   const [state, setState] = useState<WorkspaceGraphLoadState>({
     status: 'idle',
@@ -30,6 +30,7 @@ export function useWorkspaceGraph(
   });
   const selectedWorkspaceId = selectedWorkspace?.reviewWorkspaceId ?? null;
   const includeLayers = options.includeLayers ?? true;
+  const revealedNodeIdsKey = (options.revealedNodeIds ?? []).slice().sort().join('\0');
   const [layerWarningMessage, setLayerWarningMessage] = useState<string | null>(null);
   const loadSeqRef = useRef(0);
   const loadedWorkspaceIdRef = useRef<string | null>(null);
@@ -52,9 +53,11 @@ export function useWorkspaceGraph(
         current.status === 'ready' ? current : { status: 'loading', result: null, message: null },
       );
     }
-    const result = await window.poc3GraphReviewApi.loadWorkspaceGraph({
+    const result = await window.poc3GraphReviewApi.loadWorkspaceGraphView({
       reviewWorkspaceId: selectedWorkspaceId,
       includeLayers,
+      mode: revealedNodeIdsKey.length > 0 ? 'revealed' : 'initial',
+      revealedNodeIds: revealedNodeIdsKey.length > 0 ? revealedNodeIdsKey.split('\0') : [],
     });
     if (seq !== loadSeqRef.current) {
       return;
@@ -74,7 +77,7 @@ export function useWorkspaceGraph(
       return;
     }
     setState({ status: 'missing', result, message: result.message });
-  }, [includeLayers, selectedWorkspaceId]);
+  }, [includeLayers, revealedNodeIdsKey, selectedWorkspaceId]);
 
   useEffect(() => {
     void load();
@@ -155,9 +158,11 @@ export function useWorkspaceGraph(
     if (!selectedWorkspaceId) return;
     const seq = loadSeqRef.current + 1;
     loadSeqRef.current = seq;
-    const result = await window.poc3GraphReviewApi.loadWorkspaceGraph({
+    const result = await window.poc3GraphReviewApi.loadWorkspaceGraphView({
       reviewWorkspaceId: selectedWorkspaceId,
       includeLayers,
+      mode: revealedNodeIdsKey.length > 0 ? 'revealed' : 'initial',
+      revealedNodeIds: revealedNodeIdsKey.length > 0 ? revealedNodeIdsKey.split('\0') : [],
     });
     if (seq !== loadSeqRef.current) {
       return;
@@ -166,7 +171,7 @@ export function useWorkspaceGraph(
       setState({ status: 'ready', result, message: null });
       setLayerWarningMessage(null);
     }
-  }, [includeLayers, selectedWorkspaceId]);
+  }, [includeLayers, revealedNodeIdsKey, selectedWorkspaceId]);
 
   return useMemo(
     () => ({

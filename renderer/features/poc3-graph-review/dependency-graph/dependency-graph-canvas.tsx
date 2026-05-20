@@ -16,6 +16,7 @@ import type { ReviewProviderKind } from '../../../../shared/poc3-domain/review-w
 import { NodeDetailPanel } from '../node-detail/node-detail-panel';
 import type { NodeDetailScrollTarget } from '../node-detail/node-detail-scroll-target-context';
 import { useNodeDetail } from '../node-detail/use-node-detail';
+import { DEFAULT_GRAPH_RENDER_QUALITY, type GraphRenderQuality } from './graph-render-quality';
 import { Poc3GraphNode } from './graph-node';
 import { LayerLanesOverlay } from './layer-lanes-overlay';
 import { LayerStatusStrip } from './layer-status-strip';
@@ -47,6 +48,7 @@ export interface DependencyGraphCanvasProps {
   scrollTarget?: NodeDetailScrollTarget | null;
   layerDisplayEnabled: boolean;
   layerWarningMessage?: string | null;
+  renderQuality?: GraphRenderQuality;
   onSelectNode: (nodeId: string | null) => void;
   onLayerDisplayChange: (enabled: boolean) => void;
   onOpenLayerSettings?: () => void;
@@ -70,6 +72,7 @@ function DependencyGraphCanvasInner({
   scrollTarget,
   layerDisplayEnabled,
   layerWarningMessage,
+  renderQuality = DEFAULT_GRAPH_RENDER_QUALITY,
   onSelectNode,
   onLayerDisplayChange,
   onOpenLayerSettings,
@@ -82,16 +85,22 @@ function DependencyGraphCanvasInner({
   const [reactFlowReady, setReactFlowReady] = useState(false);
   const [viewportInteracting, setViewportInteracting] = useState(false);
   const [nodeDetailRefreshKey, setNodeDetailRefreshKey] = useState(0);
+  const graphViewKey = useMemo(
+    () => `${graph.graphSnapshotId}:${graph.nodes.map((node) => node.nodeId).join('|')}`,
+    [graph.graphSnapshotId, graph.nodes],
+  );
   const viewState = useMemo(
     () => ({
       selectedNodeId,
       highlightedFilePath: highlightedFilePath ?? null,
       includeLayers: layerDisplayEnabled,
-      isViewportInteracting: viewportInteracting,
+      renderQuality,
     }),
-    [highlightedFilePath, layerDisplayEnabled, selectedNodeId, viewportInteracting],
+    [highlightedFilePath, layerDisplayEnabled, renderQuality, selectedNodeId],
   );
   const elements = useStableReactFlowElements(graph, viewState);
+  const miniMapVisible = !viewportInteracting && !renderQuality.hideMiniMap;
+  const layerLanesVisible = !renderQuality.hideLayerLanes;
 
   const nodeById = useMemo(() => {
     const map = new Map<string, GraphRenderNode>();
@@ -129,11 +138,11 @@ function DependencyGraphCanvasInner({
       return;
     }
 
-    if (appliedViewportSnapshotRef.current === graph.graphSnapshotId) {
+    if (appliedViewportSnapshotRef.current === graphViewKey) {
       return;
     }
 
-    appliedViewportSnapshotRef.current = graph.graphSnapshotId;
+    appliedViewportSnapshotRef.current = graphViewKey;
 
     const frameId = window.requestAnimationFrame(() => {
       const instance = reactFlowRef.current;
@@ -148,7 +157,7 @@ function DependencyGraphCanvasInner({
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [graph.graphSnapshotId, graph.viewport, reactFlowReady, viewportInteracting]);
+  }, [graph.graphSnapshotId, graph.viewport, graphViewKey, reactFlowReady, viewportInteracting]);
 
   useEffect(
     () => () => {
@@ -235,12 +244,20 @@ function DependencyGraphCanvasInner({
             setReactFlowReady(true);
           }}
           nodesDraggable={false}
+          nodesConnectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          elementsSelectable
+          elevateNodesOnSelect={false}
+          elevateEdgesOnSelect={false}
+          nodeClickDistance={2}
+          onlyRenderVisibleElements
           minZoom={0.2}
           maxZoom={1.8}
           proOptions={{ hideAttribution: true }}
         >
           {!viewportInteracting ? <Background color="rgba(255,255,255,0.08)" gap={32} /> : null}
-          {!viewportInteracting ? (
+          {miniMapVisible ? (
             <MiniMap
               pannable
               zoomable
@@ -256,8 +273,12 @@ function DependencyGraphCanvasInner({
           ) : null}
           <Controls className="!border-white/[0.1] !bg-[#111]/80 [&_button]:!border-white/[0.08] [&_button]:!bg-transparent [&_button]:!text-white" />
         </ReactFlow>
-        {layerDisplayEnabled && graph.layers?.status === 'ready' ? (
-          <LayerLanesOverlay lanes={graph.layers.lanes} hidden={viewportInteracting} />
+        {layerDisplayEnabled && layerLanesVisible && graph.layers?.status === 'ready' ? (
+          <LayerLanesOverlay
+            lanes={graph.layers.lanes}
+            hidden={viewportInteracting}
+            dense={renderQuality.dense}
+          />
         ) : null}
       </div>
       <div data-poc3-layer-status-strip>

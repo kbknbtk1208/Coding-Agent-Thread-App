@@ -153,6 +153,7 @@ export function Poc3LiquidMetalNodeBorder({
       {active ? (
         <div
           ref={containerRef}
+          className="poc3-liquid-metal-node-border-shader"
           style={{
             position: 'absolute',
             width: '140%',

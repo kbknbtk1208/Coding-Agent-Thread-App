@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createGraphSnapshot, createLayeredGraphSnapshot } from './graph-test-fixtures';
+import { resolveGraphRenderQuality } from './graph-render-quality';
 import {
   createLayerLaneOverlays,
+  isLaneHeaderVisible,
   shouldRenderLayerLanesOverlay,
   shouldUseCompactLayerLane,
 } from './layer-lanes-overlay';
@@ -156,13 +158,48 @@ describe('toReactFlowElements', () => {
     });
   });
 
-  it('switches to lightweight node and edge data while viewport is interacting', () => {
-    const elements = toReactFlowElements(createLayeredGraphSnapshot(), {
-      isViewportInteracting: true,
-    });
+  it('keeps viewport interaction state out of node data', () => {
+    const elements = toReactFlowElements(createLayeredGraphSnapshot());
 
-    expect(elements.nodes.every((node) => node.data.isViewportInteracting)).toBe(true);
-    expect(elements.edges.every((edge) => edge.animated !== true)).toBe(true);
+    expect(elements.nodes.every((node) => !('isViewportInteracting' in node.data))).toBe(true);
+  });
+
+  it('attaches render quality to node data and disables edge animation when requested', () => {
+    const renderQuality = resolveGraphRenderQuality({
+      renderedNodeCount: 200,
+      renderedEdgeCount: 600,
+    });
+    const elements = toReactFlowElements(createGraphSnapshot(), { renderQuality });
+
+    expect(elements.nodes[0].data.renderQuality).toBe(renderQuality);
+    expect(elements.edges[0].animated).toBe(false);
+  });
+
+  it('keeps edges animated under default quality', () => {
+    const elements = toReactFlowElements(createGraphSnapshot());
+
+    expect(elements.edges[0].animated).toBe(true);
+  });
+
+  it('hides lane overlay entirely when lane count exceeds the threshold', () => {
+    const tooMany = Array.from({ length: 151 }, (_, i) => ({
+      laneId: `lane-${i}`,
+      layerPath: `layer-${i}`,
+      displayName: `layer-${i}`,
+      order: i,
+      parentLayerPath: null,
+      bounds: { x: 0, y: 0, width: 100, height: 100 },
+      nodeIds: [],
+      unclassified: false,
+    }));
+    expect(shouldRenderLayerLanesOverlay(tooMany, false)).toBe(false);
+  });
+
+  it('hides lane headers when lane count is large or zoom is low or dense mode is on', () => {
+    expect(isLaneHeaderVisible(10, 1, false)).toBe(true);
+    expect(isLaneHeaderVisible(81, 1, false)).toBe(false);
+    expect(isLaneHeaderVisible(10, 0.34, false)).toBe(false);
+    expect(isLaneHeaderVisible(10, 1, true)).toBe(false);
   });
 });
 

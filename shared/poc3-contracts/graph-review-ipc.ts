@@ -12,6 +12,8 @@ import type { AgentSessionSnapshot, RespondPermissionInput } from '../contracts/
 import type {
   AnalysisRunSnapshot,
   GraphAnalysisEvent,
+  GraphLimitSummary,
+  GraphRenderSnapshot,
   GraphWorkspaceView,
 } from '../poc3-domain/graph';
 import type {
@@ -58,6 +60,7 @@ import type {
 import type { PublishedAgentThreadLink } from '../poc3-domain/published-agent-thread';
 import type {
   ResolveJudgementEvent,
+  ResolveJudgementCommentKey,
   ResolveJudgementResult,
   ResolveJudgementRun,
 } from '../poc3-domain/resolve-judgement';
@@ -251,6 +254,10 @@ export const POC3_GRAPH_REVIEW_IPC_CHANNELS = {
   listWorkspaceCreationJobs: 'poc3:workspace:creation-job:list',
   workspaceCreationEvent: 'poc3:workspace:creation-job:event',
   loadWorkspaceGraph: 'poc3:graph:load',
+  loadWorkspaceGraphView: 'poc3:graph:load-view',
+  loadWorkspaceGraphSummary: 'poc3:graph:load-summary',
+  loadWorkspaceGraphFull: 'poc3:graph:load-full',
+  listGraphCommentSummaries: 'poc3:graph:comment-summaries:list',
   retryGraphAnalysis: 'poc3:graph:analysis:retry',
   graphAnalysisEvent: 'poc3:graph:analysis:event',
   loadRepositoryLayerProfile: 'poc3:layer-profile:load',
@@ -404,6 +411,65 @@ export interface LoadWorkspaceGraphInput {
   includeLayers?: boolean;
 }
 
+export interface LoadWorkspaceGraphViewInput extends LoadWorkspaceGraphInput {
+  mode?: 'initial' | 'revealed';
+  revealedNodeIds?: string[];
+}
+
+// FUTURE: differential reveal patch API.
+// `loadWorkspaceGraphView({ mode: 'revealed', revealedNodeIds })` 全体差し替えで現在は十分。
+// nodes が増えて payload が問題になる場合に下記の patch 型を追加する想定:
+//
+//   export interface RevealGraphNodesInput {
+//     reviewWorkspaceId: string;
+//     scopeKey?: string;
+//     nodeIds?: string[];
+//     filePath?: string;
+//     includeLayers?: boolean;
+//     currentlyRevealedNodeIds: string[];
+//   }
+//
+// レスポンスは追加された node / edge のみを返す差分形式とし、renderer は既存 view に
+// merge する。Task 3 の view/summary cache 投入で当面は再計算コストが下がっているため、
+// payload size が profiling で問題化してから着手する。
+
+export type LoadWorkspaceGraphFullInput = LoadWorkspaceGraphInput;
+
+export interface LoadWorkspaceGraphSummaryInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  includeLayers?: boolean;
+}
+
+export interface GraphFileSummary {
+  filePath: string;
+  isDiffFile: boolean;
+  nodeCount: number;
+  diffNodeCount: number;
+  findingCount: number;
+  remoteThreadCount: number;
+}
+
+export interface GraphViewSummary {
+  revisionId: string;
+  graphSnapshotId: string;
+  scopeKey: string;
+  totalNodeCount: number;
+  totalEdgeCount: number;
+  renderedNodeCount: number;
+  renderedEdgeCount: number;
+  diffNodeCount: number;
+  omittedNodeCount: number;
+  omittedEdgeCount: number;
+  limits: GraphLimitSummary;
+  files: GraphFileSummary[];
+  commentCounts: {
+    agentFindingCount: number;
+    remoteThreadCount: number;
+  };
+  denseRecommended: boolean;
+}
+
 export type LoadWorkspaceGraphResult =
   | (GraphWorkspaceView & {
       ok: true;
@@ -414,6 +480,60 @@ export type LoadWorkspaceGraphResult =
       message: string;
       analysis: AnalysisRunSnapshot | null;
       revision?: RevisionContext | null;
+    };
+
+type LoadWorkspaceGraphFailure = Extract<LoadWorkspaceGraphResult, { ok: false }>;
+
+export type LoadWorkspaceGraphViewResult =
+  | {
+      ok: true;
+      workspace: ReviewWorkspaceListItem;
+      revision: RevisionContext;
+      analysis: AnalysisRunSnapshot;
+      graph: GraphRenderSnapshot;
+      summary: GraphViewSummary;
+    }
+  | LoadWorkspaceGraphFailure;
+
+export type LoadWorkspaceGraphSummaryResult =
+  | {
+      ok: true;
+      workspace: ReviewWorkspaceListItem;
+      revision: RevisionContext;
+      analysis: AnalysisRunSnapshot;
+      summary: GraphViewSummary;
+    }
+  | LoadWorkspaceGraphFailure;
+
+export interface ListGraphCommentSummariesInput {
+  reviewWorkspaceId: string;
+  scopeKey?: string;
+  graphSnapshotId?: string;
+}
+
+export interface GraphCommentSummary {
+  key: string;
+  type: 'agent' | 'remote';
+  nodeId: string;
+  commentKey: ResolveJudgementCommentKey;
+  title: string;
+  filePath: string | null;
+  line: number | null;
+  publishedRemoteCount?: number;
+}
+
+export type ListGraphCommentSummariesResult =
+  | {
+      ok: true;
+      revisionId: string | null;
+      items: GraphCommentSummary[];
+    }
+  | {
+      ok: false;
+      reason: 'workspaceNotFound' | 'revisionNotFound' | 'graphNotReady';
+      message: string;
+      revisionId: null;
+      items: [];
     };
 
 export interface RetryGraphAnalysisInput {
@@ -944,6 +1064,14 @@ export interface Poc3GraphReviewApi {
   openWorkspaceInEditor(input: OpenWorkspaceInEditorInput): Promise<OpenWorkspaceInEditorResult>;
   listWorkspaceCreationJobs(): Promise<ListWorkspaceCreationJobsResult>;
   loadWorkspaceGraph(input: LoadWorkspaceGraphInput): Promise<LoadWorkspaceGraphResult>;
+  loadWorkspaceGraphView(input: LoadWorkspaceGraphViewInput): Promise<LoadWorkspaceGraphViewResult>;
+  loadWorkspaceGraphSummary(
+    input: LoadWorkspaceGraphSummaryInput,
+  ): Promise<LoadWorkspaceGraphSummaryResult>;
+  loadWorkspaceGraphFull(input: LoadWorkspaceGraphFullInput): Promise<LoadWorkspaceGraphResult>;
+  listGraphCommentSummaries(
+    input: ListGraphCommentSummariesInput,
+  ): Promise<ListGraphCommentSummariesResult>;
   retryGraphAnalysis(input: RetryGraphAnalysisInput): Promise<RetryGraphAnalysisResult>;
   loadRepositoryLayerProfile(
     input: LoadRepositoryLayerProfileInput,

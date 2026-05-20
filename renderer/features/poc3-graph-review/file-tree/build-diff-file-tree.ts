@@ -1,4 +1,5 @@
 import type { GraphRenderNode } from '../../../../shared/poc3-domain/graph';
+import type { GraphFileSummary } from '../../../../shared/poc3-contracts/graph-review-ipc';
 
 export interface DiffFileTreeItem {
   id: string;
@@ -73,6 +74,53 @@ export function buildDiffFileTree(nodes: GraphRenderNode[], diffOnly = true): Di
   return root.children;
 }
 
+export function buildDiffFileTreeFromSummaries(
+  files: GraphFileSummary[],
+  diffOnly = true,
+): DiffFileTreeItem[] {
+  const targetFiles = diffOnly ? files.filter((file) => file.isDiffFile) : files;
+  if (targetFiles.length === 0) return [];
+
+  const root: DiffFileTreeItem = {
+    id: '__root__',
+    name: '',
+    path: '',
+    kind: 'dir',
+    findingCount: 0,
+    remoteCount: 0,
+    children: [],
+  };
+
+  for (const file of targetFiles.slice().sort((a, b) => a.filePath.localeCompare(b.filePath))) {
+    const normalized = file.filePath.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    let current = root;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const partPath = parts.slice(0, i + 1).join('/');
+      const isLast = i === parts.length - 1;
+      let child = current.children.find((item) => item.name === part);
+      if (!child) {
+        child = {
+          id: partPath,
+          name: part,
+          path: partPath,
+          kind: isLast ? 'file' : 'dir',
+          findingCount: isLast ? file.findingCount : 0,
+          remoteCount: isLast ? file.remoteThreadCount : 0,
+          children: [],
+        };
+        current.children.push(child);
+      }
+      current = child;
+    }
+  }
+
+  bubbleUpCounts(root);
+  return root.children;
+}
+
 function bubbleUpCounts(item: DiffFileTreeItem): { findingCount: number; remoteCount: number } {
   if (item.kind === 'file') {
     return { findingCount: item.findingCount, remoteCount: item.remoteCount };
@@ -98,4 +146,26 @@ export function collectDefaultExpanded(items: DiffFileTreeItem[]): string[] {
     }
   }
   return ids;
+}
+
+export interface VisibleTreeRow {
+  item: DiffFileTreeItem;
+  level: number;
+  hasChildren: boolean;
+}
+
+export function flattenDiffFileTree(
+  items: DiffFileTreeItem[],
+  expandedIds: ReadonlySet<string>,
+  level = 0,
+): VisibleTreeRow[] {
+  const rows: VisibleTreeRow[] = [];
+  for (const item of items) {
+    const hasChildren = item.kind === 'dir' && item.children.length > 0;
+    rows.push({ item, level, hasChildren });
+    if (hasChildren && expandedIds.has(item.id)) {
+      rows.push(...flattenDiffFileTree(item.children, expandedIds, level + 1));
+    }
+  }
+  return rows;
 }

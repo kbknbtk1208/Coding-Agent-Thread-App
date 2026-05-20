@@ -5,14 +5,14 @@ import { useEffect, useRef, useState } from 'react';
 import { FaGithub } from 'react-icons/fa6';
 import { SiOpenai } from 'react-icons/si';
 import type { AgentKind } from '../../../../shared/domain/agent';
-import type { GraphRenderSnapshot } from '../../../../shared/poc3-domain/graph';
 import { AgentReviewGlassSelect } from './agent-review-glass-select';
 import type { UseAgentReviewResult } from './use-agent-review';
 import type { ReviewWorkspaceListItem } from '../workspaces/use-review-workspaces';
+import type { AgentReviewGraphMeta } from './agent-review-types';
 
 export interface AgentReviewNewRunPanelProps {
   review: UseAgentReviewResult;
-  graph: GraphRenderSnapshot;
+  graphMeta: AgentReviewGraphMeta;
   selectedWorkspace: ReviewWorkspaceListItem;
   onBack(): void;
   onStarted(runId: string): void;
@@ -25,12 +25,12 @@ const AGENT_OPTIONS: { value: AgentKind; label: string; provider: string }[] = [
 
 export function AgentReviewNewRunPanel({
   review,
-  graph,
+  graphMeta,
   selectedWorkspace,
   onBack,
   onStarted,
 }: AgentReviewNewRunPanelProps) {
-  const disabled = !review.canStart || graph.nodes.length === 0;
+  const disabled = !review.canStart || graphMeta.totalNodeCount === 0;
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const selectedAgentOption =
@@ -83,7 +83,7 @@ export function AgentReviewNewRunPanel({
 
   const handleRunReview = async () => {
     const started = await review.startReview({
-      target: { workspace: selectedWorkspace, graph },
+      target: { workspace: selectedWorkspace, graph: graphMeta },
     });
     if (started) {
       onStarted(started.runId);
