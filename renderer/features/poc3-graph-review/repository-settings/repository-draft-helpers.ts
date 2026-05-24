@@ -284,7 +284,7 @@ export function profilePayload(
     setupScript: draft.setupScriptText.trim()
       ? {
           scriptText: draft.setupScriptText,
-          shell: 'powershell',
+          shell: 'systemDefault',
           cwdMode: 'worktreePath',
         }
       : null,

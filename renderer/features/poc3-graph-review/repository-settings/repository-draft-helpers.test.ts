@@ -31,7 +31,7 @@ describe('repository draft helpers', () => {
     ).toBe(false);
   });
 
-  it('keeps setup script payload compatible with the current UI contract', () => {
+  it('stores setup script payload with the system default shell', () => {
     const draft = {
       ...newProfileDraft(0),
       repositoryProfileId: 'profile-1',
@@ -50,7 +50,7 @@ describe('repository draft helpers', () => {
       allowOriginMismatch: true,
       setupScript: {
         scriptText: 'npm install',
-        shell: 'powershell',
+        shell: 'systemDefault',
         cwdMode: 'worktreePath',
       },
     });

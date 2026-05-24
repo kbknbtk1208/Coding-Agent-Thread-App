@@ -5,6 +5,8 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import type { RepositorySetupScript } from '../../../shared/poc3-domain/repository';
 
+type SetupShell = Exclude<RepositorySetupScript['shell'], 'systemDefault'>;
+
 export interface SetupScriptRunInput {
   script: RepositorySetupScript;
   worktreePath: string;
@@ -19,17 +21,17 @@ function resolveCwd(input: SetupScriptRunInput): string {
   return input.script.cwdMode === 'worktreeRoot' ? input.worktreeRootPath : input.worktreePath;
 }
 
-function resolveShell(script: RepositorySetupScript): 'powershell' | 'cmd' | 'bash' | 'zsh' {
+export function resolveSetupShell(
+  script: RepositorySetupScript,
+  platform: NodeJS.Platform = process.platform,
+): SetupShell {
   if (script.shell === 'systemDefault') {
-    return process.platform === 'win32' ? 'powershell' : 'bash';
+    return platform === 'win32' ? 'powershell' : 'bash';
   }
   return script.shell;
 }
 
-async function writeTempScript(
-  script: RepositorySetupScript,
-  shell: 'powershell' | 'cmd' | 'bash' | 'zsh',
-): Promise<string> {
+async function writeTempScript(script: RepositorySetupScript, shell: SetupShell): Promise<string> {
   const tmpDir = path.join(os.tmpdir(), 'poc3-setup-script');
   await fs.promises.mkdir(tmpDir, { recursive: true });
   const extension = shell === 'powershell' ? '.ps1' : shell === 'cmd' ? '.cmd' : '.sh';
@@ -50,7 +52,7 @@ export async function runSetupScript(
   input: SetupScriptRunInput,
   onLog: (line: string) => void,
 ): Promise<SetupScriptRunResult> {
-  const shell = resolveShell(input.script);
+  const shell = resolveSetupShell(input.script);
   const cwd = resolveCwd(input);
   const scriptPath = await writeTempScript(input.script, shell);
 
@@ -87,15 +89,21 @@ export async function runSetupScript(
   });
 }
 
-function buildShellInvocation(
-  shell: 'powershell' | 'cmd' | 'bash' | 'zsh',
+export function buildShellInvocation(
+  shell: SetupShell,
   scriptPath: string,
+  platform: NodeJS.Platform = process.platform,
 ): { command: string; args: string[] } {
   if (shell === 'powershell') {
-    return {
-      command: 'powershell.exe',
-      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-    };
+    return platform === 'win32'
+      ? {
+          command: 'powershell.exe',
+          args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+        }
+      : {
+          command: 'pwsh',
+          args: ['-NoProfile', '-File', scriptPath],
+        };
   }
   if (shell === 'cmd') {
     return { command: 'cmd.exe', args: ['/d', '/c', scriptPath] };
