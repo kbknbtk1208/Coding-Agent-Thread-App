@@ -131,7 +131,7 @@ export function AgentReviewGlassSelect({
         aria-controls={isOpen ? listboxId : undefined}
         aria-activedescendant={activeOptionId}
         disabled={disabled}
-        className={`flex ${buttonHeight} w-full items-center rounded-[7px] border border-white/[0.08] bg-[#25262b]/92 px-2 pr-7 text-left text-[11px] font-medium text-white outline-none backdrop-blur-[18px] transition hover:bg-[#2c2d33] focus:border-[#58d7ff]/28 focus:shadow-[0_0_0_2px_rgba(88,215,255,0.07)] disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`flex ${buttonHeight} w-full cursor-pointer items-center rounded-[7px] border border-white/[0.08] bg-[#25262b]/92 px-2 pr-7 text-left text-[11px] font-medium text-white outline-none backdrop-blur-[18px] transition hover:bg-[#2c2d33] focus:border-[#58d7ff]/28 focus:shadow-[0_0_0_2px_rgba(88,215,255,0.07)] disabled:cursor-not-allowed disabled:opacity-50`}
         onClick={() => setIsOpen((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {
@@ -183,7 +183,7 @@ export function AgentReviewGlassSelect({
                 aria-selected={isSelected}
                 disabled={option.disabled}
                 tabIndex={-1}
-                className={`flex h-8 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                className={`flex h-8 w-full cursor-pointer items-center gap-2 rounded-[7px] px-2 text-left text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${
                   isSelected
                     ? 'bg-white/[0.06] text-white'
                     : 'text-white/72 hover:bg-white/[0.045] hover:text-white'

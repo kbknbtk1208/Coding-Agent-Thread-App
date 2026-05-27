@@ -181,7 +181,6 @@ function ReadyGraphContent({
     reviewWorkspaceId: selectedWorkspace.reviewWorkspaceId,
     revisionId,
     scopeKey: graph.scopeKey,
-    agent: 'codex',
   });
 
   const toResolveKey = useCallback(
@@ -209,9 +208,8 @@ function ReadyGraphContent({
         runState={judgements.runState}
         toResolveKey={toResolveKey}
         onSelectComment={onSelectComment}
-        onStartResolveJudgement={() => {
-          void judgements.start();
-        }}
+        onStartResolveJudgement={judgements.start}
+        canStartResolveJudgement={revisionId !== null}
         onThreadResolved={handleThreadResolved}
       />
       <DependencyGraphCanvas

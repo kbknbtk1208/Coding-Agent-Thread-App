@@ -1,12 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentKind } from '../../../../shared/domain/agent';
 import type {
   ResolveJudgementCommentKey,
   ResolveJudgementResult,
 } from '../../../../shared/poc3-domain/resolve-judgement';
 import { toResolveJudgementMapKey } from '../../../../shared/poc3-domain/resolve-judgement';
+import {
+  buildResolveJudgementStartRequest,
+  type ResolveJudgementStartOptions,
+} from './resolve-judgement-start-request';
+
+export type { ResolveJudgementStartOptions } from './resolve-judgement-start-request';
 
 export type ResolveJudgementDecision = 'resolvable' | 'unresolvable';
 
@@ -27,13 +32,12 @@ export interface UseResolveJudgementsInput {
   reviewWorkspaceId: string | null;
   revisionId: string | null;
   scopeKey: string;
-  agent: AgentKind;
 }
 
 export interface UseResolveJudgementsResult {
   resultsByKey: ReadonlyMap<string, ResolveJudgementViewModel>;
   runState: ResolveJudgementRunState;
-  start: () => Promise<void>;
+  start: (options: ResolveJudgementStartOptions) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -47,7 +51,7 @@ function toViewModel(result: ResolveJudgementResult): ResolveJudgementViewModel 
 }
 
 export function useResolveJudgements(input: UseResolveJudgementsInput): UseResolveJudgementsResult {
-  const { reviewWorkspaceId, revisionId, scopeKey, agent } = input;
+  const { reviewWorkspaceId, revisionId, scopeKey } = input;
   const [resultsByKey, setResultsByKey] = useState<ReadonlyMap<string, ResolveJudgementViewModel>>(
     new Map(),
   );
@@ -133,39 +137,48 @@ export function useResolveJudgements(input: UseResolveJudgementsInput): UseResol
     return off;
   }, [reviewWorkspaceId, revisionId]);
 
-  const start = useCallback(async () => {
-    if (!reviewWorkspaceId) return;
-    setRunState((current) =>
-      current.status === 'running' ? current : { status: 'running', runId: '', targetCount: 0 },
-    );
-    const response = await window.poc3GraphReviewApi.startResolveJudgement({
-      reviewWorkspaceId,
-      scopeKey,
-      agent,
-    });
-    if (!response.ok) {
-      setRunState({ status: 'failed', message: response.message, targetCount: 0 });
-      return;
-    }
-    if (response.run.status === 'completed') {
-      if (response.run.targetCount === 0) {
-        setRunState({
-          status: 'empty',
-          message: '判定対象のコメントがありません。',
-          targetCount: 0,
-        });
+  const start = useCallback(
+    async (options: ResolveJudgementStartOptions) => {
+      if (!reviewWorkspaceId) return;
+      setRunState((current) =>
+        current.status === 'running' ? current : { status: 'running', runId: '', targetCount: 0 },
+      );
+      let response: Awaited<ReturnType<typeof window.poc3GraphReviewApi.startResolveJudgement>>;
+      try {
+        response = await window.poc3GraphReviewApi.startResolveJudgement(
+          buildResolveJudgementStartRequest({ reviewWorkspaceId, scopeKey, options }),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Resolve 判定の開始に失敗しました。';
+        setRunState({ status: 'failed', message, targetCount: 0 });
+        throw new Error(message);
+      }
+      if (!response.ok) {
+        setRunState({ status: 'failed', message: response.message, targetCount: 0 });
+        throw new Error(response.message);
+      }
+      if (response.run.status === 'completed') {
+        if (response.run.targetCount === 0) {
+          setRunState({
+            status: 'empty',
+            message: '判定対象のコメントがありません。',
+            targetCount: 0,
+          });
+          return;
+        }
+        setRunState({ status: 'idle', targetCount: response.run.targetCount });
+        void reload();
         return;
       }
-      setRunState({ status: 'idle', targetCount: response.run.targetCount });
-      void reload();
-      return;
-    }
-    setRunState({
-      status: 'running',
-      runId: response.run.runId,
-      targetCount: response.run.targetCount,
-    });
-  }, [reviewWorkspaceId, scopeKey, agent, reload]);
+      setRunState({
+        status: 'running',
+        runId: response.run.runId,
+        targetCount: response.run.targetCount,
+      });
+    },
+    [reviewWorkspaceId, scopeKey, reload],
+  );
 
   return useMemo(
     () => ({

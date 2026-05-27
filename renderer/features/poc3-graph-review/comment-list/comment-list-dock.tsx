@@ -8,11 +8,20 @@ import {
   useMotionValue,
 } from 'motion/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, Wand2 } from 'lucide-react';
+import { ChevronDown, Loader2, Play, Wand2 } from 'lucide-react';
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import type { AgentKind } from '../../../../shared/domain/agent';
+import { AgentChoiceSelect } from '../agent-review/agent-choice-select';
+import { AgentReviewGlassSelect } from '../agent-review/agent-review-glass-select';
+import {
+  getCodexReasoningOptions,
+  useCodexModelSelection,
+  type CodexModelSelectionState,
+} from '../agent-review/use-codex-model-selection';
 import type { CommentListItem } from './use-comment-list';
 import { ResolveThreadButton } from '../thread-resolve/resolve-thread-button';
 import type {
+  ResolveJudgementStartOptions,
   ResolveJudgementRunState,
   ResolveJudgementViewModel,
 } from '../resolve-judgement/use-resolve-judgements';
@@ -27,7 +36,8 @@ interface CommentListDockProps {
   resultsByKey: ReadonlyMap<string, ResolveJudgementViewModel>;
   runState: ResolveJudgementRunState;
   onSelectComment: (item: CommentListItem) => void;
-  onStartResolveJudgement: () => void;
+  onStartResolveJudgement: (options: ResolveJudgementStartOptions) => Promise<void> | void;
+  canStartResolveJudgement?: boolean;
   onThreadResolved?: () => void;
   toResolveKey: (item: CommentListItem) => string;
 }
@@ -38,10 +48,15 @@ export function CommentListDock({
   runState,
   onSelectComment,
   onStartResolveJudgement,
+  canStartResolveJudgement = true,
   onThreadResolved,
   toResolveKey,
 }: CommentListDockProps) {
   const [open, setOpen] = useState(false);
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<AgentKind>('codex');
+  const [submittingJudgement, setSubmittingJudgement] = useState(false);
+  const [launcherError, setLauncherError] = useState<string | null>(null);
   const [resolvedKeys, setResolvedKeys] = useState<ReadonlySet<string>>(new Set());
   const [inFlightKey, setInFlightKey] = useState<string | null>(null);
   const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
@@ -51,6 +66,11 @@ export function CommentListDock({
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const isDraggingRef = useRef(false);
+  const codexModelSelection = useCodexModelSelection();
+  const codexReasoningOptions = getCodexReasoningOptions(
+    codexModelSelection.models,
+    codexModelSelection.selectedModel,
+  );
 
   const visibleItems = items.filter((item) => !resolvedKeys.has(item.key));
   const agentCount = visibleItems.filter((i) => i.type === 'agent').length;
@@ -79,6 +99,40 @@ export function CommentListDock({
             .filter(Boolean)
             .join(' / ');
 
+  const handleStartResolveJudgement = async () => {
+    if (
+      submittingJudgement ||
+      isRunning ||
+      !canStartResolveJudgement ||
+      runState.status === 'empty'
+    ) {
+      return;
+    }
+    setSubmittingJudgement(true);
+    setLauncherError(null);
+    const options: ResolveJudgementStartOptions = {
+      agent: selectedAgent,
+      codexModel:
+        selectedAgent === 'codex' ? codexModelSelection.selectedModel || undefined : undefined,
+      codexReasoningEffort:
+        selectedAgent === 'codex'
+          ? codexModelSelection.selectedReasoningEffort || undefined
+          : undefined,
+    };
+
+    try {
+      await onStartResolveJudgement(options);
+      setLauncherOpen(false);
+    } catch (error) {
+      setLauncherError(
+        error instanceof Error ? error.message : 'Resolve 判定の開始に失敗しました。',
+      );
+      setLauncherOpen(true);
+    } finally {
+      setSubmittingJudgement(false);
+    }
+  };
+
   return (
     <MotionConfig transition={{ type: 'spring', bounce: 0, duration: 0.5 }}>
       <motion.div
@@ -94,7 +148,7 @@ export function CommentListDock({
             isDraggingRef.current = false;
           });
         }}
-        className="fixed bottom-8 right-[calc(50%+148px)] z-30 w-[280px] overflow-hidden rounded-[7px] p-1 text-white shadow-[4px_16px_36px_rgba(0,0,0,0.24),inset_0.5px_0.5px_0.5px_rgba(255,255,255,0.32),inset_0.5px_-0.5px_0.5px_rgba(255,255,255,0.05)] backdrop-blur-[36px] [background-color:rgba(62,62,62,0.4)] [background-image:linear-gradient(180.9deg,rgba(51,51,57,0.7)_-0.58%,rgba(53,53,56,0.7)_66.34%,rgba(38,38,39,0.7)_101.25%)]"
+        className="fixed bottom-8 right-[calc(50%+148px)] z-30 w-[280px] overflow-visible rounded-[7px] p-1 text-white shadow-[4px_16px_36px_rgba(0,0,0,0.24),inset_0.5px_0.5px_0.5px_rgba(255,255,255,0.32),inset_0.5px_-0.5px_0.5px_rgba(255,255,255,0.05)] backdrop-blur-[36px] [background-color:rgba(62,62,62,0.4)] [background-image:linear-gradient(180.9deg,rgba(51,51,57,0.7)_-0.58%,rgba(53,53,56,0.7)_66.34%,rgba(38,38,39,0.7)_101.25%)]"
         style={{ x, y }}
       >
         <div className="flex w-full items-center gap-1 rounded-[5px] pr-1 transition-colors">
@@ -116,10 +170,30 @@ export function CommentListDock({
           </button>
           <ResolveJudgementHeaderAction
             runState={runState}
-            onStart={onStartResolveJudgement}
+            launcherOpen={launcherOpen}
+            onToggle={() => {
+              if (isDraggingRef.current) return;
+              setLauncherError(null);
+              setLauncherOpen((current) => !current);
+            }}
             disabled={isDraggingRef.current}
           />
         </div>
+        <AnimatePresence initial={false}>
+          {launcherOpen ? (
+            <ResolveJudgementLauncher
+              runState={runState}
+              selectedAgent={selectedAgent}
+              onAgentChange={setSelectedAgent}
+              codexModelSelection={codexModelSelection}
+              codexReasoningOptions={codexReasoningOptions}
+              submitting={submittingJudgement}
+              canStart={canStartResolveJudgement}
+              errorMessage={launcherError}
+              onSubmit={() => void handleStartResolveJudgement()}
+            />
+          ) : null}
+        </AnimatePresence>
         {notice ? (
           <div className="mx-2 mb-1 rounded-[5px] border border-[#ff8470]/25 bg-[#ff8470]/10 px-2 py-1 text-[10px] leading-4 text-[#ffd2c8]">
             {notice}
@@ -212,11 +286,13 @@ export function CommentListDock({
 
 function ResolveJudgementHeaderAction({
   runState,
-  onStart,
+  launcherOpen,
+  onToggle,
   disabled,
 }: {
   runState: ResolveJudgementRunState;
-  onStart: () => void;
+  launcherOpen: boolean;
+  onToggle: () => void;
   disabled: boolean;
 }) {
   const isRunning = runState.status === 'running';
@@ -227,9 +303,9 @@ function ResolveJudgementHeaderAction({
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        if (!disabled && !isRunning) onStart();
+        if (!disabled) onToggle();
       }}
-      disabled={disabled || isRunning}
+      disabled={disabled}
       title={
         isRunning
           ? 'resolve 判定を実行中です'
@@ -239,6 +315,7 @@ function ResolveJudgementHeaderAction({
               ? runState.message
               : 'コメントの resolve 可否を Agent に判定させる'
       }
+      aria-expanded={launcherOpen}
       aria-label="Resolve判定を開始"
       className={`flex size-7 cursor-pointer items-center justify-center rounded-full border text-white/70 transition focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed ${
         isRunning
@@ -250,6 +327,139 @@ function ResolveJudgementHeaderAction({
     >
       <Wand2 className="size-3.5" aria-hidden="true" />
     </button>
+  );
+}
+
+function ResolveJudgementLauncher({
+  runState,
+  selectedAgent,
+  onAgentChange,
+  codexModelSelection,
+  codexReasoningOptions,
+  submitting,
+  canStart,
+  errorMessage,
+  onSubmit,
+}: {
+  runState: ResolveJudgementRunState;
+  selectedAgent: AgentKind;
+  onAgentChange: (agent: AgentKind) => void;
+  codexModelSelection: CodexModelSelectionState;
+  codexReasoningOptions: { reasoningEffort: string }[];
+  submitting: boolean;
+  canStart: boolean;
+  errorMessage: string | null;
+  onSubmit: () => void;
+}) {
+  const isRunning = runState.status === 'running';
+  const isEmpty = runState.status === 'empty';
+  const disabled = submitting || isRunning || isEmpty || !canStart;
+  const shownError = errorMessage ?? (runState.status === 'failed' ? runState.message : null);
+
+  return (
+    <motion.div
+      key="resolve-judgement-launcher"
+      initial={{ opacity: 0, height: 0, filter: 'blur(14px)', y: -6 }}
+      animate={{ opacity: 1, height: 'auto', filter: 'blur(0px)', y: 0 }}
+      exit={{ opacity: 0, height: 0, filter: 'blur(14px)', y: -6 }}
+      transition={{ duration: 0.42, ease: EASE, height: { duration: 0.42, ease: EASE } }}
+      className="relative z-20 origin-top border-t border-white/[0.06] px-2 py-2"
+    >
+      <div className="grid grid-cols-[124px_minmax(0,1fr)] gap-2">
+        <AgentChoiceSelect
+          value={selectedAgent}
+          onChange={onAgentChange}
+          disabled={submitting || isRunning}
+          className="w-full"
+          buttonHeight="h-10"
+          menuWidthClassName="w-[236px]"
+        />
+        {selectedAgent === 'codex' ? (
+          <AgentReviewGlassSelect
+            value={codexModelSelection.selectedModel}
+            onChange={codexModelSelection.setSelectedModel}
+            disabled={
+              submitting ||
+              isRunning ||
+              codexModelSelection.isLoading ||
+              codexModelSelection.models.length === 0
+            }
+            ariaLabel="Codex model"
+            buttonHeight="h-10"
+          >
+            {codexModelSelection.models.length === 0 ? (
+              <option value="">
+                {codexModelSelection.isLoading ? 'Loading models' : 'Provider default'}
+              </option>
+            ) : (
+              codexModelSelection.models.map((model) => (
+                <option key={model.id} value={model.model}>
+                  {model.displayName ?? model.model}
+                </option>
+              ))
+            )}
+          </AgentReviewGlassSelect>
+        ) : (
+          <button
+            type="button"
+            disabled={disabled}
+            className="flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-[7px] bg-[#d8e071] px-2 text-[11px] font-semibold text-black transition hover:bg-[#edf58a] disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/28"
+            onClick={onSubmit}
+          >
+            {submitting || isRunning ? (
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Play className="size-3.5" aria-hidden="true" />
+            )}
+            {isRunning ? 'Running' : isEmpty ? 'No targets' : 'Run Check'}
+          </button>
+        )}
+        {selectedAgent === 'codex' ? (
+          <>
+            <AgentReviewGlassSelect
+              value={codexModelSelection.selectedReasoningEffort}
+              onChange={codexModelSelection.setSelectedReasoningEffort}
+              disabled={submitting || isRunning || codexReasoningOptions.length === 0}
+              ariaLabel="Codex reasoning effort"
+              buttonHeight="h-9"
+            >
+              {codexReasoningOptions.length === 0 ? (
+                <option value="">effort</option>
+              ) : (
+                codexReasoningOptions.map((option) => (
+                  <option key={option.reasoningEffort} value={option.reasoningEffort}>
+                    {option.reasoningEffort}
+                  </option>
+                ))
+              )}
+            </AgentReviewGlassSelect>
+            <button
+              type="button"
+              disabled={disabled}
+              className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-[7px] bg-[#d8e071] px-2 text-[11px] font-semibold text-black transition hover:bg-[#edf58a] disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/28"
+              onClick={onSubmit}
+            >
+              {submitting || isRunning ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="size-3.5" aria-hidden="true" />
+              )}
+              {isRunning ? 'Running' : isEmpty ? 'No targets' : 'Run Check'}
+            </button>
+          </>
+        ) : null}
+      </div>
+      {selectedAgent === 'codex' && codexModelSelection.errorMessage ? (
+        <p className="mt-2 rounded-[6px] border border-[#ffbf6b]/20 bg-[#ffbf6b]/10 px-2 py-1.5 text-[10px] leading-4 text-[#ffe0b5]">
+          {codexModelSelection.errorMessage}
+        </p>
+      ) : null}
+      {shownError ? (
+        <p className="mt-2 rounded-[6px] border border-[#ff8470]/25 bg-[#ff8470]/10 px-2 py-1.5 text-[10px] leading-4 text-[#ffd2c8]">
+          {shownError}
+        </p>
+      ) : null}
+    </motion.div>
   );
 }
 

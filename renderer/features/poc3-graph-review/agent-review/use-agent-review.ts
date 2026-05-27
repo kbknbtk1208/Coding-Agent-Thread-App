@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentKind, AppSession, CodexModelOption } from '../../../../shared/domain/agent';
+import type { AgentKind, AppSession } from '../../../../shared/domain/agent';
 import {
   DEFAULT_AGENT_REVIEW_INSTRUCTIONS,
   buildAgentReviewStartRequest,
@@ -14,6 +14,7 @@ import type {
   AgentReviewRunDetail,
   AgentReviewStartInput,
 } from './agent-review-types';
+import { useCodexModelSelection } from './use-codex-model-selection';
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Agent Review の開始に失敗しました。';
@@ -66,11 +67,7 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [submittingPermissionKey, setSubmittingPermissionKey] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
-  const [codexModels, setCodexModels] = useState<CodexModelOption[]>([]);
-  const [codexModelError, setCodexModelError] = useState<string | null>(null);
-  const [isLoadingCodexModels, setIsLoadingCodexModels] = useState(false);
-  const [selectedCodexModel, setSelectedCodexModel] = useState('');
-  const [selectedCodexReasoningEffort, setSelectedCodexReasoningEffort] = useState('');
+  const codexModelSelection = useCodexModelSelection();
   const [runDetailsById, setRunDetailsById] = useState<Record<string, AgentReviewRunDetail>>({});
   const [detailLoadingRunId, setDetailLoadingRunId] = useState<string | null>(null);
   const [detailErrorByRunId, setDetailErrorByRunId] = useState<Record<string, string>>({});
@@ -120,55 +117,6 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
     setDetailErrorByRunId({});
     setDetailLoadingRunId(null);
   }, [reviewWorkspaceId]);
-
-  useEffect(() => {
-    let disposed = false;
-    setIsLoadingCodexModels(true);
-    setCodexModelError(null);
-    void window.agentApi
-      .listCodexModels()
-      .then((result) => {
-        if (disposed) return;
-        setCodexModels(result.models);
-        const defaultModel = pickDefaultModel(result.models);
-        setSelectedCodexModel((current) =>
-          current && result.models.some((model) => model.model === current)
-            ? current
-            : defaultModel,
-        );
-      })
-      .catch((error) => {
-        if (disposed) return;
-        setCodexModels([]);
-        setSelectedCodexModel('');
-        setSelectedCodexReasoningEffort('');
-        setCodexModelError(
-          error instanceof Error ? error.message : 'Codex model list の取得に失敗しました。',
-        );
-      })
-      .finally(() => {
-        if (!disposed) {
-          setIsLoadingCodexModels(false);
-        }
-      });
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const selected = codexModels.find((model) => model.model === selectedCodexModel);
-    if (!selected) {
-      setSelectedCodexReasoningEffort('');
-      return;
-    }
-    setSelectedCodexReasoningEffort((current) =>
-      current &&
-      selected.supportedReasoningEfforts.some((option) => option.reasoningEffort === current)
-        ? current
-        : pickDefaultReasoningEffort(selected),
-    );
-  }, [codexModels, selectedCodexModel]);
 
   useEffect(() => {
     const unsubscribe = window.poc3GraphReviewApi.onAgentReviewEvent((event) => {
@@ -247,8 +195,8 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
             target,
             selectedAgent,
             instructions: trimmedInstructions,
-            codexModel: selectedCodexModel,
-            codexReasoningEffort: selectedCodexReasoningEffort,
+            codexModel: codexModelSelection.selectedModel,
+            codexReasoningEffort: codexModelSelection.selectedReasoningEffort,
           }),
         );
         if (!result.ok) {
@@ -271,9 +219,9 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
           appSessionId: null,
           session: null,
           errorMessage: toErrorMessage(error),
-          codexModel: selectedAgent === 'codex' ? selectedCodexModel || null : null,
+          codexModel: selectedAgent === 'codex' ? codexModelSelection.selectedModel || null : null,
           codexReasoningEffort:
-            selectedAgent === 'codex' ? selectedCodexReasoningEffort || null : null,
+            selectedAgent === 'codex' ? codexModelSelection.selectedReasoningEffort || null : null,
           commit: null,
           createdAt: failedAt,
           updatedAt: failedAt,
@@ -286,7 +234,13 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
         setIsStarting(false);
       }
     },
-    [instructions, isStarting, selectedAgent, selectedCodexModel, selectedCodexReasoningEffort],
+    [
+      codexModelSelection.selectedModel,
+      codexModelSelection.selectedReasoningEffort,
+      instructions,
+      isStarting,
+      selectedAgent,
+    ],
   );
 
   const toggleRun = useCallback((runId: string) => {
@@ -354,18 +308,18 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
   const latestRun = runs[0] ?? null;
   const codexModelState = useMemo<AgentReviewCodexModelState>(
     () => ({
-      models: codexModels,
-      selectedModel: selectedCodexModel,
-      selectedReasoningEffort: selectedCodexReasoningEffort,
-      isLoading: isLoadingCodexModels,
-      errorMessage: codexModelError,
+      models: codexModelSelection.models,
+      selectedModel: codexModelSelection.selectedModel,
+      selectedReasoningEffort: codexModelSelection.selectedReasoningEffort,
+      isLoading: codexModelSelection.isLoading,
+      errorMessage: codexModelSelection.errorMessage,
     }),
     [
-      codexModelError,
-      codexModels,
-      isLoadingCodexModels,
-      selectedCodexModel,
-      selectedCodexReasoningEffort,
+      codexModelSelection.errorMessage,
+      codexModelSelection.isLoading,
+      codexModelSelection.models,
+      codexModelSelection.selectedModel,
+      codexModelSelection.selectedReasoningEffort,
     ],
   );
 
@@ -385,8 +339,8 @@ export function useAgentReview(reviewWorkspaceId: string): UseAgentReviewResult 
       detailErrorByRunId,
       setSelectedAgent,
       setInstructions,
-      setCodexModel: setSelectedCodexModel,
-      setCodexReasoningEffort: setSelectedCodexReasoningEffort,
+      setCodexModel: codexModelSelection.setSelectedModel,
+      setCodexReasoningEffort: codexModelSelection.setSelectedReasoningEffort,
       startReview,
       toggleRun,
       respondPermission,
@@ -434,12 +388,4 @@ function toUiRun(
     completedAt: run.completedAt,
     serverRun: run,
   };
-}
-
-function pickDefaultModel(models: CodexModelOption[]): string {
-  return models.find((model) => model.isDefault)?.model ?? models[0]?.model ?? '';
-}
-
-function pickDefaultReasoningEffort(model: CodexModelOption): string {
-  return model.defaultReasoningEffort ?? model.supportedReasoningEfforts[0]?.reasoningEffort ?? '';
 }
